@@ -54,3 +54,4 @@
 (package! ob-graphql)
 (package! direnv)
 (package! gist)
+(package! xml+)

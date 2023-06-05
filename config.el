@@ -122,8 +122,8 @@
 ;; lsp module completion working here with sync and restart
 
 (load "~/.doom.d/config-vterm")
-;; ;;(load "~/.doom.d/config-undo-tree")
-;; (load "~/.doom.d/config-org-mode")
+(load "~/.doom.d/config-undo-tree")
+(load "~/.doom.d/config-org-mode")
 
 (load "~/.doom.d/config-python")
 ;; (load "~/.doom.d/sqlup-mode")
@@ -137,7 +137,7 @@
 ;;   )
 
 ;; (global-set-key (kbd "C-<tab>") 'company-other-backend)
-;; (global-set-key (kbd "C-.") 'company-files)
+(global-set-key (kbd "C-.") 'company-files)
 
 ;; (set-company-backend!
 ;;   '(text-mode
@@ -187,7 +187,7 @@
 (load "~/.doom.d/config-tree-sitter")
 ;; ;; (load "~/.doom.d/init-gpt3")
 ;; ;; (load "~/.doom.d/init-gist")
-;; ;; (load "~/.doom.d/init-python-coverage")
+;;(load "~/.doom.d/init-python-coverage")
 ;; ;; (load "~/.doom.d/init-smart-tab")
 ;; ;; HERE
 
