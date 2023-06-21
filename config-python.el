@@ -15,6 +15,12 @@
   (global-set-key  (kbd "C-<") 'python-indent-shift-left)
 
 
+
+  (define-key python-mode-map  (kbd "C-c m b") 'python-black-buffer)
+  (define-key python-mode-map  (kbd "C-c m r") 'python-black-region)
+  (define-key python-mode-map  (kbd "C-c m s") 'python-black-statement)
+
+
   ;; (add-hook 'before-save-hook 'py-isort-before-save)
   ;;(add-hook 'python-mode-hook '+format|enable-on-save)
   (setq-local lsp-pylsp-plugins-flake8-max-line-length 88)
@@ -30,6 +36,8 @@
 ;;                                         )))
 
 (add-hook 'python-mode-hook (lambda () (auto-fill-mode -1)))
+(add-hook 'python-mode-hook (lambda () (python-black-on-save-mode t)))
+
 ;;(add-hook 'python-mode-hook (lambda () (combobulate-mode t)))
 
 ;; (add-hook 'python-mode-hook (lambda () (

@@ -55,6 +55,7 @@
 (package! direnv)
 (package! gist)
 (package! xml+)
+(package! python-black)
 
 ;; installed, but not working...
 ;;(package! combobulate)
