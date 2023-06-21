@@ -55,3 +55,6 @@
 (package! direnv)
 (package! gist)
 (package! xml+)
+
+;; installed, but not working...
+;;(package! combobulate)

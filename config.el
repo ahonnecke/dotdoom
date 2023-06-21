@@ -176,9 +176,10 @@
 
 ;; ;; TODO: configure gists
 
-(load "~/.doom.d/config-flycheck-ruff.el")
+;;(load "~/.doom.d/config-flycheck-ruff.el")
 
 ;; (setq exec-path (append exec-path '("~/.nvm/versions/node/v19.3.0/bin")))
+(setq exec-path (append exec-path '("/home/ahonnecke/.nvm/versions/node/v19.3.0/bin")))
 
 ;; ;; (require 'tree-sitter)
 ;; ;; (require 'tree-sitter-langs)
