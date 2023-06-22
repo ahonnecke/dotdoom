@@ -13,7 +13,7 @@
   (define-key python-mode-map  (kbd "M-/") '+company/complete)
   (global-set-key  (kbd "C->") 'python-indent-shift-right)
   (global-set-key  (kbd "C-<") 'python-indent-shift-left)
-
+  (add-hook 'before-save-hook 'py-isort-before-save)
 
 
   (define-key python-mode-map  (kbd "C-c m b") 'python-black-buffer)
@@ -37,6 +37,7 @@
 
 (add-hook 'python-mode-hook (lambda () (auto-fill-mode -1)))
 (add-hook 'python-mode-hook (lambda () (python-black-on-save-mode t)))
+;; (add-hook 'python-mode-hook (lambda () (py-isort-before-save t)))
 
 ;;(add-hook 'python-mode-hook (lambda () (combobulate-mode t)))
 
