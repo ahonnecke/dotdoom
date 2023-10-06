@@ -46,3 +46,15 @@
 ;;                                         ;; (setq lsp-diagnostics-provider :auto)
 ;;                                         (setq flycheck-checkers (remove 'lsp flycheck-checkers))
 ;;                                         )))
+
+;; (add-hook 'python-mode-hook
+;;           (lambda ()
+;;             (when-let ((r (locate-dominating-file default-directory ".pyroot")))
+;;               (setq python-pytest-executable
+;;                     (concat "PYTHONPATH=" r " " "pytest")))))
+
+(add-hook 'python-mode-hook
+          (lambda ()
+            (when-let ((r (locate-dominating-file default-directory "Pipenv")))
+              (setq python-pytest-executable
+                    (concat "PYTHONPATH=" r " " "pipenv run pytest")))))

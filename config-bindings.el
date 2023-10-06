@@ -59,6 +59,7 @@
 (global-set-key (kbd "C-c g f") 'find-file-at-point-with-line)
 (global-set-key (kbd "C-c g u") 'browse-url-of-file)
 (global-set-key (kbd "C-c g t") 'projectile-toggle-between-implementation-and-test)
+(global-set-key (kbd "C-c g b") 'browse-url-at-point)
 
 (global-set-key (kbd "C-c l") 'avy-goto-line)
 (global-set-key (kbd "C-c j") 'avy-goto-char)

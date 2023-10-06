@@ -135,6 +135,7 @@
 ;; (with-eval-after-load "slack"
 ;;   (load "~/.doom.d/config-slack")
 ;;   )
+(load "~/.doom.d/config-geojson")
 
 ;; (global-set-key (kbd "C-<tab>") 'company-other-backend)
 (global-set-key (kbd "C-.") 'company-files)

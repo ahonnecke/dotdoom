@@ -11,6 +11,9 @@
   (define-key org-mode-map (kbd "M-, K") #'org-shiftmetadown)
   (define-key org-mode-map (kbd "M-, <return>") #'org-insert-heading)
   (define-key org-mode-map (kbd "M-<return>") #'org-insert-heading)
+  ;; what the fuck is wrong with org-mode?
+  (define-key org-mode-map (kbd "C-e") #'end-of-line)
+  (define-key org-mode-map (kbd "<return>") #'newline)
   )
 
 ;; ;; https://github.com/syl20bnr/spacemacs/issues/9603
