@@ -49,7 +49,6 @@
 ;; ...Or *all* packages (NOT RECOMMENDED; will likely break things)
 ;(unpin! t)
 
-(package! docker-tramp)
 (package! magit-delta)
 (package! ob-graphql)
 (package! direnv)
