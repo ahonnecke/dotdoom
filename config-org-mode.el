@@ -14,9 +14,9 @@
   ;; what the fuck is wrong with org-mode?
   (define-key org-mode-map (kbd "C-e") #'end-of-line)
   (define-key org-mode-map (kbd "<return>") #'newline)
+  (global-set-key (kbd "C-;") 'er/expand-region)
   )
 
 ;; ;; https://github.com/syl20bnr/spacemacs/issues/9603
 ;; ;; seems to apply to me too, this fixes it
 ;; (org-defkey org-mode-map [(meta return)] 'org-meta-return)
-;; (org-defkey org-mode-map (kbd "C-;") 'er/expand-region)

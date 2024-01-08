@@ -23,7 +23,7 @@ With negative N, comment out original line and use the absolute value."
           (insert text))))
     (if use-region nil                  ;Only if we're working with a line (not a region)
       (let ((pos (- (point) (line-beginning-position)))) ;Save column
-         (if (> 0 n)                             ;Comment out original with negative arg
+        (if (> 0 n)                             ;Comment out original with negative arg
             (comment-region (line-beginning-position) (line-end-position)))
         (forward-line 1)
         (forward-char pos)))))
@@ -484,6 +484,26 @@ selected. If include `:', select `FOO::VERSION' to run
     ;; default
     (string-inflection-ruby-style-cycle))))
 
-(global-set-key (kbd "C-c C-u") 'my-string-inflection-cycle-auto)
-;;(global-set-key (kbd "C-M-u") 'my-string-inflection-cycle-auto)
-(global-set-key (kbd "C-M-s") 'my-string-inflection-cycle-auto)
+
+(global-set-key (kbd "C-c C-s s") 'my-string-inflection-cycle-auto)
+(global-set-key (kbd "C-c C-s p") 'string-inflection-pascal-case-p)
+(global-set-key (kbd "C-c C-s l") 'string-inflection-lower-camelcase)
+(global-set-key (kbd "C-c C-s k") 'string-inflection-kebab-case)
+(global-set-key (kbd "C-c C-s c") 'string-inflection-camelcase)
+
+
+;; string-inflection-ruby-style-cycle
+;; string-inflection-elixir-style-cycle
+;; string-inflection-python-style-cycle
+;; string-inflection-java-style-cycle
+;; string-inflection-all-cycle
+;; string-inflection-toggle
+;; string-inflection-camelcase
+;; string-inflection-lower-camelcase
+;; string-inflection-underscore
+;; string-inflection-capital-underscore
+;; string-inflection-upcase
+;; string-inflection-kebab-casenn
+;; string-inflection-insert
+;; string-inflection-non-word-chars
+;; string-inflection-get-current-word

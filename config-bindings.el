@@ -38,7 +38,6 @@
 ;;projectile
 (global-set-key (kbd "C-c M-p r") 'projectile-replace)
 
-(global-set-key (kbd "C-c s") 'swiper-thing-at-point)
 (global-set-key (kbd "M-s") 'swiper-thing-at-point)
 
 
