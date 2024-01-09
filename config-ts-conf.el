@@ -2,10 +2,10 @@
 
 ;;; config-conf-ts.el -*- lexical-binding: t; -*-
 
-(add-to-list 'auto-mode-alist '("\\.conf\\'" . conf-ts-mode))
-(add-to-list 'auto-mode-alist '("\\.cnf\\'" . conf-ts-mode))
-(add-to-list 'auto-mode-alist '("\\.list\\'" . conf-ts-mode))
-(add-to-list 'auto-mode-alist '("\\.ini\\'" . conf-ts-mode))
+(add-to-list 'auto-mode-alist '("\\.conf\\'" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\.cnf\\'" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\.list\\'" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\.ini\\'" . conf-mode))
 
 ;; clear paredit bindings paredit mode
 ;; (eval-after-load "paredit"
@@ -19,7 +19,7 @@
 ;;              (local-set-key (kbd "C-c C-j") 'eval-region)
 ;;              (local-set-key (kbd "C-j") 'eval-last-sexp)))
 
-(add-hook 'conf-ts-mode
+(add-hook 'conf-mode
           #'(lambda ()
               (paredit-mode)
               (local-set-key (kbd "C-;") 'comment-or-uncomment-region)
