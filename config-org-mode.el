@@ -14,7 +14,12 @@
   ;; what the fuck is wrong with org-mode?
   (define-key org-mode-map (kbd "C-e") #'end-of-line)
   (define-key org-mode-map (kbd "<return>") #'newline)
+
   (global-set-key (kbd "C-;") 'er/expand-region)
+  (define-key org-mode-map (kbd "C-;") 'er/expand-region)
+
+  (define-key org-mode-map (kbd "C-c x h") #'org-html-export-to-html)
+  (define-key org-mode-map (kbd "C-c w") #'org-html-export-to-html)
   )
 
 ;; ;; https://github.com/syl20bnr/spacemacs/issues/9603

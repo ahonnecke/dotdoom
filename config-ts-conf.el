@@ -1,7 +1,11 @@
-;;; config-yaml-ts.el -*- lexical-binding: t; -*-
+;;; config-conf-ts.el -*- lexical-binding: t; -*-
 
-(add-to-list 'auto-mode-alist '("\\.yaml\\'" . yaml-ts-mode))
-(add-to-list 'auto-mode-alist '("\\.yml\\'" . yaml-ts-mode))
+;;; config-conf-ts.el -*- lexical-binding: t; -*-
+
+(add-to-list 'auto-mode-alist '("\\.conf\\'" . conf-ts-mode))
+(add-to-list 'auto-mode-alist '("\\.cnf\\'" . conf-ts-mode))
+(add-to-list 'auto-mode-alist '("\\.list\\'" . conf-ts-mode))
+(add-to-list 'auto-mode-alist '("\\.ini\\'" . conf-ts-mode))
 
 ;; clear paredit bindings paredit mode
 ;; (eval-after-load "paredit"
@@ -15,7 +19,7 @@
 ;;              (local-set-key (kbd "C-c C-j") 'eval-region)
 ;;              (local-set-key (kbd "C-j") 'eval-last-sexp)))
 
-(add-hook 'yaml-ts-mode
+(add-hook 'conf-ts-mode
           #'(lambda ()
               (paredit-mode)
               (local-set-key (kbd "C-;") 'comment-or-uncomment-region)
