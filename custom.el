@@ -7,6 +7,7 @@
    '((vc-prepare-patches-separately)
      (diff-add-log-use-relative-names . t)
      (vc-git-annotate-switches . "-w")))
+ '(magit-todos-insert-after '(bottom) nil nil "Changed by setter of obsolete option `magit-todos-insert-at'")
  '(org-safe-remote-resources
    '("\\`file:///ssh:ahonnecke@honnecke\\.us:/var/www/honnecke/beampockets/market_research\\.org\\'"))
  '(package-selected-packages
@@ -18,3 +19,6 @@
  ;; If there is more than one, they won't work right.
  '(aw-leading-char-face ((t (:foreground "white" :background "red" :weight bold :height 2.5 :box (:line-width 10 :color "red")))))
  '(ts-fold-replacement-face ((t (:foreground unspecified :box nil :inherit font-lock-comment-face :weight light)))))
+
+
+(add-to-list 'exec-path "/home/ahonnecke/.pyenv/shims/")
