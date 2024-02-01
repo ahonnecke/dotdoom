@@ -71,4 +71,18 @@
 (global-set-key (kbd "C-x 4") 'quad-screen)
 (global-set-key (kbd "C-x 5") 'penta-screen)
 
+;; use C-c c for all "complete here" bindings
+(global-set-key (kbd "C-c c f") #'company-files)
+
 (setq which-key-idle-delay 0.5)
+
+(defun fix-bindings ()
+  (interactive)
+  (local-set-key (kbd "C-;") 'comment-or-uncomment-region)
+  (local-set-key (kbd "C-M-n") 'end-of-buffer)
+  (local-set-key (kbd "C-M-p") 'beginning-of-buffer)
+  (local-set-key (kbd "C-'") 'er/expand-region)
+  (local-set-key (kbd "C-\"") 'er/contract-region)
+  )
+
+(global-set-key (kbd "C-x b") 'ivy-switch-buffer)

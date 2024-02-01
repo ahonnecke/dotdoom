@@ -22,6 +22,8 @@
   (define-key org-mode-map (kbd "C-c w") #'org-html-export-to-html)
   )
 
+(global-set-key (kbd "C-c c f") #'company-files)
 ;; ;; https://github.com/syl20bnr/spacemacs/issues/9603
 ;; ;; seems to apply to me too, this fixes it
 ;; (org-defkey org-mode-map [(meta return)] 'org-meta-return)
+
