@@ -20,3 +20,5 @@
               (paredit-mode)
               (local-set-key (kbd "C-;") 'comment-or-uncomment-region)
               ))
+
+(define-key yaml-ts-mode-map (kbd "C-;") 'comment-or-uncomment-region)

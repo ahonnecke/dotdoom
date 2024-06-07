@@ -1,8 +1,6 @@
 ;;; ../src/home/.doom.d/config-bindings.el -*- lexical-binding: t; -*-
 
 (global-set-key (kbd "C-;") 'comment-or-uncomment-region)
-(global-set-key (kbd "C-M-n") 'end-of-buffer)
-(global-set-key (kbd "C-M-p") 'beginning-of-buffer)
 
 (global-set-key (kbd "M-n") 'sp-forward-sexp)
 (global-set-key (kbd "M-p") 'sp-backward-sexp)
@@ -18,10 +16,11 @@
 ;;(global-set-key (kbd "M-o") 'projectile-switch-open-project)
 
 (global-set-key (kbd "C-x k") 'kill-this-buffer)
+
 (global-set-key (kbd "C-x C-k") 'kill-buffer)
 
-(global-set-key (kbd "M-g") '+default/search-project)
-(global-set-key (kbd "") '+default/search-project)
+(global-set-key (kbd "C-c C-g") '+default/search-project)
+
 
 ;; Change indent to match vscode... sigh.
 
@@ -63,11 +62,11 @@
 (global-set-key (kbd "C-c l") 'avy-goto-line)
 (global-set-key (kbd "C-c j") 'avy-goto-char)
 (global-set-key (kbd "M-<return>") 'hippie-expand)
+;;(global-set-key (kbd "<tab>") 'hippie-expand)
 (global-set-key (kbd "C-c n") 'goto-line)
 
 (global-set-key (kbd "C-c C-p") 'beginning-of-buffer)
-(global-set-key (kbd "C-c C-n") 'end-of-buffer)
-(global-set-key (kbd "C-x 3") 'triple-screen)
+(global-set-key (kbd "C-c C-n") 'find-file)
 (global-set-key (kbd "C-x 4") 'quad-screen)
 (global-set-key (kbd "C-x 5") 'penta-screen)
 
@@ -79,10 +78,12 @@
 (defun fix-bindings ()
   (interactive)
   (local-set-key (kbd "C-;") 'comment-or-uncomment-region)
-  (local-set-key (kbd "C-M-n") 'end-of-buffer)
-  (local-set-key (kbd "C-M-p") 'beginning-of-buffer)
   (local-set-key (kbd "C-'") 'er/expand-region)
   (local-set-key (kbd "C-\"") 'er/contract-region)
+  (local-set-key (kbd "TAB") 'indent-region)
   )
 
 (global-set-key (kbd "C-x b") 'ivy-switch-buffer)
+(local-unset-key (kbd "M-g"))
+(global-set-key (kbd "M-g") 'projectile-ripgrep)
+
