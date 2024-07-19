@@ -14,11 +14,3 @@
 ;;           '(lambda ()
 ;;              (local-set-key (kbd "C-c C-j") 'eval-region)
 ;;              (local-set-key (kbd "C-j") 'eval-last-sexp)))
-
-(add-hook 'yaml-ts-mode
-          #'(lambda ()
-              (paredit-mode)
-              (local-set-key (kbd "C-;") 'comment-or-uncomment-region)
-              ))
-
-(define-key yaml-ts-mode-map (kbd "C-;") 'comment-or-uncomment-region)

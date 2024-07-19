@@ -1,89 +1,112 @@
 ;;; ../src/home/.doom.d/config-bindings.el -*- lexical-binding: t; -*-
 
-(global-set-key (kbd "C-;") 'comment-or-uncomment-region)
+(defvar ashton-mode-map (make-sparse-keymap)
+  "Keymap for `ashton-mode'.")
 
-(global-set-key (kbd "M-n") 'sp-forward-sexp)
-(global-set-key (kbd "M-p") 'sp-backward-sexp)
+(define-key ashton-mode-map (kbd "C-;") 'comment-or-uncomment-region)
+(define-key ashton-mode-map (kbd "C-'") 'er/expand-region)
+(define-key ashton-mode-map (kbd "C-\"") 'er/contract-region)
+(define-key ashton-mode-map (kbd "TAB") 'indent-region)
+(define-key ashton-mode-map (kbd "C-x b") 'ivy-switch-buffer)
+(define-key ashton-mode-map (kbd "M-g") 'projectile-ripgrep)
+(define-key ashton-mode-map (kbd "C-x C-f") '+ivy/projectile-find-file)
+(define-key ashton-mode-map (kbd "C-x f") 'counsel-find-file)
 
-(global-set-key (kbd "C-w") 'kill-region)
 
-;; (define-key global-map (kbd "C-x C-f") 'projectile-find-file)
-(define-key global-map (kbd "C-x C-f") '+ivy/projectile-find-file)
-(define-key global-map (kbd "C-x f") 'counsel-find-file)
+(define-key ashton-mode-map (kbd "M-n") 'sp-forward-sexp)
+(define-key ashton-mode-map (kbd "M-p") 'sp-backward-sexp)
 
-(global-set-key (kbd "M-o") 'projectile-switch-project)
+(define-key ashton-mode-map (kbd "C-w") 'kill-region)
+(define-key ashton-mode-map (kbd "M-o") 'projectile-switch-project)
 ;; they all close when i restart emacs, maybe after server mode is working...
-;;(global-set-key (kbd "M-o") 'projectile-switch-open-project)
+;;(define-key ashton-mode-map (kbd "M-o") 'projectile-switch-open-project)
 
-(global-set-key (kbd "C-x k") 'kill-this-buffer)
+(define-key ashton-mode-map (kbd "C-x C-k") 'kill-buffer)
 
-(global-set-key (kbd "C-x C-k") 'kill-buffer)
-
-(global-set-key (kbd "C-c C-g") '+default/search-project)
-
+(define-key ashton-mode-map (kbd "C-c C-g") '+default/search-project)
 
 ;; Change indent to match vscode... sigh.
+
+(define-key ashton-mode-map (kbd "M-r") 'consult-recent-file)
+
+(define-key ashton-mode-map (kbd "C-c q") 'query-replace)
+
+;;projectile
+(define-key ashton-mode-map (kbd "C-c M-p r") 'projectile-replace)
+
+(define-key ashton-mode-map (kbd "M-s") 'swiper-thing-at-point)
+
+
+;; move to only python mode, or maybe just get leader working?
+(define-key ashton-mode-map (kbd "C-c t") 'python-pytest-dispatch)
+
+(define-key ashton-mode-map (kbd "C-c v h") '+vterm/here)
+(define-key ashton-mode-map (kbd "C-c v t") '+vterm/toggle)
+(define-key ashton-mode-map (kbd "C-M-t") '+vterm/toggle)
+(define-key ashton-mode-map (kbd "C-M-v") '+vterm/toggle)
+;;(define-key ashton-mode-map (kbd "C-M-t") '+vterm/toggle)
+
+;; C-c g (go to thing)
+;;(define-key ashton-mode-map (kbd "C-c g r") 'browse-at-remote)
+;; TODO: move to hydra?
+;; GOTO keys:
+(define-key ashton-mode-map (kbd "C-c g r") '+vc/browse-at-remote)
+(define-key ashton-mode-map (kbd "C-c g f") 'find-file-at-point-with-line)
+(define-key ashton-mode-map (kbd "C-c g u") 'browse-url-of-file)
+(define-key ashton-mode-map (kbd "C-c g t") 'projectile-toggle-between-implementation-and-test)
+(define-key ashton-mode-map (kbd "C-c g b") 'browse-url-at-point)
+
+(define-key ashton-mode-map (kbd "C-c l") 'avy-goto-line)
+(define-key ashton-mode-map (kbd "C-c j") 'avy-goto-char)
+(define-key ashton-mode-map (kbd "M-<return>") 'hippie-expand)
+;;(define-key ashton-mode-map (kbd "<tab>") 'hippie-expand)
+(define-key ashton-mode-map (kbd "C-c n") 'goto-line)
+
+(define-key ashton-mode-map (kbd "C-c C-p") 'beginning-of-buffer)
+(define-key ashton-mode-map (kbd "C-c C-n") 'find-file)
+(define-key ashton-mode-map (kbd "C-x 4") 'quad-screen)
+(define-key ashton-mode-map (kbd "C-x 5") 'penta-screen)
+
+(define-key ashton-mode-map (kbd "C-x k") 'kill-current-buffer)
+
+;; use C-c c for all "complete here" bindings
+(define-key ashton-mode-map (kbd "C-c c f") #'company-files)
+
+(setq which-key-idle-delay 0.5)
+
+;; (defun fix-bindings ()
+;;   (interactive)
+;;   (local-set-key (kbd "C-;") 'comment-or-uncomment-region)
+;;   (local-set-key (kbd "C-'") 'er/expand-region)
+;;   (local-set-key (kbd "C-\"") 'er/contract-region)
+;;   (local-set-key (kbd "TAB") 'indent-region)
+;;   )
+
+;; (define-key ashton-mode-map (kbd "C-x b") 'ivy-switch-buffer)
+;; (local-unset-key (kbd "M-g"))
+;; (define-key ashton-mode-map (kbd "M-g") 'projectile-ripgrep)
+
+
+;; (defvar ashton-mode-map
+;;   (let ((map (make-sparse-keymap)))
+;;     (set-keymap-parent map parent-mode-shared-map)    
+;;     (define-key map (kbd "C-;") 'comment-or-uncomment-region)
+;;     (define-key map (kbd "C-'") 'er/expand-region)
+;;     (define-key map (kbd "C-\"") 'er/contract-region)
+;;     (define-key map (kbd "TAB") 'indent-region)        
+;;     map))
+
+;; (use-local-map ashton-mode-map)
 
 ;;TODO:
 ;; update vscode to ahve this too
 ;; https://stackoverflow.com/questions/40203303/shortcut-key-for-selecting-a-word-and-extending-the-selection-in-vs-code
-(global-set-key (kbd "C-'") 'er/expand-region)
-(global-set-key (kbd "C-\"") 'er/contract-region)
 
-(global-set-key (kbd "M-r") 'consult-recent-file)
+(define-minor-mode ashton-mode
+  "A custom minor mode to bind ashton's keymaps."
+  :init-value nil
+  :global 1
+  :lighter " AshtonMode"
+  :keymap ashton-mode-map)
 
-(global-set-key (kbd "C-c q") 'query-replace)
-
-;;projectile
-(global-set-key (kbd "C-c M-p r") 'projectile-replace)
-
-(global-set-key (kbd "M-s") 'swiper-thing-at-point)
-
-
-;; move to only python mode, or maybe just get leader working?
-(global-set-key (kbd "C-c t") 'python-pytest-dispatch)
-
-(global-set-key (kbd "C-c v h") '+vterm/here)
-(global-set-key (kbd "C-c v t") '+vterm/toggle)
-(global-set-key (kbd "C-M-t") '+vterm/toggle)
-(global-set-key (kbd "C-M-v") '+vterm/toggle)
-;;(global-set-key (kbd "C-M-t") '+vterm/toggle)
-
-;; C-c g (go to thing)
-;;(global-set-key (kbd "C-c g r") 'browse-at-remote)
-;; TODO: move to hydra?
-;; GOTO keys:
-(global-set-key (kbd "C-c g r") '+vc/browse-at-remote)
-(global-set-key (kbd "C-c g f") 'find-file-at-point-with-line)
-(global-set-key (kbd "C-c g u") 'browse-url-of-file)
-(global-set-key (kbd "C-c g t") 'projectile-toggle-between-implementation-and-test)
-(global-set-key (kbd "C-c g b") 'browse-url-at-point)
-
-(global-set-key (kbd "C-c l") 'avy-goto-line)
-(global-set-key (kbd "C-c j") 'avy-goto-char)
-(global-set-key (kbd "M-<return>") 'hippie-expand)
-;;(global-set-key (kbd "<tab>") 'hippie-expand)
-(global-set-key (kbd "C-c n") 'goto-line)
-
-(global-set-key (kbd "C-c C-p") 'beginning-of-buffer)
-(global-set-key (kbd "C-c C-n") 'find-file)
-(global-set-key (kbd "C-x 4") 'quad-screen)
-(global-set-key (kbd "C-x 5") 'penta-screen)
-
-;; use C-c c for all "complete here" bindings
-(global-set-key (kbd "C-c c f") #'company-files)
-
-(setq which-key-idle-delay 0.5)
-
-(defun fix-bindings ()
-  (interactive)
-  (local-set-key (kbd "C-;") 'comment-or-uncomment-region)
-  (local-set-key (kbd "C-'") 'er/expand-region)
-  (local-set-key (kbd "C-\"") 'er/contract-region)
-  (local-set-key (kbd "TAB") 'indent-region)
-  )
-
-(global-set-key (kbd "C-x b") 'ivy-switch-buffer)
-(local-unset-key (kbd "M-g"))
-(global-set-key (kbd "M-g") 'projectile-ripgrep)
-
+(ashton-mode 1)
