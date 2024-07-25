@@ -143,6 +143,7 @@
 (load "~/.doom.d/config-ts-yaml.el")
 (load "~/.doom.d/config-latex.el")
 (load "~/.doom.d/config-typescript.el")
+(load "~/.doom.d/config-region-bindings-mode.el")
 
 ;; (global-set-key (kbd "C-<tab>") 'company-other-backend)
 (global-set-key (kbd "C-.") 'company-files)
