@@ -140,8 +140,9 @@
 (load "~/.doom.d/config-tree-sitter.el")
 (load "~/.doom.d/config-ts-conf.el")
 (load "~/.doom.d/config-ts-python.el")
-;;(load "~/.doom.d/config-ts-yaml.el")
+(load "~/.doom.d/config-ts-yaml.el")
 (load "~/.doom.d/config-latex.el")
+(load "~/.doom.d/config-typescript.el")
 
 ;; (global-set-key (kbd "C-<tab>") 'company-other-backend)
 (global-set-key (kbd "C-.") 'company-files)

@@ -6,7 +6,7 @@
 (define-key ashton-mode-map (kbd "C-;") 'comment-or-uncomment-region)
 (define-key ashton-mode-map (kbd "C-'") 'er/expand-region)
 (define-key ashton-mode-map (kbd "C-\"") 'er/contract-region)
-(define-key ashton-mode-map (kbd "TAB") 'indent-region)
+;;(define-key ashton-mode-map (kbd "TAB") 'indent-region)
 (define-key ashton-mode-map (kbd "C-x b") 'ivy-switch-buffer)
 (define-key ashton-mode-map (kbd "M-g") 'projectile-ripgrep)
 (define-key ashton-mode-map (kbd "C-x C-f") '+ivy/projectile-find-file)
