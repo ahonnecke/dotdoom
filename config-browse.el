@@ -1,16 +1,11 @@
 ;;; ../src/home/.doom.d/config-browse.el -*- lexical-binding: t; -*-
 
-(defun my-search-or-browse ()
-  "If selected region, or thing at point, is a url, go there. Otherwise,
-use region/thing as a keyword for a google search."
+(defun firefox-search-region ()
+  "URL encode the selected region and open it in Firefox."
   (interactive)
-  (let ((target
-         (if (use-region-p)
-             (buffer-substring (region-beginning) (region-end))
-           (thing-at-point 'symbol))))
-    (if (ffap-url-p target)
-        (browse-url target)
-      (browse-url (concat "http://www.google.com/search?q="
-                          (url-hexify-string target))))))
+  (let* ((region (buffer-substring-no-properties (region-beginning) (region-end)))
+         (encoded-region (url-hexify-string region))
+         (firefox-command (concat "firefox https://www.google.com/search?q=" encoded-region)))
+    (shell-command firefox-command)))
 
-(global-set-key (kbd "C-c g b") 'my-search-or-browse)
+(global-set-key (kbd "C-c g b") 'firefox-search-region)
