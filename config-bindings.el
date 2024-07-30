@@ -55,6 +55,8 @@
 (define-key ashton-mode-map (kbd "C-c g u") 'browse-url-of-file)
 (define-key ashton-mode-map (kbd "C-c g t") 'projectile-toggle-between-implementation-and-test)
 (define-key ashton-mode-map (kbd "C-c g b") 'browse-url-at-point)
+(define-key ashton-mode-map (kbd "C-c g s") 'firefox-search-region)
+(define-key ashton-mode-map (kbd "C-c g v") 'vscode-open-filepath)
 
 (define-key ashton-mode-map (kbd "C-c l") 'avy-goto-line)
 (define-key ashton-mode-map (kbd "C-c j") 'avy-goto-char)
