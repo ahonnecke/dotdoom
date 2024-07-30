@@ -197,6 +197,7 @@
 
 ;; ;; HERE
 (load "~/.doom.d/config-tree-sitter")
+(load "~/.doom.d/config-llm")
 ;; ;; (load "~/.doom.d/init-gpt3")
 ;; ;; (load "~/.doom.d/init-gist")
 ;;(load "~/.doom.d/init-python-coverage")

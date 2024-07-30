@@ -6,15 +6,15 @@
   (when (use-region-p)
     (let* ((start (region-beginning))
            (end (region-end))
-           (llm-output (get-buffer-create "*LLM Output*")))                                          
+           (llm-region-output (get-buffer-create "*LLM Region Output*")))                                          
       (shell-command-on-region 
        start                                                                                         
        end 
        "llm --system 'implement instruction in comments, return the entire code block without backticks or fences, prepend implemented comments with DONE: '"              
-       llm-output)                                                                                          
+       llm-region-output)                                                                                          
       (save-excursion                                                                                
         (goto-char end)                                                                              
-        (insert-buffer llm-output)))))                                                               
+        (insert-buffer llm-region-output)))))                                                               
 
 ;; This sometimes deletes too much                                                                   
 (defun llm-region-replace ()
@@ -22,14 +22,14 @@
   (when (use-region-p)
     (let* ((start (region-beginning))
            (end (region-end))
-           (llm-output (get-buffer-create "*LLM Output*")))
+           (llm-replace-output (get-buffer-create "*LLM Replace Output*")))
       (shell-command-on-region 
        start                                                                                         
        end 
-       "llm --system 'implement instruction in comments, return the entire code block sent in the response, prepend implemented comments with DONE: '"              
-       llm-output t)                                                                                          
+       "llm --system 'implement instruction in comments, return the entire code block sent in the response wrapped with **NEW** **END**, prepend implemented comments with DONE: '"
+       llm-replace-output t)                                                                                          
       (delete-region start end)
-      (insert-buffer llm-output))))
+      (insert-buffer llm-replace-output))))
 
 ;; this does not work                                      
 (defun llm-region-interactive ()
@@ -46,4 +46,4 @@
        llm-output t)                                                                                          
       (delete-region start end)
       (insert-buffer llm-output))))
-                                                                                                     
+
