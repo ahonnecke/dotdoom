@@ -207,3 +207,5 @@
 
 ;; (fset 'pip-to-pipenv-line
 ;;    (kmacro-lambda-form [?\C-s ?= ?= ?\C-b ?\C-b ?\C-k ?  ?- backspace ?= ?  ?\" ?\C-y ?\C-a ?\C-n] 0 "%d"))
+
+(put 'projectile-ripgrep 'disabled nil)
