@@ -33,8 +33,8 @@
 (add-to-list 'auto-mode-alist '("\\.json\\'" . json-ts-mode))
 (add-to-list 'auto-mode-alist '("\\.css\\'" . css-ts-mode))
 (add-to-list 'auto-mode-alist '("\\.py\\'" . python-ts-mode))
-(add-to-list 'auto-mode-alist '("\\.ts\\'" . typescript-ts-mode))
 (add-to-list 'auto-mode-alist '("\\.js\\'" . js-ts-mode))
+(add-to-list 'auto-mode-alist '("\\.json\\'" . json-ts-mode))
 (add-to-list 'auto-mode-alist '("\\.env\\'" . conf-mode))
 
 (global-set-key (kbd "C-;") 'comment-or-uncomment-region)

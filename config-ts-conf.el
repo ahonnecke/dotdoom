@@ -5,6 +5,7 @@
 (add-to-list 'auto-mode-alist '("\\.list\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.ini\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.config\\'" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\Pipfile\\'" . conf-mode))
 
 ;; clear paredit bindings paredit mode
 ;; (eval-after-load "paredit"
@@ -18,14 +19,14 @@
 ;;              (local-set-key (kbd "C-c C-j") 'eval-region)
 ;;              (local-set-key (kbd "C-j") 'eval-last-sexp)))
 
-(add-hook 'conf-mode
-          #'(lambda ()
-              (paredit-mode)
-              (local-unset-key (kbd "C-;"))
-              (local-unset-key (kbd "C-c C-p"))
-              (local-unset-key (kbd "C-c C-n"))
+;; (add-hook 'conf-mode
+;;           #'(lambda ()
+;;               (paredit-mode)
+;;               (local-unset-key (kbd "C-;"))
+;;               (local-unset-key (kbd "C-c C-p"))
+;;               (local-unset-key (kbd "C-c C-n"))
 
-              (local-set-key (kbd "C-;") 'comment-or-uncomment-region)
-              (local-set-key (kbd "C-c C-p") 'beginning-of-buffer)
-              (local-set-key (kbd "C-c C-n") 'end-of-buffer)
-              ))
+;;               (local-set-key (kbd "C-;") 'comment-or-uncomment-region)
+;;               (local-set-key (kbd "C-c C-p") 'beginning-of-buffer)
+;;               (local-set-key (kbd "C-c C-n") 'end-of-buffer)
+;;               ))

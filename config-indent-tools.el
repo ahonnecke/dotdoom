@@ -1,8 +1,6 @@
 ;;;  -*- lexical-binding: t; -*-
 
 
-(electric-indent-mode -1)
-
 ;; (defun my-comment-region-lines (&optional beg end arg)
 ;;   "Like `comment-region' (which see), but comment or uncomment whole lines.
 ;; If the region isn't active, or there is no mark in the buffer, then

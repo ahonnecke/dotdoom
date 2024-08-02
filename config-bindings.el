@@ -50,7 +50,7 @@
 ;;(define-key ashton-mode-map (kbd "C-c g r") 'browse-at-remote)
 ;; TODO: move to hydra?
 ;; GOTO keys:
-(define-key ashton-mode-map (kbd "C-c g r") '+vc/browse-at-remote)
+(define-key ashton-mode-map (kbd "C-c g g") '+vc/browse-at-remote)
 (define-key ashton-mode-map (kbd "C-c g f") 'find-file-at-point-with-line)
 (define-key ashton-mode-map (kbd "C-c g u") 'browse-url-of-file)
 (define-key ashton-mode-map (kbd "C-c g t") 'projectile-toggle-between-implementation-and-test)
