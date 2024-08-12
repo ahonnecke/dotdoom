@@ -4,7 +4,7 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(package-selected-packages
-   '(prettier cmake-mode unfill typescript-mode tree-sitter-langs rg region-bindings-mode projectile-ripgrep prettify-greek ox-report org-bullets indent-tools docker-compose-mode crux)))
+   '(org-download prettier cmake-mode unfill typescript-mode tree-sitter-langs rg region-bindings-mode projectile-ripgrep prettify-greek ox-report org-bullets indent-tools docker-compose-mode crux)))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.

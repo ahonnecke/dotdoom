@@ -58,6 +58,15 @@
 (define-key ashton-mode-map (kbd "C-c g s") 'firefox-search-region)
 (define-key ashton-mode-map (kbd "C-c g v") 'vscode-open-filepath)
 
+(define-key ashton-mode-map (kbd "C-c s _") 'xah-cycle-hyphen-underscore-space)
+(define-key ashton-mode-map (kbd "C-c s c") 'string-inflection-camelcase)
+(define-key ashton-mode-map (kbd "C-c s u") 'string-inflection-underscore)
+(define-key ashton-mode-map (kbd "C-c s k") 'string-inflection-kebab-case)
+(define-key ashton-mode-map (kbd "C-c s u") 'string-inflection-upcase)
+(define-key ashton-mode-map (kbd "C-c s p") 'string-inflection-python-style-cycle)
+(define-key ashton-mode-map (kbd "C-c s U") 'crux-upcase-region)
+(define-key ashton-mode-map (kbd "C-c s l") 'crux-downcase-region)
+
 (define-key ashton-mode-map (kbd "C-c l") 'avy-goto-line)
 (define-key ashton-mode-map (kbd "C-c j") 'avy-goto-char)
 (define-key ashton-mode-map (kbd "M-<return>") 'hippie-expand)
