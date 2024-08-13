@@ -56,6 +56,7 @@
 (package! xml+)
 (package! python-black)
 (package! region-bindings-mode)
+(package! crux)
 
 ;; installed, but not working...
 ;;(package! combobulate)

@@ -142,7 +142,7 @@
 (load "~/.doom.d/config-ts-python.el")
 (load "~/.doom.d/config-ts-yaml.el")
 (load "~/.doom.d/config-latex.el")
-(load "~/.doom.d/config-typescript.el")
+(load "~/.doom.d/config-ts-typescript.el")
 (load "~/.doom.d/config-region-bindings-mode.el")
 (load "~/.doom.d/config-indent-tools.el")
 (load "~/.doom.d/config-vscode.el")
@@ -198,6 +198,10 @@
 ;; ;; HERE
 (load "~/.doom.d/config-tree-sitter")
 (load "~/.doom.d/config-llm")
+(load "~/.doom.d/config-vscode")
+(load "~/.doom.d/config-jolly-brancher")
+(load "~/.doom.d/config-crux")
+
 ;; ;; (load "~/.doom.d/init-gpt3")
 ;; ;; (load "~/.doom.d/init-gist")
 ;;(load "~/.doom.d/init-python-coverage")

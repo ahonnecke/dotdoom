@@ -8,7 +8,8 @@
 (define-key ashton-mode-map (kbd "C-\"") 'er/contract-region)
 ;;(define-key ashton-mode-map (kbd "TAB") 'indent-region)
 (define-key ashton-mode-map (kbd "C-x b") 'ivy-switch-buffer)
-(define-key ashton-mode-map (kbd "M-g") 'projectile-ripgrep)
+;;(define-key ashton-mode-map (kbd "M-g") 'projectile-ripgrep)
+(define-key ashton-mode-map (kbd "M-g") '+default/search-project)
 (define-key ashton-mode-map (kbd "C-x C-f") '+ivy/projectile-find-file)
 (define-key ashton-mode-map (kbd "C-x f") 'counsel-find-file)
 
@@ -56,7 +57,7 @@
 (define-key ashton-mode-map (kbd "C-c g t") 'projectile-toggle-between-implementation-and-test)
 (define-key ashton-mode-map (kbd "C-c g b") 'browse-url-at-point)
 (define-key ashton-mode-map (kbd "C-c g s") 'firefox-search-region)
-(define-key ashton-mode-map (kbd "C-c g v") 'vscode-open-filepath)
+
 
 (define-key ashton-mode-map (kbd "C-c s _") 'xah-cycle-hyphen-underscore-space)
 (define-key ashton-mode-map (kbd "C-c s c") 'string-inflection-camelcase)
