@@ -201,6 +201,7 @@
 (load "~/.doom.d/config-vscode")
 (load "~/.doom.d/config-jolly-brancher")
 (load "~/.doom.d/config-crux")
+(load "~/.doom.d/config-firefox")
 
 ;; ;; (load "~/.doom.d/init-gpt3")
 ;; ;; (load "~/.doom.d/init-gist")
@@ -214,3 +215,5 @@
 ;;    (kmacro-lambda-form [?\C-s ?= ?= ?\C-b ?\C-b ?\C-k ?  ?- backspace ?= ?  ?\" ?\C-y ?\C-a ?\C-n] 0 "%d"))
 
 (put 'projectile-ripgrep 'disabled nil)
+
+(setq fancy-splash-image (concat doom-private-dir "black-hole-png-222.png"))
