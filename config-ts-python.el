@@ -9,7 +9,6 @@
 
 ;;; Perform isorting py-isort-buffer on save or something
 (with-eval-after-load "python"
-  (define-key python-ts-mode-map  (kbd "TAB") 'indent-according-to-mode)
   (define-key python-ts-mode-map  (kbd "M-/") '+company/complete)
   (global-set-key  (kbd "C->") 'python-indent-shift-right)
   (global-set-key  (kbd "C-<") 'python-indent-shift-left)
@@ -20,6 +19,9 @@
   (define-key python-ts-mode-map  (kbd "C-c m s") 'python-black-statement)
   (define-key python-ts-mode-map (kbd "C-;") 'comment-or-uncomment-region)
 
+
+  (add-to-list 'apheleia-mode-alist '(python-mode . ruff))
+  (add-to-list 'apheleia-mode-alist '(python-ts-mode . ruff))
 
   ;; (add-hook 'before-save-hook 'py-isort-before-save)
   ;;(add-hook 'python-ts-mode-hook '+format|enable-on-save)
