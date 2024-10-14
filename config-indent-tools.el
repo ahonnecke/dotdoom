@@ -30,3 +30,9 @@
   (defun enable-indent-tools-mode ()
     (global-set-key (kbd "C-c >") 'indent-tools-hydra/body)
     ))
+
+(defun my-prog-mode-hook ()
+  "Bind RET to newline-and-indent in programming modes."
+  (local-set-key (kbd "RET") 'newline-and-indent))
+
+(add-hook 'prog-mode-hook 'my-prog-mode-hook)

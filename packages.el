@@ -52,7 +52,7 @@
 (package! magit-delta)
 (package! ob-graphql)
 (package! direnv)
-(package! gist)
+                                        ;(package! gist)
 (package! xml+)
 (package! python-black)
 (package! region-bindings-mode)

@@ -14,14 +14,13 @@
   (global-set-key  (kbd "C-<") 'python-indent-shift-left)
   (add-hook 'before-save-hook 'py-isort-before-save)
 
-  (define-key python-ts-mode-map  (kbd "C-c m b") 'python-black-buffer)
-  (define-key python-ts-mode-map  (kbd "C-c m r") 'python-black-region)
-  (define-key python-ts-mode-map  (kbd "C-c m s") 'python-black-statement)
+  (define-key python-ts-mode-map  (kbd "C-c m b") 'ruff-format-buffer)
+  (define-key python-ts-mode-map  (kbd "C-c m r") 'ruff-format-region)
   (define-key python-ts-mode-map (kbd "C-;") 'comment-or-uncomment-region)
 
 
-  (add-to-list 'apheleia-mode-alist '(python-mode . ruff))
-  (add-to-list 'apheleia-mode-alist '(python-ts-mode . ruff))
+  ;; (add-to-list 'apheleia-mode-alist '(python-mode . ruff))
+  ;; (add-to-list 'apheleia-mode-alist '(python-ts-mode . ruff))
 
   ;; (add-hook 'before-save-hook 'py-isort-before-save)
   ;;(add-hook 'python-ts-mode-hook '+format|enable-on-save)
@@ -38,9 +37,7 @@
 ;;                                         )))
 
 (add-hook 'python-ts-mode-hook (lambda () (auto-fill-mode -1)))
-(add-hook 'python-ts-mode-hook (lambda () (python-black-on-save-mode t)))
-;; (add-hook 'python-ts-mode-hook (lambda () (py-isort-before-save t)))
-
+;;(add-hook 'python-ts-mode-hook (lambda () (ruff-format-on-save-mode t)))
 ;;(add-hook 'python-ts-mode-hook (lambda () (combobulate-mode t)))
 
 ;; (add-hook 'python-ts-mode-hook (lambda () (

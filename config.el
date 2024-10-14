@@ -203,6 +203,11 @@
 (load "~/.doom.d/config-crux")
 (load "~/.doom.d/config-firefox")
 (load "~/.doom.d/config-projectile")
+(load "~/.doom.d/config-biomejs-format")
+(load "~/.doom.d/config-ruff")
+(load "~/.doom.d/config-flycheck-biomejs")
+(load "~/.doom.d/config-rc")
+
 
 ;; ;; (load "~/.doom.d/init-gpt3")
 ;; ;; (load "~/.doom.d/init-gist")
