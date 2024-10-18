@@ -1,1 +1,1 @@
-../config-igist.el
+../src/home/config-igist.el
