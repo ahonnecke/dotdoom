@@ -83,6 +83,8 @@
 
 ;; use C-c c for all "complete here" bindings
 (define-key ashton-mode-map (kbd "C-c c f") #'company-files)
+(define-key ashton-mode-map (kbd "M-m") 'magit-status)
+(define-key ashton-mode-map (kbd "C-c m") 'dirvish-mark-menu)
 
 (setq which-key-idle-delay 0.5)
 
