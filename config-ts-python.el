@@ -59,3 +59,4 @@
                     (concat "PYTHONPATH=" r " " "pipenv run pytest")))))
 
 (global-set-key (kbd "C-;") 'comment-or-uncomment-region)
+(add-hook 'python-ts-mode-hook 'eglot-ensure)
