@@ -57,6 +57,8 @@
 (define-key ashton-mode-map (kbd "C-c g t") 'projectile-toggle-between-implementation-and-test)
 (define-key ashton-mode-map (kbd "C-c g b") 'browse-url-at-point)
 (define-key ashton-mode-map (kbd "C-c g s") 'firefox-search-region)
+(define-key ashton-mode-map (kbd "C-c g l") 'avy-goto-line)
+(define-key ashton-mode-map (kbd "C-c g c") 'avy-goto-char)
 
 
 (define-key ashton-mode-map (kbd "C-c s _") 'xah-cycle-hyphen-underscore-space)
@@ -68,8 +70,6 @@
 (define-key ashton-mode-map (kbd "C-c s U") 'crux-upcase-region)
 (define-key ashton-mode-map (kbd "C-c s l") 'crux-downcase-region)
 
-(define-key ashton-mode-map (kbd "C-c l") 'avy-goto-line)
-(define-key ashton-mode-map (kbd "C-c j") 'avy-goto-char)
 (define-key ashton-mode-map (kbd "M-<return>") 'hippie-expand)
 ;;(define-key ashton-mode-map (kbd "<tab>") 'hippie-expand)
 (define-key ashton-mode-map (kbd "C-c n") 'goto-line)

@@ -1,11 +1,7 @@
-;;; config-jolly-brancher.el -*- lexical-binding: t; -*-
+;; Load the package
+(add-to-list 'load-path "/home/ahonnecke/src/jolly-brancher")
 
-(defun jolly-brancher ()
-  "Open vterm in the root of the project and run 'jolly-brancher' command."
-  (interactive)
-  (let ((default-directory (projectile-project-root))) ; Assumes you're using Projectile
-    (vterm)
-    (vterm-send-string "jolly-brancher\n"))) ; Send the command to the vterm
-
-;; Bind the function to a key combination (optional)
-(global-set-key (kbd "C-c j") #'jolly-brancher)
+;; Set up the prefix key and load the package
+(after! transient
+  (require 'jolly-brancher)
+  (jolly-brancher-mode 1))

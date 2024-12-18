@@ -47,3 +47,4 @@
       (delete-region start end)
       (insert-buffer llm-output))))
 
+(straight-use-package 'gptel)
