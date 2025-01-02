@@ -12,7 +12,6 @@
   (define-key python-ts-mode-map  (kbd "M-/") '+company/complete)
   (global-set-key  (kbd "C->") 'python-indent-shift-right)
   (global-set-key  (kbd "C-<") 'python-indent-shift-left)
-  (add-hook 'before-save-hook 'py-isort-before-save)
 
   (define-key python-ts-mode-map  (kbd "C-c m b") 'ruff-format-buffer)
   (define-key python-ts-mode-map  (kbd "C-c m r") 'ruff-format-region)

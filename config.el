@@ -208,6 +208,7 @@
 (load "~/.doom.d/config-flycheck-biomejs")
 (load "~/.doom.d/config-rc")
 (load "~/.doom.d/config-igist")
+(load "~/.doom.d/config-elisp")
 
 
 ;; ;; (load "~/.doom.d/init-gpt3")

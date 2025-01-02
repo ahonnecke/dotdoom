@@ -12,3 +12,16 @@
   )
 
 ;;(add-hook 'magit-mode-hook (lambda () (magit-delta-mode +1)))
+
+(defun magit-branch-alter-name ()
+  "Rename the current branch, pre-filling the minibuffer with the existing branch name."
+  (interactive)
+  (let* ((current-branch (magit-get-current-branch))
+         (new-name (read-string "Modify branch name: " current-branch))) ; Pre-fill current name
+    (unless (string= current-branch new-name) ; Avoid renaming if names are the same
+      (magit-branch-rename current-branch new-name))))
+
+(with-eval-after-load 'magit-branch
+  (transient-append-suffix 'magit-branch
+    "r" ;; Insert after "r" (rename)
+    '("a" "Alter to name" magit-branch-alter-name)))
