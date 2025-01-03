@@ -9,7 +9,6 @@
   (define-key magit-mode-map (kbd "C-c w") 'forge-browse-dwim)
   (define-key magit-mode-map (kbd "C-c a") 'magit-abort-dwim)
   (define-key magit-mode-map [tab] 'magit-section-toggle)
-  (define-key magit-mode-map (kbd "M-m") #'jolly-brancher)
   )
 
 ;;(add-hook 'magit-mode-hook (lambda () (magit-delta-mode +1)))

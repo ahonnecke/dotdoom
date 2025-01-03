@@ -85,6 +85,7 @@
 ;;(load "~/.doom.d/config-black")
 (load "~/.doom.d/config-ffap")
 (load "~/.doom.d/config-magit")
+(load "~/.doom.d/config-windsurf")
 
 
 ;;TODO: make this conditional
@@ -202,6 +203,8 @@
 (load "~/.doom.d/config-rc")
 (load "~/.doom.d/config-igist")
 (load "~/.doom.d/config-elisp")
+(load "~/.doom.d/config-make")
+(load "~/.doom.d/config-npm-mode")
 
 (setq projectile-create-missing-test-files t)
 
