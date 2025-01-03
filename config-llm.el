@@ -1,5 +1,15 @@
 ;;; config-llm.el -*- lexical-binding: t; -*-
 
+;; The error occurs because Emacs tries to define the variable
+;; autoload-compute-prefixes as dynamic (via defvar) when it has already been
+;; implicitly declared as lexical in the current lexical binding context.
+
+;; This problem often arises in environments using Doom Emacs and straight.el,
+;; particularly when the straight package manager attempts to build autoloads
+;; for packages, as it does for your gptel package in this case.
+
+(defvar autoload-compute-prefixes nil)
+;; as such this is required so that it starts cleanly
 
 (defun llm-region ()
   (interactive)

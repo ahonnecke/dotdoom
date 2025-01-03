@@ -187,19 +187,12 @@
 
 ;; ;; TODO: configure gists
 
-;;(load "~/.doom.d/config-flycheck-ruff.el")
-
-;; (setq exec-path (append exec-path '("~/.nvm/versions/node/v19.3.0/bin")))
 (setq exec-path (append exec-path '("/home/ahonnecke/.nvm/versions/node/v19.3.0/bin")))
 
-;; ;; (require 'tree-sitter)
-;; ;; (require 'tree-sitter-langs)
+(setq doom--prefer-lexical-binding t)
 
-;; ;; HERE
 (load "~/.doom.d/config-tree-sitter")
-(load "~/.doom.d/config-llm")
 (load "~/.doom.d/config-vscode")
-(load "~/.doom.d/config-jolly-brancher")
 (load "~/.doom.d/config-crux")
 (load "~/.doom.d/config-firefox")
 (load "~/.doom.d/config-projectile")
@@ -210,18 +203,11 @@
 (load "~/.doom.d/config-igist")
 (load "~/.doom.d/config-elisp")
 
-
-;; ;; (load "~/.doom.d/init-gpt3")
-;; ;; (load "~/.doom.d/init-gist")
-;;(load "~/.doom.d/init-python-coverage")
-;; ;; (load "~/.doom.d/init-smart-tab")
-;; ;; HERE
-
 (setq projectile-create-missing-test-files t)
-
-;; (fset 'pip-to-pipenv-line
-;;    (kmacro-lambda-form [?\C-s ?= ?= ?\C-b ?\C-b ?\C-k ?  ?- backspace ?= ?  ?\" ?\C-y ?\C-a ?\C-n] 0 "%d"))
 
 (put 'projectile-ripgrep 'disabled nil)
 
 (setq fancy-splash-image (concat doom-private-dir "black-hole-png-222.png"))
+
+(load "~/.doom.d/config-jolly-brancher")
+(load "~/.doom.d/config-llm")
