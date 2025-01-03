@@ -29,3 +29,17 @@
         (kill-new (concat "`" (file-truename buffer-file-name) "`"))
         (message "Copied file path to clipboard: `%s`" (file-truename buffer-file-name)))
     (message "Buffer is not visiting a file!")))
+
+(defun create-empty-file (filename)
+  "Create a new empty file with the specified FILENAME in the current directory.
+If the file already exists, it does nothing."
+  (interactive "sEnter filename: ")
+  (let ((full-path (expand-file-name filename default-directory)))
+    (if (file-exists-p full-path)
+        (message "File already exists: %s" full-path)
+      (write-region "" nil full-path)
+      (message "File created: %s" full-path))))
+
+;; Bind to C-c f in Dired mode
+(with-eval-after-load 'dired
+  (define-key dired-mode-map (kbd "C-c f") #'create-empty-file))
