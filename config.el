@@ -198,6 +198,7 @@
 (load "~/.doom.d/config-igist")
 (load "~/.doom.d/config-elisp")
 (load "~/.doom.d/config-make")
+(load "~/.doom.d/custom-completion.el")
 
 (setq projectile-create-missing-test-files t)
 
