@@ -127,15 +127,7 @@
 (load "~/.doom.d/config-org-mode")
 
 (load "~/.doom.d/config-python")
-;; (load "~/.doom.d/sqlup-mode")
-;; ;;(load "~/.doom.d/config-company-sql")
-
-;; ;;(load "~/.doom.d/config-counsel.el")
 (load "~/.doom.d/config-file-location")
-;; (load "~/.doom.d/config-browse")
-;; (with-eval-after-load "slack"
-;;   (load "~/.doom.d/config-slack")
-;;   )
 (load "~/.doom.d/config-geojson")
 
 (load "~/.doom.d/config-tree-sitter.el")
@@ -148,7 +140,9 @@
 (load "~/.doom.d/config-indent-tools.el")
 (load "~/.doom.d/config-vscode.el")
 
-;; (global-set-key (kbd "C-<tab>") 'company-other-backend)
+;; Restore magit keybinding
+(global-set-key (kbd "M-m") 'magit-status)
+
 (global-set-key (kbd "C-.") 'company-files)
 
 ;; (set-company-backend!

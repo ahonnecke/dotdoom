@@ -10,6 +10,8 @@
 
 ;;   :hook
 ;;   ((python-mode . eglot-ensure)))
+;;
+;; aaaabbbbcccc
 
 (use-package eglot
   :ensure t
@@ -32,3 +34,6 @@
   (setq eglot-ignored-server-capabilities '( :documentHighlightProvider))
   :hook (python-mode . eglot-ensure)
   )
+
+;; aaaabbbbcccc
+;; aaaaccccbbbb
