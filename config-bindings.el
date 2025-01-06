@@ -18,7 +18,6 @@
 (define-key ashton-mode-map (kbd "M-p") 'sp-backward-sexp)
 
 (define-key ashton-mode-map (kbd "C-w") 'kill-region)
-(define-key ashton-mode-map (kbd "M-o") 'projectile-switch-project)
 ;; they all close when i restart emacs, maybe after server mode is working...
 ;;(define-key ashton-mode-map (kbd "M-o") 'projectile-switch-open-project)
 
