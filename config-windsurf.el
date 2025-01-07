@@ -8,6 +8,5 @@
           (message "Opened repo root in Windsurf: %s" repo-root))
       (message "Not in a Git repository!"))))
 
-;; Add the keybinding to ashton-mode
-(with-eval-after-load 'ashton-mode
-  (define-key ashton-mode-map (kbd "C-c w") #'open-repo-root-in-windsurf))
+;; Define a global keybinding
+(global-set-key (kbd "C-c g w") #'open-repo-root-in-windsurf)
