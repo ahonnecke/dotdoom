@@ -1,5 +1,10 @@
 (global-set-key (kbd "C-c m") 'magit-status)
 
+;; Override M-m in dirvish-mode to use magit-status
+(with-eval-after-load 'dirvish
+  (define-key dirvish-mode-map (kbd "M-m") nil)  ; First unbind it
+  (define-key dirvish-mode-map (kbd "M-m") 'magit-status))
+
 (with-eval-after-load "magit" (define-key magit-process-mode-map (kbd "<return>") 'find-file-at-point-with-line))
 
 ;;; ../src/home/.doom.d/config-org-mode.el -*- lexical-binding: t; -*-
