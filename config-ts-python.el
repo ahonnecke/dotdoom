@@ -58,4 +58,14 @@
                     (concat "PYTHONPATH=" r " " "pipenv run pytest")))))
 
 (global-set-key (kbd "C-;") 'comment-or-uncomment-region)
+
+(defun insert-python-shebang ()
+  "Insert a Python shebang line if the buffer is empty."
+  (when (and (string-match "\\.py\\'" (buffer-file-name))
+             (= (point-min) (point-max)))
+    (insert "#!/usr/bin/env python3\n")
+    (save-buffer)))
+
+(add-hook 'find-file-hook 'insert-python-shebang)
+
 (add-hook 'python-ts-mode-hook 'eglot-ensure)

@@ -99,15 +99,6 @@
 
 (setq auth-sources '("~/.authinfo"))
 
-;;Figure out why this only works on open projects...
-(setq projectile-switch-project-action #'magit-status)
-(setq projectile-enable-caching t)
-
-;;(setq projectile-project-search-path '("~/projects/" "~/work/" ("~/github" . 1)))
-;; this claims to be working, but it does not work
-(setq projectile-project-search-path '("~/src/"))
-(setq projectile-auto-discover t)
-
 ;; TODO: figure out how to use this:
 ;; snippet from here: https://www.emacswiki.org/emacs/AutoFillMode
 ;; (defun comment-auto-fill ()
@@ -199,6 +190,7 @@
 (load "~/.doom.d/config-elisp")
 (load "~/.doom.d/config-make")
 (load "~/.doom.d/custom-completion.el")
+(load "~/.doom.d/config-ripgrep.el")
 
 (setq projectile-create-missing-test-files t)
 
@@ -208,3 +200,4 @@
 
 (load "~/.doom.d/config-jolly-brancher")
 (load "~/.doom.d/config-llm")
+(load "~/.doom.d/config-bookmark")

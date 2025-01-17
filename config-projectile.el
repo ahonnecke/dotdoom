@@ -1,19 +1,38 @@
 ;;; config-projectile.el -*- lexical-binding: t; -*-
 
-(setq projectile-globally-ignored-files
-      (append '(
-                "uv.lock"
-                )))
-
 ;; Enable caching for better performance
 (setq projectile-enable-caching t)
+
+;; Set default action when switching projects to open Magit status
+(setq projectile-switch-project-action #'magit-status)
+
+;; Automatically discover projects in specified paths
+;;(setq projectile-project-search-path '("~/projects/" "~/work/" ("~/github" . 1)))
+(setq projectile-project-search-path '("~/src/"))
+(setq projectile-auto-discover t)
 
 ;; Use native indexing for better performance
 (setq projectile-indexing-method 'native)
 
-;; Ensure projectile and counsel-projectile configurations load after the packages
+;; Ensure projectile configurations load after the package
+(with-eval-after-load 'projectile
+  ;; Globally ignored files
+  (setq projectile-globally-ignored-files
+        (append '("uv.lock")
+                projectile-globally-ignored-files))
+
+  ;; Globally ignored directories
+  (setq projectile-globally-ignored-directories
+        (append '(".cache" "node_modules")
+                projectile-globally-ignored-directories)))
+
+;; Ensure completion works with project files
+(with-eval-after-load 'company
+  (add-to-list 'company-backends 'company-files))
+
+;; Configure counsel-projectile for enhanced project switching
 (with-eval-after-load 'counsel-projectile
-  ;; Custom action for switching projects and opening magit-status
+  ;; Custom action for switching projects and opening Magit status
   (defun my/switch-project-and-magit-status (project)
     "Switch to PROJECT and open Magit status."
     (let ((default-directory project))
@@ -30,7 +49,3 @@
 
 ;; Enable projectile globally
 (projectile-mode +1)
-
-;; Ensure completion works with project files
-(with-eval-after-load 'company
-  (add-to-list 'company-backends 'company-files))
