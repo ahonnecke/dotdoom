@@ -1,12 +1,14 @@
-(defun open-repo-root-in-windsurf ()
-  "Open the root of the current Git repository in Windsurf, reusing the existing window."
+(defun open-in-windsurf ()
+  "Open Windsurf with the current file or the root of the Git repository."
   (interactive)
-  (let ((repo-root (magit-toplevel))) ;; Get the repo root using Magit
-    (if repo-root
+  (let ((target (or (buffer-file-name)
+                    (magit-toplevel)))) ;; Get the current file or repo root
+    (if target
         (progn
-          (shell-command (concat "windsurf --reuse-window " (shell-quote-argument repo-root)))
-          (message "Opened repo root in Windsurf: %s" repo-root))
-      (message "Not in a Git repository!"))))
+          (shell-command (concat "windsurf --reuse-window " (shell-quote-argument target)))
+          (message "Opened in Windsurf: %s" target))
+      (message "Not in a Git repository or visiting a file!"))))
 
-;; Define a global keybinding
-(global-set-key (kbd "C-c g w") #'open-repo-root-in-windsurf)
+
+;; Bind to ashton-mode-map
+(define-key ashton-mode-map (kbd "C-c g w") #'open-in-windsurf)
