@@ -126,7 +126,7 @@
 (load "~/.doom.d/config-ts-python.el")
 (load "~/.doom.d/config-ts-yaml.el")
 (load "~/.doom.d/config-latex.el")
-(load "~/.doom.d/config-ts-typescript.el")
+(load "~/.doom.d/config-ts-typescript")
 (load "~/.doom.d/config-region-bindings-mode.el")
 (load "~/.doom.d/config-indent-tools.el")
 (load "~/.doom.d/config-vscode.el")
@@ -200,4 +200,5 @@
 
 (load "~/.doom.d/config-jolly-brancher")
 (load "~/.doom.d/config-llm")
+(load "~/.doom.d/config-ellama")
 (load "~/.doom.d/config-bookmark")

@@ -17,7 +17,7 @@
                           (all-completions he-search-string (mapcar 'list dcsh-command-list))
                           'string-lessp)))
   (while (and he-expand-list
-          (he-string-member (car he-expand-list) he-tried-table))
+              (he-string-member (car he-expand-list) he-tried-table))
     (setq he-expand-list (cdr he-expand-list)))
   (if (null he-expand-list)
       (progn
@@ -30,7 +30,8 @@
 
 
 (global-set-key (kbd "C-c e") (make-hippie-expand-function
-                           '(try-expand-dcsh-command
-                             try-expand-dabbrev-visible
-                             try-expand-dabbrev
-                             try-expand-dabbrev-all-buffers) t))
+                               '(try-expand-dcsh-command
+                                 try-expand-dabbrev-visible
+                                 try-expand-dabbrev
+                                 try-expand-dabbrev-all-buffers) t))
+(global-set-key (kbd "C-M-;") 'mark-defun)

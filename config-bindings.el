@@ -36,10 +36,6 @@
 
 (define-key ashton-mode-map (kbd "M-s") 'swiper-thing-at-point)
 
-
-;; move to only python mode, or maybe just get leader working?
-(define-key ashton-mode-map (kbd "C-c t") 'python-pytest-dispatch)
-
 (define-key ashton-mode-map (kbd "C-c v h") '+vterm/here)
 (define-key ashton-mode-map (kbd "C-c v t") '+vterm/toggle)
 (define-key ashton-mode-map (kbd "C-M-t") '+vterm/toggle)
