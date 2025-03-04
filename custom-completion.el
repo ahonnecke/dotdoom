@@ -4,7 +4,7 @@
   :config
   ;; Enable company-mode globally
   (global-company-mode)
-  
+
   ;; Basic company settings from your config-company-dict.el
   (setq company-minimum-prefix-length 2
         company-idle-delay 0.1
@@ -26,16 +26,16 @@
   (defun my/company-complete-buffer ()
     "Complete using symbols from all open buffers."
     (interactive)
-    (let ((company-backends '(company-dabbrev-code 
+    (let ((company-backends '(company-dabbrev-code
                               company-dabbrev
                               company-capf))
-          (company-dabbrev-other-buffers 'all)     ; search in all buffers
-          (company-dabbrev-code-other-buffers 'all) ; search in all buffers
-          (company-dabbrev-code-modes t)           ; search in all modes
-          (company-dabbrev-code-everywhere t)      ; search everywhere, not just code
-          (company-dabbrev-minimum-length 2)       ; minimum length for completion
-          (company-dabbrev-ignore-case t)          ; ignore case when matching
-          (company-dabbrev-downcase nil))          ; keep original case
+          (company-dabbrev-other-buffers 'all)
+          (company-dabbrev-code-other-buffers 'all)
+          (company-dabbrev-code-modes t)
+          (company-dabbrev-code-everywhere t)
+          (company-dabbrev-minimum-length 2)
+          (company-dabbrev-ignore-case t)
+          (company-dabbrev-downcase nil))
       (company-complete)))
 
   (defun my/company-complete-project ()
@@ -62,7 +62,6 @@
   (define-key ashton-mode-map (kbd "C-c c p") #'my/company-complete-project)
   (define-key ashton-mode-map (kbd "C-c c l") #'my/company-complete-lsp)
   (define-key ashton-mode-map (kbd "M-C-/") #'my/company-complete-project)
-
   (define-key ashton-mode-map (kbd "C-c c f") #'company-files)
 
   ;; Configure the default completion backend to include all sources
@@ -115,6 +114,6 @@
 ;; Make dired buffers available for completion
 (add-hook 'dired-mode-hook 'company-mode)
 
-(setq dabbrev-case-replace nil   ;; Preserve case when expanding
-      dabbrev-case-fold-search nil  ;; Match case when searching
-      dabbrev-upcase-means-case-search t) ;; Preserve case even for uppercase words
+(setq dabbrev-case-replace nil
+      dabbrev-case-fold-search nil
+      dabbrev-upcase-means-case-search t)
