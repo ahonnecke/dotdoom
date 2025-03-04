@@ -202,3 +202,4 @@
 (load "~/.doom.d/config-llm")
 (load "~/.doom.d/config-ellama")
 (load "~/.doom.d/config-bookmark")
+(load "~/.doom.d/config-aider")

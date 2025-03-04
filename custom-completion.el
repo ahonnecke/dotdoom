@@ -27,8 +27,8 @@
     "Complete using symbols from all open buffers."
     (interactive)
     (let ((company-backends '(company-dabbrev-code 
-                            company-dabbrev
-                            company-capf))
+                              company-dabbrev
+                              company-capf))
           (company-dabbrev-other-buffers 'all)     ; search in all buffers
           (company-dabbrev-code-other-buffers 'all) ; search in all buffers
           (company-dabbrev-code-modes t)           ; search in all modes
@@ -58,9 +58,12 @@
       (company-complete)))
 
   ;; Define keybindings for different completion sources using C-c c prefix
-  (global-set-key (kbd "C-c c b") #'my/company-complete-buffer)
-  (global-set-key (kbd "C-c c p") #'my/company-complete-project)
-  (global-set-key (kbd "C-c c l") #'my/company-complete-lsp)
+  (define-key ashton-mode-map (kbd "C-c c b") #'my/company-complete-buffer)
+  (define-key ashton-mode-map (kbd "C-c c p") #'my/company-complete-project)
+  (define-key ashton-mode-map (kbd "C-c c l") #'my/company-complete-lsp)
+  (define-key ashton-mode-map (kbd "M-C-/") #'my/company-complete-project)
+
+  (define-key ashton-mode-map (kbd "C-c c f") #'company-files)
 
   ;; Configure the default completion backend to include all sources
   (setq company-backends
@@ -111,3 +114,7 @@
 
 ;; Make dired buffers available for completion
 (add-hook 'dired-mode-hook 'company-mode)
+
+(setq dabbrev-case-replace nil   ;; Preserve case when expanding
+      dabbrev-case-fold-search nil  ;; Match case when searching
+      dabbrev-upcase-means-case-search t) ;; Preserve case even for uppercase words

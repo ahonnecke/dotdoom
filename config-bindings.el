@@ -36,6 +36,9 @@
 
 (define-key ashton-mode-map (kbd "M-s") 'swiper-thing-at-point)
 
+;; move to only python mode, or maybe just get leader working?
+(define-key ashton-mode-map (kbd "C-c t") 'python-pytest-dispatch)
+
 (define-key ashton-mode-map (kbd "C-c v h") '+vterm/here)
 (define-key ashton-mode-map (kbd "C-c v t") '+vterm/toggle)
 (define-key ashton-mode-map (kbd "C-M-t") '+vterm/toggle)
@@ -80,6 +83,8 @@
 (define-key ashton-mode-map (kbd "C-c c f") #'company-files)
 ;;(define-key ashton-mode-map (kbd "M-m") 'magit-status)
 (define-key ashton-mode-map (kbd "C-c m") 'dirvish-mark-menu)
+
+(define-key ashton-mode-map (kbd "C-M-g") 'ripgrep-regexp)
 
 (setq which-key-idle-delay 0.5)
 
