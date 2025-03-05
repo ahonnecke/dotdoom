@@ -15,7 +15,15 @@
         company-show-quick-access t
         company-dabbrev-code-everywhere t
         tab-always-indent 'complete
-        completion-ignore-case 'keep-prefix)
+        completion-ignore-case 'keep-prefix
+        company-auto-complete nil
+        company-auto-complete-chars nil
+        company-require-match 'never
+        company-frontends '(company-pseudo-tooltip-frontend company-echo-metadata-frontend)
+        company-active-map (let ((map (make-sparse-keymap)))
+                             (define-key map (kbd "TAB") #'company-complete-selection)
+                             (define-key map (kbd "RET") #'company-complete-selection)
+                             map))
 
   ;; Dictionary configuration
   (use-package company-dict

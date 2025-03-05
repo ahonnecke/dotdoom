@@ -1,17 +1,19 @@
 ;;; config-smerge.el -*- lexical-binding: t; -*-
 
 (with-eval-after-load 'smerge-mode
+  (require 'hydra)
+
   (defhydra hydra-smerge
-    (:color pink :hint nil :post (smerge-auto-leave))
+    (:color pink :hint nil)
     "
       ^Move^       ^Keep^               ^Diff^                 ^Other^
       ^^-----------^^-------------------^^---------------------^^-------
-      _n_ext       _b_ase               _<_: upper/base        _C_ombine
-      _p_rev       _u_pper              _=_: upper/lower       _r_esolve
-      ^^           _l_ower              _>_: base/lower        _k_ill current
-      ^^           _a_ll                _R_efine
-      ^^           _RET_: current       _E_diff
-        "
+      _n_: next    _b_: base            _<_: upper/base        _C_: Combine
+      _p_: prev    _u_: upper           _=_: upper/lower       _r_: resolve
+                 _l_: lower            _>_: base/lower        _k_: kill current
+                 _a_: all              _R_: refine
+                 _RET_: current        _E_: ediff
+    "
     ("n" smerge-next)
     ("p" smerge-prev)
     ("b" smerge-keep-base)
@@ -34,4 +36,29 @@
             (bury-buffer))
      "Save and bury buffer" :color blue)
     ("q" nil "cancel" :color blue))
-  (add-hook 'smerge-mode-hook (lambda () (bind-key "C-c ^ h" #'hydra-smerge/body smerge-mode-map))))
+
+  ;; Automatically open smerge-mode when detecting merge markers
+  (defun my/enable-smerge-mode ()
+    "Enable `smerge-mode` automatically if a file contains Git merge conflicts."
+    (save-excursion
+      (goto-char (point-min))
+      (when (re-search-forward "^<<<<<<< " nil t)
+        (smerge-mode 1)
+        (message "Enabled smerge-mode automatically"))))
+
+  (add-hook 'find-file-hook #'my/enable-smerge-mode)
+
+  ;; Open the Hydra automatically when smerge-mode is activated
+  (add-hook 'smerge-mode-hook
+            (lambda ()
+              (when (boundp 'smerge-mode-map)
+                (define-key smerge-mode-map (kbd "C-c ^ h") #'hydra-smerge/body))
+              (hydra-smerge/body))) ;; Auto-open Hydra
+
+  ;; Alternative global keybindings
+  (global-set-key (kbd "C-x g m") #'hydra-smerge/body)  ;; Git Merge mode
+  (global-set-key (kbd "<f8>") #'hydra-smerge/body)     ;; F8 for quick access
+
+  ;; Easier navigation between conflicts
+  (define-key smerge-mode-map (kbd "M-n") #'smerge-next)
+  (define-key smerge-mode-map (kbd "M-p") #'smerge-prev))
