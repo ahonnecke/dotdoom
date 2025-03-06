@@ -3,8 +3,9 @@
 (with-eval-after-load 'smerge-mode
   (require 'hydra)
 
+  ;; Define the smerge Hydra
   (defhydra hydra-smerge
-    (:color pink :hint nil)
+    (:color pink :hint nil :post (smerge-mode -1)) ;; Disable smerge-mode when exiting Hydra
     "
       ^Move^       ^Keep^               ^Diff^                 ^Other^
       ^^-----------^^-------------------^^---------------------^^-------
@@ -33,32 +34,18 @@
     ("ZZ" (lambda ()
             (interactive)
             (save-buffer)
-            (bury-buffer))
+            (bury-buffer)
+            (hydra-keyboard-quit)) ;; Close Hydra properly
      "Save and bury buffer" :color blue)
-    ("q" nil "cancel" :color blue))
+    ("q" hydra-keyboard-quit "cancel" :color blue))
 
-  ;; Automatically open smerge-mode when detecting merge markers
-  (defun my/enable-smerge-mode ()
-    "Enable `smerge-mode` automatically if a file contains Git merge conflicts."
-    (save-excursion
-      (goto-char (point-min))
-      (when (re-search-forward "^<<<<<<< " nil t)
-        (smerge-mode 1)
-        (message "Enabled smerge-mode automatically"))))
+  ;; Function to start a transient smerge-mode session
+  (defun my/smerge-session ()
+    "Start a transient smerge-mode session, enabling it only while Hydra is active."
+    (interactive)
+    (smerge-mode 1)  ;; Enable smerge-mode temporarily
+    (hydra-smerge/body) ;; Open Hydra
+    (smerge-mode -1)) ;; Disable smerge-mode when Hydra closes
 
-  (add-hook 'find-file-hook #'my/enable-smerge-mode)
-
-  ;; Open the Hydra automatically when smerge-mode is activated
-  (add-hook 'smerge-mode-hook
-            (lambda ()
-              (when (boundp 'smerge-mode-map)
-                (define-key smerge-mode-map (kbd "C-c ^ h") #'hydra-smerge/body))
-              (hydra-smerge/body))) ;; Auto-open Hydra
-
-  ;; Alternative global keybindings
-  (global-set-key (kbd "C-x g m") #'hydra-smerge/body)  ;; Git Merge mode
-  (global-set-key (kbd "<f8>") #'hydra-smerge/body)     ;; F8 for quick access
-
-  ;; Easier navigation between conflicts
-  (define-key smerge-mode-map (kbd "M-n") #'smerge-next)
-  (define-key smerge-mode-map (kbd "M-p") #'smerge-prev))
+  ;; Bind the toggle key to start smerge-mode manually
+  (global-set-key (kbd "C-x g m") #'my/smerge-session))
