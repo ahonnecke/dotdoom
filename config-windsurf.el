@@ -1,13 +1,15 @@
 (defun open-in-windsurf ()
   "Open Windsurf with the current file or the root of the Git repository."
   (interactive)
-  (let ((target (or (buffer-file-name)
-                    (magit-toplevel)))) ;; Get the current file or repo root
-    (if target
-        (progn
-          (shell-command (concat "windsurf --reuse-window " (shell-quote-argument target)))
-          (message "Opened in Windsurf: %s" target))
-      (message "Not in a Git repository or visiting a file!"))))
+  (let* ((file (buffer-file-name))
+         (root (magit-toplevel)))
+    (when root
+      (shell-command (concat "windsurf --reuse-window " (shell-quote-argument root)))
+      (when file
+        (shell-command (concat "windsurf --reuse-window " (shell-quote-argument file))))
+      (message "Opened in Windsurf: %s" (if file file root)))
+    (unless root
+      (message "Not in a Git repository!"))))
 
 
 ;; Bind to ashton-mode-map
