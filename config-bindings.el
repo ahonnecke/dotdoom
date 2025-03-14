@@ -1,8 +1,5 @@
 ;;; ../src/home/.doom.d/config-bindings.el -*- lexical-binding: t; -*-
 
-(defvar ashton-mode-map (make-sparse-keymap)
-  "Keymap for `ashton-mode'.")
-
 (define-key ashton-mode-map (kbd "C-;") 'comment-or-uncomment-region)
 (define-key ashton-mode-map (kbd "C-'") 'er/expand-region)
 (define-key ashton-mode-map (kbd "C-\"") 'er/contract-region)
@@ -80,7 +77,6 @@
 (define-key ashton-mode-map (kbd "C-x k") 'kill-current-buffer)
 
 ;; use C-c c for all "complete here" bindings
-(define-key ashton-mode-map (kbd "C-c c f") #'company-files)
 ;;(define-key ashton-mode-map (kbd "M-m") 'magit-status)
 (define-key ashton-mode-map (kbd "C-c m") 'dirvish-mark-menu)
 
@@ -115,6 +111,23 @@
 ;;TODO:
 ;; update vscode to ahve this too
 ;; https://stackoverflow.com/questions/40203303/shortcut-key-for-selecting-a-word-and-extending-the-selection-in-vs-code
+
+(define-key ashton-mode-map (kbd "C-c l c") 'ash-copy-current-line-position-to-clipboard)
+(define-key ashton-mode-map (kbd "C-c l f") 'copy-full-path-to-clipboard)
+(define-key ashton-mode-map (kbd "C-c l w") 'copy-wrapped-full-path-to-clipboard)
+
+(define-key ashton-mode-map (kbd "C-c g r v") 'vscode-open-filepath)
+(define-key ashton-mode-map (kbd "C-c g v") 'open-current-file-in-vscode)
+
+(define-key ashton-mode-map (kbd "C-c g n") 'goto-line)
+
+;; Bind to ashton-mode-map
+(define-key ashton-mode-map (kbd "C-c g w") #'open-in-windsurf)
+
+;; Bind to C-c f in Dired mode
+(with-eval-after-load 'dired
+  (define-key dired-mode-map (kbd "C-c f") #'create-empty-file))
+
 
 (define-minor-mode ashton-mode
   "A custom minor mode to bind ashton's keymaps."

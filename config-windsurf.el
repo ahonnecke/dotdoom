@@ -10,7 +10,3 @@
       (message "Opened in Windsurf: %s" (if file file root)))
     (unless root
       (message "Not in a Git repository!"))))
-
-
-;; Bind to ashton-mode-map
-(define-key ashton-mode-map (kbd "C-c g w") #'open-in-windsurf)

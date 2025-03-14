@@ -10,8 +10,6 @@
     (kill-new path-with-line-number)
     (message (concat path-with-line-number " copied to clipboard"))))
 
-(global-set-key (kbd "C-c C-a l") 'ash-copy-current-line-position-to-clipboard)
-
 (defun copy-full-path-to-clipboard ()
   "Copy the full path of the current file to the clipboard."
   (interactive)
@@ -20,6 +18,7 @@
         (kill-new (file-truename buffer-file-name))
         (message "Copied file path to clipboard: %s" (file-truename buffer-file-name)))
     (message "Buffer is not visiting a file!")))
+
 
 (defun copy-wrapped-full-path-to-clipboard ()
   "Copy the full path of the current file to the clipboard."
@@ -39,7 +38,3 @@ If the file already exists, it does nothing."
         (message "File already exists: %s" full-path)
       (write-region "" nil full-path)
       (message "File created: %s" full-path))))
-
-;; Bind to C-c f in Dired mode
-(with-eval-after-load 'dired
-  (define-key dired-mode-map (kbd "C-c f") #'create-empty-file))

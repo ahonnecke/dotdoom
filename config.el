@@ -76,7 +76,6 @@
 ;; they are implemented.
 
 
-(load "~/.doom.d/config-bindings.el")
 ;;(load! config-bindings)
 (load "~/.doom.d/config-quad-screen")
 ;;(triple-screen)
@@ -106,10 +105,8 @@
 ;;   (auto-fill-mode 1)
 ;;   )
 
-;;(load "~/.doom.d/config-ejira")
-;;(load "~/.doom.d/config-sql")
+(load "~/.doom.d/config-ash-mode")
 (load "~/.doom.d/config-custom-expand")
-;;(load "~/.doom.d/config-rotate-text")
 
 ;; lsp module completion working here with sync and restart
 
@@ -197,10 +194,13 @@
 
 (setq fancy-splash-image (concat doom-private-dir "black-hole-png-222.png"))
 
-(load "~/.doom.d/config-jolly-brancher")
+;;(load "~/.doom.d/config-jolly-brancher")
 (load "~/.doom.d/config-llm")
 (load "~/.doom.d/config-ellama")
 (load "~/.doom.d/config-bookmark")
 (load "~/.doom.d/config-aider")
 (load "~/.doom.d/config-smerge")
 (load "~/.doom.d/custom-completion.el")
+
+;;Load my ash-mode binding last
+(load "~/.doom.d/config-bindings.el")
