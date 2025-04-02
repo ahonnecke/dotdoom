@@ -4,7 +4,11 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(package-selected-packages
-   '(spinner llm npm-mode marginalia consult embark igist ox-gist gist unfill typescript-mode tree-sitter-langs ruff-format rg region-bindings-mode projectile-ripgrep prettify-greek ox-report org-download org-bullets nvm indent-tools flymake-ruff docker-compose-mode crux cmake-mode biomejs-format apheleia)))
+   '(apheleia biomejs-format cmake-mode consult crux docker-compose-mode embark
+     expand-region flymake-ruff gist igist indent-tools llm magit-imerge
+     marginalia npm-mode nvm org-bullets org-download ox-gist ox-report
+     prettify-greek projectile-ripgrep region-bindings-mode rg ruff-format
+     spinner tree-sitter-langs typescript-mode unfill)))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.

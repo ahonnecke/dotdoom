@@ -186,7 +186,7 @@
 (load "~/.doom.d/config-igist")
 (load "~/.doom.d/config-elisp")
 (load "~/.doom.d/config-make")
-(load "~/.doom.d/config-ripgrep.el")
+(load "~/.doom.d/config-ripgrep")
 
 (setq projectile-create-missing-test-files t)
 
@@ -200,7 +200,8 @@
 (load "~/.doom.d/config-bookmark")
 (load "~/.doom.d/config-aider")
 (load "~/.doom.d/config-smerge")
-(load "~/.doom.d/custom-completion.el")
+(load "~/.doom.d/custom-completion")
 
+;;(load "~/.doom.d/config-jolly-brancher")
 ;;Load my ash-mode binding last
-(load "~/.doom.d/config-bindings.el")
+(load "~/.doom.d/config-bindings")
