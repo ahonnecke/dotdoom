@@ -13,24 +13,6 @@
 ;; (add-hook 'python-ts-mode-hook #'tree-sitter-mode)
 ;; (add-hook 'python-ts-mode-hook #'tree-sitter-hl-mode)
 
-(setq treesit-language-source-alist
-      '((bash "https://github.com/tree-sitter/tree-sitter-bash")
-        (cmake "https://github.com/uyha/tree-sitter-cmake")
-        (css "https://github.com/tree-sitter/tree-sitter-css")
-        (elisp "https://github.com/Wilfred/tree-sitter-elisp")
-        (go "https://github.com/tree-sitter/tree-sitter-go")
-        (html "https://github.com/tree-sitter/tree-sitter-html")
-        (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "master" "src")
-        (json "https://github.com/tree-sitter/tree-sitter-json")
-        (make "https://github.com/alemuller/tree-sitter-make")
-        (markdown "https://github.com/ikatyang/tree-sitter-markdown")
-        (python "https://github.com/tree-sitter/tree-sitter-python")
-        (toml "https://github.com/tree-sitter/tree-sitter-toml")
-        (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
-        (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
-        (yaml "https://github.com/ikatyang/tree-sitter-yaml")))
-
-
 ;; (add-to-list 'auto-mode-alist '("\\.sh\\'" . bash-ts-mode))
 ;; (add-to-list 'auto-mode-alist '("\\.json\\'" . json-ts-mode))
 ;; (add-to-list 'auto-mode-alist '("\\.css\\'" . css-ts-mode))
@@ -39,34 +21,34 @@
 ;; (add-to-list 'auto-mode-alist '("\\.json\\'" . json-ts-mode))
 ;; (add-to-list 'auto-mode-alist '("\\.env\\'" . conf-mode))
 
-;; Simplified configuration for Emacs 29+
-(when (treesit-language-available-p 'python)
-  (add-to-list 'major-mode-remap-alist '(python-mode . python-ts-mode)))
+(when (fboundp 'treesit-language-available-p)
+  ;; Tree-sitter setup for Emacs 29+
+  (setq treesit-language-source-alist
+        '((bash "https://github.com/tree-sitter/tree-sitter-bash")
+          (cmake "https://github.com/uyha/tree-sitter-cmake")
+          (css "https://github.com/tree-sitter/tree-sitter-css")
+          (elisp "https://github.com/Wilfred/tree-sitter-elisp")
+          (go "https://github.com/tree-sitter/tree-sitter-go")
+          (html "https://github.com/tree-sitter/tree-sitter-html")
+          (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "master" "src")
+          (json "https://github.com/tree-sitter/tree-sitter-json")
+          (make "https://github.com/alemuller/tree-sitter-make")
+          (markdown "https://github.com/ikatyang/tree-sitter-markdown")
+          (python "https://github.com/tree-sitter/tree-sitter-python")
+          (toml "https://github.com/tree-sitter/tree-sitter-toml")
+          (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
+          (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
+          (yaml "https://github.com/ikatyang/tree-sitter-yaml")))
 
-;; Enable Tree-sitter highlighting
-(add-hook 'python-ts-mode-hook #'treesit-major-mode-setup)
+  ;; Remap python-mode to python-ts-mode if Tree-sitter is available
+  (when (treesit-language-available-p 'python)
+    (add-to-list 'major-mode-remap-alist '(python-mode . python-ts-mode)))
 
-;; Ensure Python Tree-sitter grammar is installed
-(setq treesit-language-source-alist
-      '((bash "https://github.com/tree-sitter/tree-sitter-bash")
-        (cmake "https://github.com/uyha/tree-sitter-cmake")
-        (css "https://github.com/tree-sitter/tree-sitter-css")
-        (elisp "https://github.com/Wilfred/tree-sitter-elisp")
-        (go "https://github.com/tree-sitter/tree-sitter-go")
-        (html "https://github.com/tree-sitter/tree-sitter-html")
-        (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "master" "src")
-        (json "https://github.com/tree-sitter/tree-sitter-json")
-        (make "https://github.com/alemuller/tree-sitter-make")
-        (markdown "https://github.com/ikatyang/tree-sitter-markdown")
-        (python "https://github.com/tree-sitter/tree-sitter-python")
-        (toml "https://github.com/tree-sitter/tree-sitter-toml")
-        (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
-        (typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
-        (yaml "https://github.com/ikatyang/tree-sitter-yaml")))
+  ;; Tree-sitter highlighting setup
+  (add-hook 'python-ts-mode-hook #'treesit-major-mode-setup)
 
-
-;; Automatic grammar installation (if missing)
-(add-hook 'python-ts-mode-hook
-          (lambda ()
-            (unless (treesit-language-available-p 'python)
-              (treesit-install-language-grammar 'python))))
+  ;; Automatic grammar installation
+  (add-hook 'python-ts-mode-hook
+            (lambda ()
+              (unless (treesit-language-available-p 'python)
+                (treesit-install-language-grammar 'python)))))
