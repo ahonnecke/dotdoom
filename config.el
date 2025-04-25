@@ -183,7 +183,7 @@
 (load "~/.doom.d/config-ruff")
 (load "~/.doom.d/config-flycheck-biomejs")
 (load "~/.doom.d/config-rc")
-(load "~/.doom.d/config-igist")
+;;(load "~/.doom.d/config-igist")
 (load "~/.doom.d/config-elisp")
 (load "~/.doom.d/config-make")
 (load "~/.doom.d/config-ripgrep")

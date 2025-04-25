@@ -8,7 +8,7 @@
      expand-region flymake-ruff gist igist indent-tools llm magit-imerge
      marginalia npm-mode nvm org-bullets org-download ox-gist ox-report
      prettify-greek projectile-ripgrep region-bindings-mode rg ruff-format
-     spinner tree-sitter-langs typescript-mode unfill)))
+     spinner tree-sitter-langs typescript-mode unfill yagist)))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
