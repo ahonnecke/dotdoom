@@ -194,7 +194,7 @@
 
 (setq fancy-splash-image (concat doom-private-dir "black-hole-png-222.png"))
 
-;;(load "~/.doom.d/config-jolly-brancher")
+(load "~/.doom.d/config-jolly-brancher")
 (load "~/.doom.d/config-llm")
 (load "~/.doom.d/config-ellama")
 (load "~/.doom.d/config-bookmark")

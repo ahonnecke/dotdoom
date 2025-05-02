@@ -56,3 +56,14 @@
                     (ediff-get-region-contents ediff-current-difference 'B ediff-control-buffer))))
 (defun add-d-to-ediff-mode-map () (define-key ediff-mode-map "d" 'ediff-copy-both-to-C))
 (add-hook 'ediff-keymap-setup-hook 'add-d-to-ediff-mode-map)
+
+;; When editing files over TRAMP, don't try to run remote git commit
+(setq tramp-git-commit-style 'separate)
+
+(defun magit-pop-stash-without-index ()
+  "Apply the latest stash (stash@{0}) without dropping it, using 'git stash apply'."
+  (interactive)
+  (let ((default-directory (magit-toplevel)))
+    (when (not default-directory)
+      (user-error "Not inside a Git repository"))
+    (magit-run-git "stash" "apply" "stash@{0}")))
