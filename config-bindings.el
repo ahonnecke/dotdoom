@@ -7,9 +7,8 @@
 (define-key ashton-mode-map (kbd "C-x b") 'ivy-switch-buffer)
 ;;(define-key ashton-mode-map (kbd "M-g") 'projectile-ripgrep)
 (define-key ashton-mode-map (kbd "M-g") '+default/search-project)
-(define-key ashton-mode-map (kbd "C-x C-f") '+ivy/projectile-find-file)
-(define-key ashton-mode-map (kbd "C-x f") 'counsel-find-file)
-
+(define-key ashton-mode-map (kbd "C-x f") '+ivy/projectile-find-file)
+(define-key ashton-mode-map (kbd "C-x C-f") 'counsel-find-file)
 
 (define-key ashton-mode-map (kbd "M-n") 'sp-forward-sexp)
 (define-key ashton-mode-map (kbd "M-p") 'sp-backward-sexp)
@@ -19,6 +18,7 @@
 ;;(define-key ashton-mode-map (kbd "M-o") 'projectile-switch-open-project)
 
 (define-key ashton-mode-map (kbd "C-x C-k") 'kill-buffer)
+(define-key ashton-mode-map (kbd "C-c C-d") 'deadgrep)
 
 (define-key ashton-mode-map (kbd "C-c C-g") '+default/search-project)
 
