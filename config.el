@@ -192,7 +192,7 @@
 
 (put 'projectile-ripgrep 'disabled nil)
 
-(setq fancy-splash-image (concat doom-private-dir "black-hole-png-222.png"))
+;;(setq fancy-splash-image (concat doom-private-dir "black-hole-png-222.png"))
 
 (load "~/.doom.d/config-jolly-brancher")
 (load "~/.doom.d/config-llm")
@@ -205,3 +205,7 @@
 ;;(load "~/.doom.d/config-jolly-brancher")
 ;;Load my ash-mode binding last
 (load "~/.doom.d/config-bindings")
+
+;; Open TODO.org on startup (instead of any splash/agenda)
+(setq inhibit-startup-screen t
+      initial-buffer-choice (expand-file-name "~/MAIN_ASHTON_TODO.org"))
