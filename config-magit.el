@@ -67,3 +67,55 @@
     (when (not default-directory)
       (user-error "Not inside a Git repository"))
     (magit-run-git "stash" "apply" "stash@{0}")))
+
+(require 'magit)
+
+;; (defun magit-flatten (commit-message)
+;;   "Collapse the current branch into a single commit on top of `main`.
+
+;;   This runs:
+;;     git reset --soft main
+;;     git add -A
+;;     git commit -m COMMIT-MESSAGE"
+;;   (interactive "sCommit message for flattened commit: ")
+;;   ;; Step 1: reset soft to main
+;;   (magit-run-git "reset" "--soft" "main")
+;;   ;; Step 2: stage all changes
+;;   (magit-run-git "add" "-A")
+;;   ;; Step 3: commit with provided message
+;;   (magit-run-git "commit" "-m" commit-message))
+
+(require 'magit)
+
+(defun magit-flatten--default-base ()
+  "Return a sensible default base ref for flattening."
+  (cond
+   ((magit-rev-verify "upstream/main") "upstream/main")
+   ((magit-rev-verify "origin/main")   "origin/main")
+   ((magit-rev-verify "main")          "main")
+   (t                                  (or (magit-get-current-branch) "HEAD"))))
+
+(defun magit-flatten (base commit-message)
+  "Flatten the current branch into a single commit on top of BASE.
+
+This runs:
+  git reset --soft BASE
+  git add -A
+  git commit -m COMMIT-MESSAGE
+
+BASE is chosen via Magit's branch/commit picker, so remote refs
+like `upstream/main` are available."
+  (interactive
+   (let* ((default (magit-flatten--default-base))
+          (base (magit-read-branch-or-commit
+                 (format "Reset to (default %s): " default) default))
+          (msg  (read-string "Commit message for flattened commit: ")))
+     (list base msg)))
+  (magit-with-toplevel
+    ;; Step 1: soft reset to chosen base
+    (magit-run-git "reset" "--soft" base)
+    ;; Step 2: stage everything
+    (magit-run-git "add" "-A")
+    ;; Step 3: commit
+    (magit-run-git "commit" "-m" commit-message)
+    (magit-refresh)))

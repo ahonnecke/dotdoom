@@ -12,7 +12,7 @@
 
 ;;; Perform isorting py-isort-buffer on save or something
 (with-eval-after-load "python"
-  (define-key python-ts-mode-map  (kbd "M-/") '+company/complete)
+  ;; (define-key python-ts-mode-map  (kbd "M-/") '+company/complete)
   (global-set-key  (kbd "C->") 'python-indent-shift-right)
   (global-set-key  (kbd "C-<") 'python-indent-shift-left)
 
