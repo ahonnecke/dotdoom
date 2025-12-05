@@ -61,11 +61,12 @@
 
   ;; Define keybindings for different completion sources using C-c c prefix
   (define-key ashton-mode-map (kbd "C-c C-SPC") #'my/company-complete)
-  (define-key ashton-mode-map (kbd "C-c c-b") #'my/company-complete-buffer)
-  (define-key ashton-mode-map (kbd "C-c c-p") #'my/company-complete-project)
-  (define-key ashton-mode-map (kbd "C-c c-l") #'my/company-complete-lsp)
+  (define-key ashton-mode-map (kbd "C-c c SPC") #'my/company-complete)
+  (define-key ashton-mode-map (kbd "C-c c b") #'my/company-complete-buffer)
+  (define-key ashton-mode-map (kbd "C-c c p") #'my/company-complete-project)
+  (define-key ashton-mode-map (kbd "C-c c l") #'my/company-complete-lsp)
   (define-key ashton-mode-map (kbd "M-C-/") #'my/company-complete-project)
-  (define-key ashton-mode-map (kbd "C-c c-f") #'company-files)
+  (define-key ashton-mode-map (kbd "C-c c f") #'company-files)
 
   )
 ;;   ;; DO NOT override company-active-map from scratch — instead, extend it

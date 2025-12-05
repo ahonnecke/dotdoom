@@ -84,7 +84,6 @@
 ;;(load "~/.doom.d/config-black")
 (load "~/.doom.d/config-ffap")
 (load "~/.doom.d/config-magit")
-(load "~/.doom.d/config-windsurf")
 
 
 ;;TODO: make this conditional
@@ -114,22 +113,21 @@
 (load "~/.doom.d/config-undo-tree")
 (load "~/.doom.d/config-org-mode")
 
-(load "~/.doom.d/config-python")
+;; config-python.el deprecated - using config-ts-python.el instead
 (load "~/.doom.d/config-file-location")
 (load "~/.doom.d/config-geojson")
 
-(load "~/.doom.d/config-tree-sitter.el")
-(load "~/.doom.d/config-ts-conf.el")
-(load "~/.doom.d/config-ts-python.el")
-(load "~/.doom.d/config-ts-yaml.el")
-(load "~/.doom.d/config-latex.el")
+(load "~/.doom.d/config-tree-sitter")
+(load "~/.doom.d/config-ts-conf")
+(load "~/.doom.d/config-ts-python")
+(load "~/.doom.d/config-ts-yaml")
+(load "~/.doom.d/config-latex")
 (load "~/.doom.d/config-ts-typescript")
-(load "~/.doom.d/config-region-bindings-mode.el")
-(load "~/.doom.d/config-indent-tools.el")
-(load "~/.doom.d/config-vscode.el")
+(load "~/.doom.d/config-region-bindings-mode")
+(load "~/.doom.d/config-indent-tools")
 
-;; Restore magit keybinding
-(global-set-key (kbd "M-m") 'magit-status)
+;; M-m is handled by orchard-cycle-mode in config-orchard.el
+;; (global-set-key (kbd "M-m") 'magit-status)
 
 (global-set-key (kbd "C-.") 'company-files)
 
@@ -174,8 +172,6 @@
 
 (setq doom--prefer-lexical-binding t)
 
-(load "~/.doom.d/config-tree-sitter")
-(load "~/.doom.d/config-vscode")
 (load "~/.doom.d/config-crux")
 (load "~/.doom.d/config-firefox")
 (load "~/.doom.d/config-projectile")
@@ -188,24 +184,51 @@
 (load "~/.doom.d/config-make")
 (load "~/.doom.d/config-ripgrep")
 
+;; Additional useful configs
+(load "~/.doom.d/config-windmove")
+(load "~/.doom.d/config-tabs")
+(load "~/.doom.d/config-browse")
+(load "~/.doom.d/config-json-mode")
+(load "~/.doom.d/config-org-download")
+(load "~/.doom.d/config-nudge")
+(load "~/.doom.d/config-vitest")
+(load "~/.doom.d/config-wayward")
+(load "~/.doom.d/config-combobulate")
+
 (setq projectile-create-missing-test-files t)
 
 (put 'projectile-ripgrep 'disabled nil)
 
 ;;(setq fancy-splash-image (concat doom-private-dir "black-hole-png-222.png"))
 
+(load "~/.doom.d/config-direnv")
 (load "~/.doom.d/config-jolly-brancher")
 (load "~/.doom.d/config-llm")
-(load "~/.doom.d/config-ellama")
+(load "~/.doom.d/config-consult-embark")  ; MOVEC stack: consult, embark, marginalia, orderless
+;; config-ellama.el disabled - entirely commented out
 (load "~/.doom.d/config-bookmark")
 (load "~/.doom.d/config-aider")
 (load "~/.doom.d/config-smerge")
-(load "~/.doom.d/custom-completion")
+;; (load "~/.doom.d/custom-completion")  ; ARCHIVED - replaced by config-corfu.el (2025-12-05)
+(load "~/.doom.d/config-corfu")          ; Corfu + Cape completion
+(load "~/.doom.d/config-standup")
+(load "~/.doom.d/config-workspace")
+(load "~/.doom.d/config-claude")
+(load "~/.doom.d/config-monet")  ; Claude IDE integration (selection sharing, diagnostics)
+(load "~/.doom.d/config-casual")  ; Transient menus for built-in modes
+(load "~/.doom.d/config-ghq")
+(load "~/.doom.d/config-orchard")
+(load "~/.doom.d/config-crewcapable-project")  ; Project-specific orchard settings
+(load "~/.doom.d/config-commando")
+(load "~/.doom.d/config-pr")
+(load "~/.doom.d/config-caldav")
+(load "~/.doom.d/config-testicular")  ; Manual testing mode (renamed from test-flow)
 
 ;;(load "~/.doom.d/config-jolly-brancher")
 ;;Load my ash-mode binding last
 (load "~/.doom.d/config-bindings")
+(load "~/.doom.d/config-cheatsheet")  ; C-c ? for help
 
-;; Open TODO.org on startup (instead of any splash/agenda)
+;; Open Orchard on startup
 (setq inhibit-startup-screen t
-      initial-buffer-choice (expand-file-name "~/MAIN_ASHTON_TODO.org"))
+      initial-buffer-choice #'orchard)

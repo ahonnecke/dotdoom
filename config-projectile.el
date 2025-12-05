@@ -30,22 +30,9 @@
 (with-eval-after-load 'company
   (add-to-list 'company-backends 'company-files))
 
-;; Configure counsel-projectile for enhanced project switching
-(with-eval-after-load 'counsel-projectile
-  ;; Custom action for switching projects and opening Magit status
-  (defun my/switch-project-and-magit-status (project)
-    "Switch to PROJECT and open Magit status."
-    (let ((default-directory project))
-      (magit-status)
-      (message "Switched to project: %s" project)))
-
-  ;; Set the default action for counsel-projectile-switch-project
-  (setq counsel-projectile-switch-project-action
-        #'my/switch-project-and-magit-status))
-
-;; Keybinding for invoking this behavior with M-o
+;; Keybinding for project switching with M-o (uses consult-projectile if available)
 (with-eval-after-load 'projectile
-  (global-set-key (kbd "M-o") #'counsel-projectile-switch-project))
+  (global-set-key (kbd "M-o") #'projectile-switch-project))
 
 ;; Enable projectile globally
 (projectile-mode +1)

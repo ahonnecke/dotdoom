@@ -1,0 +1,12 @@
+# TODO
+
+* Add modes
+** vercel
+** supabase
+* Enhance modes
+** vercel
+*** for crewcapable usage patterns
+** supabase
+*** for crewcapable usage patterns
+** aws
+*** for crewcapable usage patterns

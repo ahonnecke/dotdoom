@@ -1,0 +1,373 @@
+;;; ~/.doom.d/config-test-flow.el -*- lexical-binding: t; -*-
+
+;; Simple test flow mode for stepping through Claude-generated test plans
+;; Captures screenshots, tracks pass/fail, exports with base64 images
+
+(require 'cl-lib)
+
+(defvar test-flow-tests nil "List of parsed test cases.")
+(defvar test-flow-current-index 0 "Current test index.")
+(defvar test-flow-results nil "Alist of (index . (:status :screenshots)).")
+(defvar test-flow-plan-file nil "Path to the test plan file.")
+(defvar test-flow-screenshot-dir nil "Directory for screenshots.")
+(defvar test-flow-project-root nil "Project root for current test flow.")
+(defvar test-flow--return-buffer nil "Buffer to return to after Claude session.")
+(defvar test-flow--claude-buffer nil "Claude buffer spawned from test flow.")
+
+(defvar test-flow-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "n") #'test-flow-next)
+    (define-key map (kbd "p") #'test-flow-prev)
+    (define-key map (kbd "P") #'test-flow-mark-passed)
+    (define-key map (kbd "f") #'test-flow-mark-failed)
+    (define-key map (kbd "s") #'test-flow-screenshot-clipboard)
+    (define-key map (kbd "S") #'test-flow-screenshot-file)
+    (define-key map (kbd "v") #'test-flow-view-screenshots)
+    (define-key map (kbd "e") #'test-flow-export)
+    (define-key map (kbd "r") #'test-flow-refresh)
+    (define-key map (kbd "g") #'test-flow-refresh)
+    (define-key map (kbd "q") #'quit-window)
+    (define-key map (kbd "?") #'test-flow-help)
+    map)
+  "Keymap for test-flow-mode.")
+
+(define-derived-mode test-flow-mode special-mode "TestFlow"
+  "Mode for stepping through test cases."
+  (setq buffer-read-only t)
+  (setq truncate-lines t))
+
+(defun test-flow-start ()
+  "Start test flow for current project."
+  (interactive)
+  (let* ((root (or (projectile-project-root) default-directory))
+         (plan-file (expand-file-name ".test-plan.md" root)))
+    (unless (file-exists-p plan-file)
+      (user-error "No .test-plan.md found. Run /test-plan in Claude first"))
+    (setq test-flow-plan-file plan-file)
+    (setq test-flow-project-root root)
+    (setq test-flow-screenshot-dir (expand-file-name ".test-evidence/screenshots" root))
+    (make-directory test-flow-screenshot-dir t)
+    (setq test-flow-tests (test-flow-parse-plan plan-file))
+    (setq test-flow-current-index 0)
+    (setq test-flow-results nil)
+    (setq test-flow--return-buffer nil)
+    (setq test-flow--claude-buffer nil)
+    ;; Initialize results
+    (dotimes (i (length test-flow-tests))
+      (push (cons i (list :status 'pending :screenshots nil)) test-flow-results))
+    (setq test-flow-results (nreverse test-flow-results))
+    (test-flow-show-buffer)))
+
+(defun test-flow-parse-plan (file)
+  "Parse test plan FILE into list of test alists."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (let ((content (buffer-string))
+          (tests nil)
+          (case-fold-search t))
+      ;; Split by --- separator and find test sections
+      (dolist (section (split-string content "\n---\n" t))
+        (when (string-match "^## Test \\([0-9]+\\): \\(.+\\)" section)
+          (let* ((num (match-string 1 section))
+                 (name (string-trim (match-string 2 section)))
+                 (body (substring section (match-end 0))))
+            (push (list :number (string-to-number num)
+                        :name name
+                        :body (string-trim body))
+                  tests))))
+      (nreverse tests))))
+
+(defun test-flow-show-buffer ()
+  "Display the test flow buffer."
+  (let ((buf (get-buffer-create "*Test Flow*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (test-flow-mode)
+        (test-flow-render)))
+    (pop-to-buffer buf)))
+
+(defun test-flow-render ()
+  "Render current test in buffer."
+  (let ((inhibit-read-only t)
+        (test (nth test-flow-current-index test-flow-tests))
+        (result (cdr (assoc test-flow-current-index test-flow-results)))
+        (total (length test-flow-tests)))
+    (erase-buffer)
+    (insert (propertize "TEST FLOW" 'face 'bold) "\n")
+    (insert (format "Test %d of %d" (1+ test-flow-current-index) total))
+    (insert "  |  ")
+    ;; Progress indicators
+    (dotimes (i total)
+      (let* ((r (cdr (assoc i test-flow-results)))
+             (status (plist-get r :status))
+             (face (pcase status
+                     ('passed '(:foreground "green"))
+                     ('failed '(:foreground "red"))
+                     (_ '(:foreground "gray")))))
+        (insert (propertize (if (= i test-flow-current-index) "[*]" "[ ]") 'face face))))
+    (insert "\n\n")
+    (insert (make-string 60 ?-) "\n\n")
+    ;; Test content
+    (when test
+      (let ((status (plist-get result :status))
+            (screenshots (plist-get result :screenshots)))
+        (insert (propertize (format "## Test %d: %s"
+                                    (plist-get test :number)
+                                    (plist-get test :name))
+                            'face '(:weight bold :height 1.2)))
+        (insert "  ")
+        (insert (propertize (format "[%s]" (upcase (symbol-name status)))
+                            'face (pcase status
+                                    ('passed '(:foreground "green" :weight bold))
+                                    ('failed '(:foreground "red" :weight bold))
+                                    (_ '(:foreground "yellow")))))
+        (insert "\n\n")
+        (insert (plist-get test :body))
+        (insert "\n\n")
+        ;; Screenshots
+        (when screenshots
+          (insert (make-string 40 ?-) "\n")
+          (insert (propertize (format "Screenshots: %d attached\n" (length screenshots))
+                              'face 'font-lock-comment-face))
+          (dolist (s screenshots)
+            (insert (format "  - %s\n" (file-name-nondirectory s)))))))
+    (insert "\n" (make-string 60 ?-) "\n\n")
+    (insert (propertize "Keys: " 'face 'bold))
+    (insert "n/p:nav  P:pass  f:fail→Claude  s:screenshot  e:export  q:quit  ?:help")
+    (goto-char (point-min))))
+
+(defun test-flow-next ()
+  "Go to next test."
+  (interactive)
+  (when (< test-flow-current-index (1- (length test-flow-tests)))
+    (cl-incf test-flow-current-index)
+    (test-flow-render)))
+
+(defun test-flow-prev ()
+  "Go to previous test."
+  (interactive)
+  (when (> test-flow-current-index 0)
+    (cl-decf test-flow-current-index)
+    (test-flow-render)))
+
+(defun test-flow-mark-passed ()
+  "Mark current test as passed and advance."
+  (interactive)
+  (test-flow--set-status 'passed)
+  (test-flow-render)
+  (when (< test-flow-current-index (1- (length test-flow-tests)))
+    (test-flow-next)))
+
+(defun test-flow-mark-failed ()
+  "Mark current test as failed and open Claude to fix."
+  (interactive)
+  (test-flow--set-status 'failed)
+  (test-flow-render)
+  ;; Open Claude in same window
+  (test-flow--open-claude-for-fix))
+
+(defun test-flow--set-status (status)
+  "Set STATUS for current test."
+  (let ((result (assoc test-flow-current-index test-flow-results)))
+    (setcdr result (plist-put (cdr result) :status status))))
+
+(defun test-flow-screenshot-clipboard ()
+  "Capture screenshot from clipboard (Fireshot)."
+  (interactive)
+  (let* ((timestamp (format-time-string "%Y%m%d-%H%M%S"))
+         (filename (format "test-%d-%s.png"
+                           (1+ test-flow-current-index)
+                           timestamp))
+         (filepath (expand-file-name filename test-flow-screenshot-dir)))
+    (if (zerop (call-process "xclip" nil nil nil
+                             "-selection" "clipboard"
+                             "-t" "image/png"
+                             "-o"))
+        (progn
+          (with-temp-file filepath
+            (set-buffer-multibyte nil)
+            (call-process "xclip" nil t nil
+                          "-selection" "clipboard"
+                          "-t" "image/png"
+                          "-o"))
+          (test-flow--add-screenshot filepath)
+          (test-flow-render)
+          (message "Screenshot saved: %s" filename))
+      (user-error "No image in clipboard"))))
+
+(defun test-flow-screenshot-file ()
+  "Attach screenshot from file."
+  (interactive)
+  (let ((file (read-file-name "Screenshot file: " "~/screenshots/")))
+    (when (and file (file-exists-p file))
+      (let* ((timestamp (format-time-string "%Y%m%d-%H%M%S"))
+             (ext (file-name-extension file))
+             (filename (format "test-%d-%s.%s"
+                               (1+ test-flow-current-index)
+                               timestamp
+                               ext))
+             (filepath (expand-file-name filename test-flow-screenshot-dir)))
+        (copy-file file filepath t)
+        (test-flow--add-screenshot filepath)
+        (test-flow-render)
+        (message "Screenshot attached: %s" filename)))))
+
+(defun test-flow--add-screenshot (filepath)
+  "Add FILEPATH to current test's screenshots."
+  (let* ((result (assoc test-flow-current-index test-flow-results))
+         (screenshots (plist-get (cdr result) :screenshots)))
+    (setcdr result (plist-put (cdr result) :screenshots
+                              (append screenshots (list filepath))))))
+
+(defun test-flow-view-screenshots ()
+  "View screenshots for current test."
+  (interactive)
+  (let* ((result (cdr (assoc test-flow-current-index test-flow-results)))
+         (screenshots (plist-get result :screenshots)))
+    (if screenshots
+        (dolist (s screenshots)
+          (find-file-other-window s))
+      (message "No screenshots attached"))))
+
+(defun test-flow-export ()
+  "Export test results with base64 screenshots to clipboard."
+  (interactive)
+  (let ((output (test-flow--generate-export)))
+    (kill-new output)
+    (message "Exported %d tests to clipboard" (length test-flow-tests))))
+
+(defun test-flow--generate-export ()
+  "Generate markdown export with base64 images."
+  (with-temp-buffer
+    (insert "## Test Evidence\n\n")
+    (dotimes (i (length test-flow-tests))
+      (let* ((test (nth i test-flow-tests))
+             (result (cdr (assoc i test-flow-results)))
+             (status (plist-get result :status))
+             (screenshots (plist-get result :screenshots))
+             (icon (pcase status
+                     ('passed ":white_check_mark:")
+                     ('failed ":x:")
+                     (_ ":hourglass:"))))
+        (insert (format "### %s Test %d: %s\n\n"
+                        icon
+                        (plist-get test :number)
+                        (plist-get test :name)))
+        (dolist (s screenshots)
+          (when (file-exists-p s)
+            (let* ((ext (file-name-extension s))
+                   (mime (pcase ext
+                           ("png" "image/png")
+                           ("jpg" "image/jpeg")
+                           ("jpeg" "image/jpeg")
+                           (_ "image/png")))
+                   (b64 (with-temp-buffer
+                          (set-buffer-multibyte nil)
+                          (insert-file-contents-literally s)
+                          (base64-encode-string (buffer-string) t))))
+              (insert (format "![screenshot](data:%s;base64,%s)\n\n" mime b64)))))
+        (insert "\n")))
+    (buffer-string)))
+
+(defun test-flow-refresh ()
+  "Refresh the display."
+  (interactive)
+  (test-flow-render))
+
+(defun test-flow-help ()
+  "Show help."
+  (interactive)
+  (message "n/p:nav P:pass f:fail→Claude s:screenshot S:file v:view e:export q:quit | In Claude: C-x 0 returns"))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Claude Integration - Drop into Claude on failure, return on close
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun test-flow--open-claude-for-fix ()
+  "Open Claude in same window to fix the failed test."
+  (let* ((test (nth test-flow-current-index test-flow-tests))
+         (test-name (plist-get test :name))
+         (test-body (plist-get test :body))
+         (original-window (selected-window)))
+    ;; Save current buffer to return to
+    (setq test-flow--return-buffer (current-buffer))
+    ;; Ensure claude-code is loaded
+    (unless (featurep 'vterm)
+      (require 'vterm))
+    (unless (featurep 'claude-code)
+      (require 'claude-code))
+    ;; Start Claude in the project root
+    (let ((default-directory test-flow-project-root))
+      (if (fboundp 'claude-code)
+          (progn
+            ;; Call claude-code - it will create/switch to the buffer
+            (claude-code)
+            ;; Force the claude buffer into the original window (where Test Flow was)
+            (let ((claude-buf (current-buffer)))
+              (setq test-flow--claude-buffer claude-buf)
+              ;; Delete any extra windows claude may have created and show in original
+              (select-window original-window)
+              (switch-to-buffer claude-buf)
+              ;; Clean up other windows showing this buffer
+              (delete-other-windows-on claude-buf)
+              ;; Add hook to return when Claude buffer is killed
+              (with-current-buffer claude-buf
+                (add-hook 'kill-buffer-hook #'test-flow--on-claude-kill nil t))
+              ;; Send context about the failed test
+              (run-at-time 1.5 nil
+                           (lambda ()
+                             (when (and (fboundp 'claude-code-send-command)
+                                        test-flow--claude-buffer
+                                        (buffer-live-p test-flow--claude-buffer))
+                               (with-current-buffer test-flow--claude-buffer
+                                 (claude-code-send-command
+                                  (format "Test failed: %s\n\n%s\n\nPlease help me fix this."
+                                          test-name test-body))))))))
+        (user-error "claude-code not available")))))
+
+(defun test-flow--on-claude-kill ()
+  "Hook called when Claude buffer is killed. Return to test flow."
+  (when (and test-flow--return-buffer
+             (buffer-live-p test-flow--return-buffer))
+    ;; Use run-at-time to switch after the kill completes
+    (let ((return-buf test-flow--return-buffer))
+      (run-at-time 0 nil
+                   (lambda ()
+                     (when (buffer-live-p return-buf)
+                       (switch-to-buffer return-buf)
+                       (message "Back to Test Flow. P:pass if fixed, f:fail again to retry")))))))
+
+(defun test-flow-return ()
+  "Manually return to test flow from Claude."
+  (interactive)
+  (if (and test-flow--return-buffer
+           (buffer-live-p test-flow--return-buffer))
+      (progn
+        (switch-to-buffer test-flow--return-buffer)
+        (message "Back to Test Flow"))
+    (if-let ((buf (get-buffer "*Test Flow*")))
+        (switch-to-buffer buf)
+      (user-error "No test flow session active"))))
+
+;; Advice to catch C-x 0 (delete-window) when in test-flow Claude session
+(defun test-flow--around-delete-window (orig-fun &optional window)
+  "Return to test flow when closing Claude window from test session."
+  (let ((buf (window-buffer (or window (selected-window)))))
+    (if (and test-flow--claude-buffer
+             (eq buf test-flow--claude-buffer)
+             test-flow--return-buffer
+             (buffer-live-p test-flow--return-buffer))
+        ;; We're closing the test-flow Claude window - switch to test flow instead
+        (progn
+          (switch-to-buffer test-flow--return-buffer)
+          (message "Back to Test Flow. P:pass if fixed, f:fail to retry with Claude"))
+      ;; Normal delete-window behavior
+      (funcall orig-fun window))))
+
+(advice-add 'delete-window :around #'test-flow--around-delete-window)
+
+;; Global binding
+(global-set-key (kbd "C-c T") #'test-flow-start)
+
+(provide 'config-test-flow)

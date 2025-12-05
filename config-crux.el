@@ -1,10 +1,4 @@
-;;; ../src/home/.doom.d/config-crux.el
-
-;; (unless (package-installed-p 'crux)
-;;   (package-refresh-contents)
-;;   (package-install 'crux))
-
+;;; ~/.doom.d/config-crux.el -*- lexical-binding: t; -*-
 
 (with-eval-after-load "crux"
-  (define-key ashton-mode-map (kbd "C-M-v") (kbd "C-c i d") 'crux-insert-date)
-  )
+  (define-key ashton-mode-map (kbd "C-c i d") 'crux-insert-date))

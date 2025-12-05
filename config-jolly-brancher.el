@@ -1,9 +1,7 @@
-;; Load the package
+;;; ~/.doom.d/config-jolly-brancher.el -*- lexical-binding: t; -*-
+
 (add-to-list 'load-path "/home/ahonnecke/src/jolly-brancher")
-
-;; Set up the prefix key and load the package
-;; (after! transient
-;;   (require 'jolly-brancher)
-;;   (jolly-brancher-mode 1))
-
 (require 'jolly-brancher)
+
+;; M-m is now handled by orchard-cycle-mode in config-orchard.el
+;; It cycles between magit and claude in the same window

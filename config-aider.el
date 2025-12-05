@@ -1,24 +1,31 @@
 ;;; config-aider.el -*- lexical-binding: t; -*-
 
-;; Load local aider.el package
-(add-to-list 'load-path "~/src/aider.el")
-(require 'aider)
+;; Aidermacs: Modern Aider integration for Emacs
+;; https://github.com/MatthewZMD/aidermacs
+;;
+;; Upgraded from aider.el to aidermacs (2025)
+;; Features:
+;; - Architect mode: two-model approach (reasoning + editing)
+;; - Project-aware analysis
+;; - Comprehensive transient menu
 
-;; Ensure Emacs can find the aider Python CLI in your venv
+;; Keep aider CLI in PATH
 (add-to-list 'exec-path "~/.venvs/aider/bin")
 (setenv "PATH" (concat "~/.venvs/aider/bin:" (getenv "PATH")))
 
-;; ;; Optional: sync shell environment if starting Emacs from GUI
-;; (use-package exec-path-from-shell
-;;   :config
-;;   (exec-path-from-shell-initialize))
-
-(use-package aider
+(use-package! aidermacs
   :config
-  ;; Use GPT-4o-mini with your OPENAI_API_KEY from env
-  (setq aider-args '("--model" "gpt-4o-mini-high"))
+  ;; Use Claude as the main model (you have claude-code anyway)
+  ;; Or fall back to GPT-4o if you prefer
+  (setq aidermacs-default-model "claude-3-5-sonnet-20241022")
 
-  ;; Optional: transient menu key
-  (global-set-key (kbd "C-c a") 'aider-transient-menu))
+  ;; Alternative: Use architect mode with two models
+  ;; (setq aidermacs-use-architect-mode t)
+  ;; (setq aidermacs-architect-model "claude-3-5-sonnet-20241022")
+  ;; (setq aidermacs-editor-model "claude-3-5-sonnet-20241022")
+
+  ;; C-c a opens transient menu - all commands available from there
+  ;; Don't add sub-bindings (C-c a a, etc.) - transient handles it
+  (define-key ashton-mode-map (kbd "C-c a") #'aidermacs-transient-menu))
 
 ;;; config-aider.el ends here

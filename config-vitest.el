@@ -1,4 +1,5 @@
-;; Define the Vitest command for the current test file.
+;;; ~/.doom.d/config-vitest.el -*- lexical-binding: t; -*-
+
 (defun run-vitest-current-test-file ()
   "Run Vitest for the current test file from the client directory."
   (interactive)

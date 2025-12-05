@@ -1,4 +1,4 @@
-;;; ../src/home/.doom.d/config-org-mode.el -*- lexical-binding: t; -*-
+;;; ~/.doom.d/config-org-mode.el -*- lexical-binding: t; -*-
 
 (with-eval-after-load "org"
   (define-key org-mode-map (kbd "M-, ;") #'org-metaright)
@@ -15,8 +15,8 @@
   (define-key org-mode-map (kbd "C-e") #'end-of-line)
   (define-key org-mode-map (kbd "<return>") #'newline)
 
-  (global-set-key (kbd "C-;") 'er/expand-region)
-  (define-key org-mode-map (kbd "C-;") 'er/expand-region)
+  ;; C-; handled by ashton-mode-map (comment-or-uncomment-region)
+  ;; Use C-' for expand-region instead
 
   (define-key org-mode-map (kbd "C-c x h") #'org-html-export-to-html)
   (define-key org-mode-map (kbd "C-c w") #'org-html-export-to-html)

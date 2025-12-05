@@ -1,14 +1,21 @@
 ;;; ../src/home/.doom.d/config-bindings.el -*- lexical-binding: t; -*-
 
+;; Helper for consult-line with thing-at-point (replaces swiper-thing-at-point)
+(defun consult-line-thing-at-point ()
+  "Search for thing at point using consult-line."
+  (interactive)
+  (consult-line (thing-at-point 'symbol)))
+
 (define-key ashton-mode-map (kbd "C-;") 'comment-or-uncomment-region)
 (define-key ashton-mode-map (kbd "C-'") 'er/expand-region)
 (define-key ashton-mode-map (kbd "C-\"") 'er/contract-region)
 ;;(define-key ashton-mode-map (kbd "TAB") 'indent-region)
-(define-key ashton-mode-map (kbd "C-x b") 'ivy-switch-buffer)
-;;(define-key ashton-mode-map (kbd "M-g") 'projectile-ripgrep)
-(define-key ashton-mode-map (kbd "M-g") '+default/search-project)
-(define-key ashton-mode-map (kbd "C-x f") '+ivy/projectile-find-file)
-(define-key ashton-mode-map (kbd "C-x C-f") 'counsel-find-file)
+(define-key ashton-mode-map (kbd "C-x b") 'consult-buffer)
+;; M-g is a PREFIX key in stock Emacs (goto-map)
+;; Don't override it directly - use M-s r for ripgrep instead (search prefix)
+;; (define-key ashton-mode-map (kbd "M-g") '+default/search-project)  ; REMOVED - breaks M-g prefix
+(define-key ashton-mode-map (kbd "C-x f") 'projectile-find-file)
+(define-key ashton-mode-map (kbd "C-x C-f") 'find-file)
 
 (define-key ashton-mode-map (kbd "M-n") 'sp-forward-sexp)
 (define-key ashton-mode-map (kbd "M-p") 'sp-backward-sexp)
@@ -31,7 +38,9 @@
 ;;projectile
 (define-key ashton-mode-map (kbd "C-c M-p r") 'projectile-replace)
 
-(define-key ashton-mode-map (kbd "M-s") 'swiper-thing-at-point)
+;; M-s is a PREFIX key in stock Emacs (search-map)
+;; Use M-s . for thing-at-point (matches stock isearch-forward-symbol-at-point)
+(define-key ashton-mode-map (kbd "M-s .") 'consult-line-thing-at-point)
 
 ;; move to only python mode, or maybe just get leader working?
 (define-key ashton-mode-map (kbd "C-c t") 'python-pytest-dispatch)
@@ -56,14 +65,34 @@
 (define-key ashton-mode-map (kbd "C-c g c") 'avy-goto-char)
 
 
-(define-key ashton-mode-map (kbd "C-c s _") 'xah-cycle-hyphen-underscore-space)
-(define-key ashton-mode-map (kbd "C-c s c") 'string-inflection-camelcase)
-(define-key ashton-mode-map (kbd "C-c s u") 'string-inflection-underscore)
-(define-key ashton-mode-map (kbd "C-c s k") 'string-inflection-kebab-case)
-(define-key ashton-mode-map (kbd "C-c s u") 'string-inflection-upcase)
-(define-key ashton-mode-map (kbd "C-c s p") 'string-inflection-python-style-cycle)
-(define-key ashton-mode-map (kbd "C-c s U") 'crux-upcase-region)
-(define-key ashton-mode-map (kbd "C-c s l") 'crux-downcase-region)
+;; String inflection bindings (C-c i = inflection)
+(define-key ashton-mode-map (kbd "C-c i _") 'xah-cycle-hyphen-underscore-space)
+(define-key ashton-mode-map (kbd "C-c i c") 'string-inflection-camelcase)
+(define-key ashton-mode-map (kbd "C-c i s") 'string-inflection-underscore)  ; s = snake_case
+(define-key ashton-mode-map (kbd "C-c i k") 'string-inflection-kebab-case)
+(define-key ashton-mode-map (kbd "C-c i u") 'string-inflection-upcase)
+(define-key ashton-mode-map (kbd "C-c i p") 'string-inflection-python-style-cycle)
+(define-key ashton-mode-map (kbd "C-c i U") 'crux-upcase-region)
+(define-key ashton-mode-map (kbd "C-c i l") 'crux-downcase-region)
+
+;; Global standup bindings (C-c S = Standup, works from any buffer)
+(define-key ashton-mode-map (kbd "C-c S s") 'standup)
+(define-key ashton-mode-map (kbd "C-c S d") 'standup-done)
+(define-key ashton-mode-map (kbd "C-c S g") 'standup-doing)
+(define-key ashton-mode-map (kbd "C-c S b") 'standup-blocker)
+
+;; Global workspace bindings (C-c w = Workspace)
+(define-key ashton-mode-map (kbd "C-c w w") 'workspace-show)
+(define-key ashton-mode-map (kbd "C-c w n") 'workspace-new-feature)
+(define-key ashton-mode-map (kbd "C-c w s") 'workspace-sync)
+(define-key ashton-mode-map (kbd "C-c w p") 'workspace-pull)
+(define-key ashton-mode-map (kbd "C-c w P") 'workspace-pull-all)
+(define-key ashton-mode-map (kbd "C-c w c") 'workspace-clean)
+(define-key ashton-mode-map (kbd "C-c w C") 'workspace-clean-execute)
+(define-key ashton-mode-map (kbd "C-c w j") 'workspace-jump)
+(define-key ashton-mode-map (kbd "C-c w m") 'workspace-magit)
+(define-key ashton-mode-map (kbd "C-c w e") 'workspace-test-evidence)
+(define-key ashton-mode-map (kbd "C-c w ?") 'workspace-transient)
 
 (define-key ashton-mode-map (kbd "M-<return>") 'hippie-expand)
 ;;(define-key ashton-mode-map (kbd "<tab>") 'hippie-expand)
@@ -78,7 +107,8 @@
 
 ;; use C-c c for all "complete here" bindings
 ;;(define-key ashton-mode-map (kbd "M-m") 'magit-status)
-(define-key ashton-mode-map (kbd "C-c m") 'dirvish-mark-menu)
+;; C-c m is now monet prefix - move dirvish-mark-menu to C-c d m (dired mark)
+(define-key ashton-mode-map (kbd "C-c d m") 'dirvish-mark-menu)
 
 (define-key ashton-mode-map (kbd "C-M-g") 'ripgrep-regexp)
 
@@ -116,13 +146,7 @@
 (define-key ashton-mode-map (kbd "C-c l f") 'copy-full-path-to-clipboard)
 (define-key ashton-mode-map (kbd "C-c l w") 'copy-wrapped-full-path-to-clipboard)
 
-(define-key ashton-mode-map (kbd "C-c g r v") 'vscode-open-filepath)
-(define-key ashton-mode-map (kbd "C-c g v") 'open-current-file-in-vscode)
-
 (define-key ashton-mode-map (kbd "C-c g n") 'goto-line)
-
-;; Bind to ashton-mode-map
-(define-key ashton-mode-map (kbd "C-c g w") #'open-in-windsurf)
 
 ;; Bind to C-c f in Dired mode
 (with-eval-after-load 'dired
@@ -137,3 +161,20 @@
   :keymap ashton-mode-map)
 
 (ashton-mode 1)
+
+;; ════════════════════════════════════════════════════════════════════════════
+;; High-priority keybindings (set AFTER mode is enabled)
+;; ════════════════════════════════════════════════════════════════════════════
+
+;; M-m: Cycle between magit and claude (orchard-cycle-mode)
+;; This must be set here at the end to ensure it takes precedence
+(when (fboundp 'orchard-cycle-mode)
+  (define-key ashton-mode-map (kbd "M-m") #'orchard-cycle-mode))
+
+;; Ensure ashton-mode-map is at the front of minor-mode-map-alist
+;; This gives it highest priority
+(let ((ashton-entry (assq 'ashton-mode minor-mode-map-alist)))
+  (when ashton-entry
+    (setq minor-mode-map-alist
+          (cons ashton-entry
+                (delq ashton-entry minor-mode-map-alist)))))

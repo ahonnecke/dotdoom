@@ -58,5 +58,42 @@
 (package! region-bindings-mode)
 (package! crux)
 
+;; Claude Code CLI integration
+(package! claude-code
+  :recipe (:host github :repo "stevemolitor/claude-code.el"))
+
+;; ghq repo management
+(package! ghq
+  :recipe (:host github :repo "lafrenierejm/emacs-ghq"))
+
 ;; installed, but not working...
 ;;(package! combobulate)
+
+;; Calendar sync with CalDAV (Google, Fastmail, etc)
+(package! org-caldav)
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; 2025 Modernization Packages
+;;; ════════════════════════════════════════════════════════════════════════════
+
+;; Monet: Claude IDE integration (selection sharing, diagnostics, diffs)
+;; Same author as claude-code.el - complements it
+(package! monet
+  :recipe (:host github :repo "stevemolitor/monet"))
+
+;; Aidermacs: Modern Aider integration (replaces aider.el)
+;; Has architect mode with SOTA benchmark results
+(package! aidermacs)
+
+;; Casual Suite: Transient menus for built-in modes
+;; (Calc, Dired, Info, Bookmarks, IBuffer, I-Search, Avy, Agenda)
+(package! casual-suite)
+
+;; Cape: Completion At Point Extensions (for when we switch to Corfu)
+;; Provides modular completion backends
+(package! cape)
+
+;; MCP: Model Context Protocol support for gptel
+;; Gives LLMs access to tools
+(package! mcp
+  :recipe (:host github :repo "lizqwerscott/mcp.el"))

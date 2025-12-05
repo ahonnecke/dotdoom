@@ -4,6 +4,7 @@
 (add-to-list 'auto-mode-alist '("\\.cnf\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.list\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.ini\\'" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\.env\\..*\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.config\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\Pipfile\\'" . conf-mode))
 

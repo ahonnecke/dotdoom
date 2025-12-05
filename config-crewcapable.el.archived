@@ -1,0 +1,1174 @@
+;;; ~/.doom.d/config-crewcapable.el -*- lexical-binding: t; -*-
+
+;; ╔═══════════════════════════════════════════════════════════════════════════╗
+;; ║                         CrewCapable Development Mode                       ║
+;; ║                                                                            ║
+;; ║  Slick, sexy workflow for feature development that makes VSCode jealous   ║
+;; ║                                                                            ║
+;; ║  Entry Point: C-c C C (or M-x crewcapable)                                ║
+;; ╚═══════════════════════════════════════════════════════════════════════════╝
+;;
+;; WORKFLOW:
+;;   1. Start: C-c C C → n (new feature) → describe your feature
+;;   2. Plan:  Claude creates implementation plan
+;;   3. Build: Claude implements, you review with magit
+;;   4. Test:  Add test evidence with screenshots
+;;   5. Ship:  Push, create PR, celebrate
+;;
+;; The dashboard shows status at a glance: worktrees, Claude instances,
+;; dirty/clean state, and workflow stage.
+
+(require 'transient)
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Configuration
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defgroup crewcapable nil
+  "CrewCapable workspace management."
+  :group 'tools
+  :prefix "crewcapable-")
+
+(defcustom crewcapable-repo-path
+  (expand-file-name "~/src/.crewcapableai.main")
+  "Path to the main crewcapableai repository (primary worktree)."
+  :type 'directory
+  :group 'crewcapable)
+
+(defcustom crewcapable-worktree-parent
+  (expand-file-name "~/src")
+  "Parent directory where worktrees are created."
+  :type 'directory
+  :group 'crewcapable)
+
+(defcustom crewcapable-upstream-branch "upstream/dev"
+  "Upstream branch to base new features on."
+  :type 'string
+  :group 'crewcapable)
+
+(defcustom crewcapable-shared-settings-path
+  (expand-file-name "~/src/.crewcapableai.shared/settings.local.json")
+  "Path to shared Claude settings.local.json file."
+  :type 'file
+  :group 'crewcapable)
+
+(defcustom crewcapable-shared-commands-path
+  (expand-file-name "~/src/.crewcapableai.shared/.claude/commands")
+  "Path to shared Claude commands directory."
+  :type 'directory
+  :group 'crewcapable)
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Faces
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defface crewcapable-header
+  '((t :foreground "#61AFEF" :weight bold :height 1.2))
+  "Face for dashboard header."
+  :group 'crewcapable)
+
+(defface crewcapable-subheader
+  '((t :foreground "#ABB2BF" :weight bold))
+  "Face for section headers."
+  :group 'crewcapable)
+
+(defface crewcapable-branch-feature
+  '((t :foreground "#98C379"))
+  "Face for FEAT branches (green)."
+  :group 'crewcapable)
+
+(defface crewcapable-branch-fix
+  '((t :foreground "#E5C07B"))
+  "Face for FIX branches (yellow)."
+  :group 'crewcapable)
+
+(defface crewcapable-branch-chore
+  '((t :foreground "#56B6C2"))
+  "Face for CHORE branches (cyan)."
+  :group 'crewcapable)
+
+(defface crewcapable-branch-dev
+  '((t :foreground "#5C6370"))
+  "Face for dev branch (gray)."
+  :group 'crewcapable)
+
+(defface crewcapable-current
+  '((t :foreground "#C678DD" :weight bold))
+  "Face for current worktree (magenta)."
+  :group 'crewcapable)
+
+(defface crewcapable-dirty
+  '((t :foreground "#E06C75"))
+  "Face for dirty indicator (red)."
+  :group 'crewcapable)
+
+(defface crewcapable-clean
+  '((t :foreground "#98C379"))
+  "Face for clean indicator (green)."
+  :group 'crewcapable)
+
+(defface crewcapable-claude-active
+  '((t :foreground "#61AFEF" :weight bold))
+  "Face for active Claude indicator."
+  :group 'crewcapable)
+
+(defface crewcapable-key
+  '((t :foreground "#E5C07B" :weight bold))
+  "Face for keybinding hints."
+  :group 'crewcapable)
+
+(defface crewcapable-service-running
+  '((t :foreground "#98C379"))
+  "Face for running service indicator (green)."
+  :group 'crewcapable)
+
+(defface crewcapable-service-stopped
+  '((t :foreground "#E06C75"))
+  "Face for stopped service indicator (red)."
+  :group 'crewcapable)
+
+(defface crewcapable-hl-line
+  '((((class color) (background light))
+     :background "#c8ddf8"
+     :extend t)
+    (((class color) (background dark))
+     :background "#2c4a6e"
+     :extend t))
+  "Face for highlighting the current line in CrewCapable buffer.
+Bold blue tint to make selection very obvious."
+  :group 'crewcapable)
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Data Layer - Worktree & Status Management
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defvar crewcapable--feature-descriptions (make-hash-table :test 'equal)
+  "Hash table mapping worktree paths to feature descriptions.")
+
+(defun crewcapable--setup-claude-settings (worktree-path)
+  "Setup shared Claude settings and commands symlinks in WORKTREE-PATH.
+Creates symlinks to shared settings.local.json and all command files."
+  (let ((claude-dir (expand-file-name ".claude" worktree-path))
+        (commands-dir (expand-file-name ".claude/commands" worktree-path))
+        (settings-file (expand-file-name ".claude/settings.local.json" worktree-path)))
+    ;; Ensure .claude and .claude/commands directories exist
+    (unless (file-directory-p claude-dir)
+      (make-directory claude-dir t))
+    (unless (file-directory-p commands-dir)
+      (make-directory commands-dir t))
+    ;; Setup settings.local.json symlink
+    (when (file-exists-p settings-file)
+      (delete-file settings-file))
+    (when (file-exists-p crewcapable-shared-settings-path)
+      (make-symbolic-link crewcapable-shared-settings-path settings-file)
+      (message "Linked Claude settings to shared"))
+    ;; Setup command symlinks
+    (when (file-directory-p crewcapable-shared-commands-path)
+      (dolist (cmd-file (directory-files crewcapable-shared-commands-path t "\\.md$"))
+        (let* ((filename (file-name-nondirectory cmd-file))
+               (target (expand-file-name filename commands-dir)))
+          ;; Remove existing file/symlink
+          (when (file-exists-p target)
+            (delete-file target))
+          ;; Create symlink
+          (make-symbolic-link cmd-file target)))
+      (message "Linked %d Claude commands from shared"
+               (length (directory-files crewcapable-shared-commands-path nil "\\.md$"))))))
+
+(defun crewcapable--save-feature-description (path description)
+  "Save DESCRIPTION for worktree at PATH."
+  (puthash path description crewcapable--feature-descriptions)
+  ;; Also save to file in worktree for persistence
+  (let ((desc-file (expand-file-name ".feature-description" path)))
+    (with-temp-file desc-file
+      (insert description))))
+
+(defun crewcapable--load-feature-description (path)
+  "Load feature description for worktree at PATH."
+  (or (gethash path crewcapable--feature-descriptions)
+      (let ((desc-file (expand-file-name ".feature-description" path)))
+        (when (file-exists-p desc-file)
+          (with-temp-buffer
+            (insert-file-contents desc-file)
+            (let ((desc (string-trim (buffer-string))))
+              (puthash path desc crewcapable--feature-descriptions)
+              desc))))))
+
+(defun crewcapable--get-worktrees ()
+  "Get all crewcapableai worktrees with full status info."
+  (let ((default-directory crewcapable-repo-path))
+    (when (file-directory-p default-directory)
+      (let* ((output (shell-command-to-string "git worktree list --porcelain"))
+             (worktrees (crewcapable--parse-worktrees output)))
+        ;; Enrich with additional status
+        (mapcar #'crewcapable--enrich-worktree worktrees)))))
+
+(defun crewcapable--parse-worktrees (output)
+  "Parse OUTPUT from git worktree list --porcelain."
+  (let ((worktrees '())
+        (current nil))
+    (dolist (line (split-string output "\n" t))
+      (cond
+       ((string-prefix-p "worktree " line)
+        (when current (push current worktrees))
+        (setq current (list (cons 'path (substring line 9)))))
+       ((string-prefix-p "HEAD " line)
+        (push (cons 'head (substring line 5)) current))
+       ((string-prefix-p "branch " line)
+        (let ((branch (replace-regexp-in-string "^refs/heads/" "" (substring line 7))))
+          (push (cons 'branch branch) current)))
+       ((string= "bare" line)
+        (push (cons 'bare t) current))
+       ((string= "detached" line)
+        (push (cons 'detached t) current))))
+    (when current (push current worktrees))
+    (nreverse worktrees)))
+
+(defun crewcapable--port-listening-p (port)
+  "Check if PORT is listening (service running)."
+  (let ((result (shell-command-to-string
+                 (format "lsof -i :%d -sTCP:LISTEN 2>/dev/null | grep -q LISTEN && echo yes || echo no" port))))
+    (string-prefix-p "yes" result)))
+
+(defun crewcapable--enrich-worktree (wt)
+  "Add status info to worktree WT."
+  (let* ((path (alist-get 'path wt))
+         (branch (alist-get 'branch wt))
+         (default-directory path))
+    ;; Port allocation
+    (when-let ((port-slot (ghq--get-worktree-port path)))
+      (let ((actual-port (+ 3000 port-slot)))
+        (push (cons 'port port-slot) wt)
+        ;; Check if service is actually running
+        (push (cons 'service-running (crewcapable--port-listening-p actual-port)) wt)))
+    ;; Dirty status
+    (let ((dirty (not (string-empty-p
+                       (shell-command-to-string "git status --porcelain 2>/dev/null")))))
+      (push (cons 'dirty dirty) wt))
+    ;; Ahead/behind upstream
+    (let* ((upstream crewcapable-upstream-branch)
+           (counts (shell-command-to-string
+                    (format "git rev-list --left-right --count %s...HEAD 2>/dev/null"
+                            upstream))))
+      (when (string-match "\\([0-9]+\\)\\s-+\\([0-9]+\\)" counts)
+        (push (cons 'behind (string-to-number (match-string 1 counts))) wt)
+        (push (cons 'ahead (string-to-number (match-string 2 counts))) wt)))
+    ;; Claude active?
+    (let ((claude-buf (format "*claude:%s*" (file-name-nondirectory (directory-file-name path)))))
+      (push (cons 'claude-active (get-buffer claude-buf)) wt))
+    ;; Feature description
+    (when-let ((desc (crewcapable--load-feature-description path)))
+      (push (cons 'description desc) wt))
+    wt))
+
+(defun crewcapable--current-worktree ()
+  "Get the current worktree if in one."
+  (let ((cwd (expand-file-name default-directory)))
+    (cl-find-if (lambda (wt)
+                  (string-prefix-p (file-name-as-directory (alist-get 'path wt))
+                                   (file-name-as-directory cwd)))
+                (crewcapable--get-worktrees))))
+
+(defun crewcapable--branch-face (branch)
+  "Return face for BRANCH based on prefix."
+  (cond
+   ((string-prefix-p "FEAT/" branch) 'crewcapable-branch-feature)
+   ((string-prefix-p "FIX/" branch) 'crewcapable-branch-fix)
+   ((string-prefix-p "CHORE/" branch) 'crewcapable-branch-chore)
+   ((string= "dev" branch) 'crewcapable-branch-dev)
+   (t 'default)))
+
+(defun crewcapable--branch-icon (branch)
+  "Return icon for BRANCH type."
+  (cond
+   ((string-prefix-p "FEAT/" branch) "✨")
+   ((string-prefix-p "FIX/" branch) "🔧")
+   ((string-prefix-p "CHORE/" branch) "🧹")
+   ((string= "dev" branch) "📦")
+   (t "📁")))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Dashboard Buffer
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defvar crewcapable-mode-map
+  (let ((map (make-sparse-keymap)))
+    ;; Quick actions (single key)
+    (define-key map (kbd "?") #'crewcapable-dispatch)
+    (define-key map (kbd "n") #'crewcapable-new-feature-interactive)
+    (define-key map (kbd "RET") #'crewcapable-open-at-point)
+    (define-key map (kbd "c") #'crewcapable-claude-at-point)
+    (define-key map (kbd "m") #'crewcapable-magit-at-point)
+    (define-key map (kbd "d") #'crewcapable-dired-at-point)
+    (define-key map (kbd "t") #'crewcapable-test-at-point)
+    (define-key map (kbd "p") #'crewcapable-push-at-point)
+    (define-key map (kbd "P") #'crewcapable-pr-at-point)
+    (define-key map (kbd "D") #'crewcapable-delete-at-point)
+    (define-key map (kbd "s") #'crewcapable-toggle-services-at-point)
+    (define-key map (kbd "S") #'crewcapable-stop-services-at-point)
+    ;; Navigation
+    (define-key map (kbd "j") #'next-line)
+    (define-key map (kbd "k") #'previous-line)
+    (define-key map (kbd "TAB") #'crewcapable-next-worktree)
+    (define-key map (kbd "<backtab>") #'crewcapable-prev-worktree)
+    ;; Search
+    (define-key map (kbd "/") #'crewcapable-search-branch)
+    ;; Buffer
+    (define-key map (kbd "g") #'crewcapable-refresh)
+    (define-key map (kbd "r") #'crewcapable-refresh)
+    (define-key map (kbd "q") #'quit-window)
+    (define-key map (kbd "Q") #'crewcapable-quit-all)
+    ;; Debug
+    (define-key map (kbd "!") #'crewcapable-debug)
+    map)
+  "Keymap for crewcapable-mode.")
+
+(defvar-local crewcapable--pointer-overlay nil
+  "Overlay for the selection pointer.")
+
+(define-derived-mode crewcapable-mode special-mode "CrewCapable"
+  "Major mode for CrewCapable workspace dashboard.
+
+Quick start: Press ? for all commands
+
+\\{crewcapable-mode-map}"
+  (setq buffer-read-only t
+        truncate-lines t
+        cursor-type 'bar)
+  (hl-line-mode 1)
+  (setq-local hl-line-face 'crewcapable-hl-line)
+  ;; Create pointer overlay
+  (setq crewcapable--pointer-overlay (make-overlay 1 1))
+  (overlay-put crewcapable--pointer-overlay 'before-string
+               (propertize "▶" 'face '(:foreground "#61AFEF" :weight bold)))
+  ;; Update pointer on cursor movement
+  (add-hook 'post-command-hook #'crewcapable--update-pointer nil t))
+
+(defun crewcapable--update-pointer ()
+  "Update the pointer overlay position."
+  (when (and crewcapable--pointer-overlay
+             (eq major-mode 'crewcapable-mode))
+    (let ((bol (line-beginning-position)))
+      (move-overlay crewcapable--pointer-overlay bol bol))))
+
+(defun crewcapable--format-dashboard ()
+  "Format the CrewCapable dashboard."
+  (let* ((worktrees (crewcapable--get-worktrees))
+         (current (crewcapable--current-worktree))
+         (current-path (when current (alist-get 'path current)))
+         (claude-count (length (crewcapable--get-claude-buffers))))
+    (concat
+     ;; Header
+     "\n"
+     (propertize "  CrewCapable" 'face 'crewcapable-header)
+     (propertize (format "  %d worktrees" (length worktrees)) 'face 'font-lock-comment-face)
+     (when (> claude-count 0)
+       (propertize (format "  %d Claude instances" claude-count) 'face 'crewcapable-claude-active))
+     "\n\n"
+
+     ;; Quick actions bar
+     (crewcapable--format-action-bar)
+     "\n\n"
+
+     ;; Worktree list
+     (propertize "  Worktrees\n" 'face 'crewcapable-subheader)
+     (propertize (concat "  " (make-string 72 ?─) "\n") 'face 'font-lock-comment-face)
+
+     (if worktrees
+         (mapconcat (lambda (wt)
+                      (crewcapable--format-worktree wt current-path))
+                    worktrees "")
+       (propertize "  No worktrees. Press 'n' to create one.\n" 'face 'font-lock-comment-face))
+
+     "\n"
+     ;; Footer hints
+     (propertize "  " 'face 'default)
+     (propertize "?" 'face 'crewcapable-key)
+     (propertize " commands  " 'face 'font-lock-comment-face)
+     (propertize "n" 'face 'crewcapable-key)
+     (propertize " new  " 'face 'font-lock-comment-face)
+     (propertize "RET" 'face 'crewcapable-key)
+     (propertize " open  " 'face 'font-lock-comment-face)
+     (propertize "c" 'face 'crewcapable-key)
+     (propertize " claude  " 'face 'font-lock-comment-face)
+     (propertize "P" 'face 'crewcapable-key)
+     (propertize " PR  " 'face 'font-lock-comment-face)
+     (propertize "q" 'face 'crewcapable-key)
+     (propertize " quit  " 'face 'font-lock-comment-face)
+     (propertize "`" 'face 'crewcapable-key)
+     (propertize " commando (in magit)" 'face 'font-lock-comment-face))))
+
+(defun crewcapable--format-action-bar ()
+  "Format the quick action bar."
+  (concat
+   (propertize "  " 'face 'default)
+   (propertize "[n]" 'face 'crewcapable-key)
+   (propertize " New Feature  " 'face 'font-lock-comment-face)
+   (propertize "[c]" 'face 'crewcapable-key)
+   (propertize " Claude  " 'face 'font-lock-comment-face)
+   (propertize "[m]" 'face 'crewcapable-key)
+   (propertize " Magit  " 'face 'font-lock-comment-face)
+   (propertize "[t]" 'face 'crewcapable-key)
+   (propertize " Test  " 'face 'font-lock-comment-face)
+   (propertize "[P]" 'face 'crewcapable-key)
+   (propertize " Create PR" 'face 'font-lock-comment-face)))
+
+(defun crewcapable--format-worktree (wt current-path)
+  "Format a worktree WT for display. CURRENT-PATH highlights current."
+  (let* ((path (alist-get 'path wt))
+         (branch (or (alist-get 'branch wt) "(detached)"))
+         (port (alist-get 'port wt))
+         (service-running (alist-get 'service-running wt))
+         (dirty (alist-get 'dirty wt))
+         (ahead (or (alist-get 'ahead wt) 0))
+         (behind (or (alist-get 'behind wt) 0))
+         (claude-active (alist-get 'claude-active wt))
+         (description (alist-get 'description wt))
+         (is-current (and current-path (string= path current-path)))
+         (icon (crewcapable--branch-icon branch))
+         (branch-face (if is-current 'crewcapable-current (crewcapable--branch-face branch)))
+         ;; Build the main line content
+         (main-line (concat
+                     "  "
+                     icon
+                     " "
+                     (truncate-string-to-width branch 35 nil nil "…")
+                     " "
+                     (if dirty "●" "○")
+                     " "
+                     (if (and ahead (> ahead 0)) (format "↑%d " ahead) "")
+                     (if (and behind (> behind 0)) (format "↓%d " behind) "")
+                     (if claude-active "◉Claude " "")
+                     ;; Show port with running status
+                     (if port
+                         (if service-running
+                             (format "▶:300%d " port)  ; running
+                           (format "■:300%d " port))   ; stopped
+                       "")
+                     (if is-current " ← you are here" "")
+                     "\n"))
+         ;; Description line
+         (desc-line (when description
+                      (concat "     "
+                              (truncate-string-to-width description 65 nil nil "…")
+                              "\n"))))
+    ;; Build result with text properties applied after construction
+    (let ((result (concat main-line (or desc-line ""))))
+      (add-text-properties 0 (length result)
+                           (list 'crewcapable-worktree wt
+                                 'face branch-face)
+                           result)
+      result)))
+
+(defun crewcapable--get-worktree-at-point ()
+  "Get worktree at point."
+  ;; Try current position, then scan the line for the property
+  (or (get-text-property (point) 'crewcapable-worktree)
+      (save-excursion
+        (beginning-of-line)
+        (let ((end (line-end-position))
+              (result nil))
+          (while (and (< (point) end) (not result))
+            (setq result (get-text-property (point) 'crewcapable-worktree))
+            (forward-char 1))
+          result))))
+
+(defun crewcapable-debug ()
+  "Debug: show buffer state in a debug buffer."
+  (interactive)
+  (let* ((pos (point))
+         (props (text-properties-at pos))
+         (wt-at-point (crewcapable--get-worktree-at-point))
+         (all-worktrees (crewcapable--get-worktrees))
+         (claude-loaded (fboundp 'claude-code))
+         (buf (get-buffer-create "*DebugCrewCapable*")))
+    (with-current-buffer buf
+      (erase-buffer)
+      (insert "=== CrewCapable Debug ===\n\n")
+      (insert (format "Point: %d\n" pos))
+      (insert (format "Line: %s\n" (buffer-substring (line-beginning-position) (line-end-position))))
+      (insert (format "\nText properties at point:\n  %S\n" props))
+      (insert (format "\nWorktree at point (via function):\n  %S\n" wt-at-point))
+      (insert (format "\nclaude-code bound: %s\n" claude-loaded))
+      (insert (format "\nAll worktrees (%d):\n" (length all-worktrees)))
+      (dolist (wt all-worktrees)
+        (insert (format "  - %s\n    path: %s\n"
+                        (alist-get 'branch wt)
+                        (alist-get 'path wt))))
+      (insert "\n\n--- Scanning buffer for crewcapable-worktree properties ---\n")
+      (save-excursion
+        (goto-char (point-min))
+        (let ((found 0))
+          (while (< (point) (point-max))
+            (when (get-text-property (point) 'crewcapable-worktree)
+              (cl-incf found)
+              (insert (format "  Found at pos %d: %s\n"
+                              (point)
+                              (alist-get 'branch (get-text-property (point) 'crewcapable-worktree)))))
+            (forward-char 1))
+          (insert (format "\nTotal positions with property: %d\n" found)))))
+    (pop-to-buffer buf)))
+
+;;;###autoload
+(defun crewcapable ()
+  "Open the CrewCapable dashboard."
+  (interactive)
+  (crewcapable-dashboard))
+
+;;;###autoload
+(defun crewcapable-dashboard ()
+  "Open the CrewCapable dashboard."
+  (interactive)
+  (let ((buf (get-buffer-create "*CrewCapable*")))
+    (with-current-buffer buf
+      (crewcapable-mode)
+      (crewcapable-refresh))
+    (switch-to-buffer buf)))
+
+(defun crewcapable-refresh ()
+  "Refresh the dashboard."
+  (interactive)
+  (when (eq major-mode 'crewcapable-mode)
+    (let ((inhibit-read-only t)
+          (line (line-number-at-pos)))
+      (erase-buffer)
+      (insert (crewcapable--format-dashboard))
+      (goto-char (point-min))
+      (forward-line (1- (min line (count-lines (point-min) (point-max))))))))
+
+(defun crewcapable-next-worktree ()
+  "Move to next worktree in list."
+  (interactive)
+  (forward-line 1)
+  (while (and (not (eobp))
+              (not (get-text-property (point) 'crewcapable-worktree)))
+    (forward-line 1)))
+
+(defun crewcapable-prev-worktree ()
+  "Move to previous worktree in list."
+  (interactive)
+  (forward-line -1)
+  (while (and (not (bobp))
+              (not (get-text-property (point) 'crewcapable-worktree)))
+    (forward-line -1)))
+
+(defun crewcapable-search-branch ()
+  "Search for a worktree by branch name and open it."
+  (interactive)
+  (let* ((worktrees (crewcapable--get-worktrees))
+         (branches (mapcar (lambda (wt)
+                             (cons (alist-get 'branch wt) wt))
+                           worktrees))
+         (selection (completing-read "Open branch: " branches nil t)))
+    (when selection
+      (let ((wt (cdr (assoc selection branches))))
+        (when wt
+          ;; Find the line with this worktree and go there
+          (goto-char (point-min))
+          (let ((found nil))
+            (while (and (not found) (not (eobp)))
+              (let ((line-wt (crewcapable--get-worktree-at-point)))
+                (when (and line-wt
+                           (equal (alist-get 'path line-wt)
+                                  (alist-get 'path wt)))
+                  (setq found t)))
+              (unless found (forward-line 1))))
+          ;; Open it
+          (crewcapable-open-at-point))))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Branch Creation - The Star of the Show
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun crewcapable-new-feature-interactive ()
+  "Create a new feature branch with full workflow setup.
+Prompts for branch name and feature description, then:
+1. Creates worktree from upstream/dev
+2. Allocates port for local services
+3. Generates workspace config
+4. Opens Claude with the feature description as context"
+  (interactive)
+  (crewcapable-new-branch-dispatch))
+
+(defun crewcapable--normalize-branch-name (name)
+  "Normalize NAME for use in branch names and filesystem paths.
+Converts spaces to dashes, removes special chars, collapses multiple dashes."
+  (let ((normalized name))
+    ;; Convert spaces and underscores to dashes
+    (setq normalized (replace-regexp-in-string "[ _]+" "-" normalized))
+    ;; Remove any characters that aren't alphanumeric or dashes
+    (setq normalized (replace-regexp-in-string "[^a-zA-Z0-9-]" "" normalized))
+    ;; Collapse multiple dashes into one
+    (setq normalized (replace-regexp-in-string "-+" "-" normalized))
+    ;; Remove leading/trailing dashes
+    (setq normalized (replace-regexp-in-string "^-+\\|-+$" "" normalized))
+    ;; Convert to lowercase for consistency
+    (downcase normalized)))
+
+(defun crewcapable--create-branch (type name description)
+  "Create new branch of TYPE with NAME and DESCRIPTION."
+  (let* ((prefix (upcase type))
+         ;; Normalize the name before creating branch
+         (normalized-name (crewcapable--normalize-branch-name name))
+         (full-branch (format "%s/%s" prefix normalized-name))
+         (safe-branch (replace-regexp-in-string "/" "-" full-branch))
+         (worktree-path (expand-file-name
+                         (concat "crewcapableai--" safe-branch)
+                         crewcapable-worktree-parent))
+         (port-num (ghq--allocate-port)))
+
+    (when (file-exists-p worktree-path)
+      (user-error "Worktree already exists: %s" worktree-path))
+
+    ;; Fetch upstream first
+    (message "Fetching upstream...")
+    (let ((default-directory crewcapable-repo-path))
+      (shell-command "git fetch upstream 2>/dev/null"))
+
+    ;; Create worktree from upstream/dev
+    (message "Creating worktree for %s..." full-branch)
+    (let ((default-directory crewcapable-repo-path))
+      (shell-command (format "git worktree add -b %s %s %s"
+                             (shell-quote-argument full-branch)
+                             (shell-quote-argument worktree-path)
+                             crewcapable-upstream-branch)))
+
+    ;; Register port and generate env
+    (ghq--register-worktree worktree-path port-num)
+    (ghq--generate-workspace-env worktree-path port-num)
+
+    ;; Setup shared Claude settings symlink
+    (crewcapable--setup-claude-settings worktree-path)
+
+    ;; Save feature description
+    (when (and description (not (string-empty-p description)))
+      (crewcapable--save-feature-description worktree-path description))
+
+    ;; Refresh dashboard
+    (when-let ((buf (get-buffer "*CrewCapable*")))
+      (with-current-buffer buf (crewcapable-refresh)))
+
+    ;; Open the worktree
+    (dired worktree-path)
+
+    ;; Start Claude with context
+    (message "Starting Claude for %s..." full-branch)
+    (when (fboundp 'claude-code)
+      (let ((default-directory worktree-path))
+        (claude-code)
+        ;; Send feature description to Claude if provided
+        (when (and description (not (string-empty-p description)))
+          (run-at-time 2 nil
+                       (lambda ()
+                         (when (fboundp 'claude-code-send-command)
+                           (claude-code-send-command
+                            (format "I'm starting work on: %s\n\nPlease help me plan the implementation. What files will we need to modify?"
+                                    description))))))))
+
+    (message "✨ Created %s (port :%d)" full-branch (+ 3000 port-num))
+    worktree-path))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Smart Window Management
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defvar crewcapable--branch-windows (make-hash-table :test 'equal)
+  "Hash table mapping branch names to their windows.")
+
+(defun crewcapable--get-branch-window (branch)
+  "Get the window currently showing BRANCH, or nil."
+  (let ((window (gethash branch crewcapable--branch-windows)))
+    (when (and window (window-live-p window))
+      window)))
+
+(defun crewcapable--register-branch-window (branch window)
+  "Register WINDOW as showing BRANCH."
+  (puthash branch window crewcapable--branch-windows))
+
+(defun crewcapable--unregister-branch-window (branch)
+  "Unregister window for BRANCH."
+  (remhash branch crewcapable--branch-windows))
+
+(defun crewcapable--get-crewcapable-window ()
+  "Get the window showing *CrewCapable* buffer, or nil."
+  (get-buffer-window "*CrewCapable*"))
+
+(defun crewcapable--count-windows ()
+  "Count windows in current frame."
+  (length (window-list)))
+
+(defun crewcapable--display-buffer-for-branch (buffer branch)
+  "Display BUFFER for BRANCH using smart window management.
+- If branch already has a window, reuse it
+- If < 4 windows, split horizontally and rebalance
+- If >= 4 windows, replace CrewCapable window"
+  (let ((existing-window (crewcapable--get-branch-window branch))
+        (crewcapable-window (crewcapable--get-crewcapable-window))
+        (window-count (crewcapable--count-windows)))
+    (cond
+     ;; Branch already has a window - reuse it
+     (existing-window
+      (select-window existing-window)
+      (switch-to-buffer buffer))
+     ;; Less than 4 windows - split horizontally from CrewCapable
+     ((< window-count 4)
+      (when crewcapable-window
+        (select-window crewcapable-window))
+      (let ((new-window (split-window-right)))
+        (select-window new-window)
+        (switch-to-buffer buffer)
+        (crewcapable--register-branch-window branch new-window)
+        (balance-windows)))
+     ;; 4+ windows - replace CrewCapable window
+     (t
+      (if crewcapable-window
+          (progn
+            (select-window crewcapable-window)
+            (switch-to-buffer buffer)
+            (crewcapable--register-branch-window branch crewcapable-window))
+        ;; Fallback: just switch in current window
+        (switch-to-buffer buffer)
+        (crewcapable--register-branch-window branch (selected-window)))))))
+
+(defun crewcapable--kill-branch-buffer-in-window (branch)
+  "Kill any buffer for BRANCH in its registered window (to make room for new one)."
+  (when-let ((window (crewcapable--get-branch-window branch)))
+    (when (window-live-p window)
+      (let ((buf (window-buffer window)))
+        ;; Don't kill the buffer, just note we're replacing it
+        nil))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Worktree Actions
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun crewcapable-open-at-point ()
+  "Open worktree at point using smart window management.
+Opens magit for the branch (same as 'm')."
+  (interactive)
+  (crewcapable-magit-at-point))
+
+(defun crewcapable-claude-at-point ()
+  "Start or switch to Claude for worktree at point."
+  (interactive)
+  (let ((wt (crewcapable--get-worktree-at-point)))
+    (if wt
+        (let* ((path (alist-get 'path wt))
+               (branch (alist-get 'branch wt))
+               (claude-buf (crewcapable--claude-buffer-for-path path)))
+          (if claude-buf
+              ;; Switch to existing Claude buffer using smart window management
+              (crewcapable--display-buffer-for-branch claude-buf branch)
+            ;; Start new Claude
+            (crewcapable--start-claude-in-path-with-window path branch)))
+      (user-error "No worktree at point"))))
+
+(defun crewcapable--start-claude-in-path-with-window (path branch)
+  "Start Claude in PATH and manage window for BRANCH.
+If branch already has a window (magit), split it below for Claude.
+Otherwise create a new column."
+  (crewcapable--ensure-claude-loaded)
+  (let* ((existing-window (crewcapable--get-branch-window branch))
+         (crewcapable-window (crewcapable--get-crewcapable-window))
+         (window-count (crewcapable--count-windows))
+         (target-window nil))
+    (cond
+     ;; Branch already has a window (magit) - split below for Claude
+     (existing-window
+      (select-window existing-window)
+      (setq target-window (split-window-below))
+      (select-window target-window))
+     ;; Less than 4 columns - create new column, then split for Claude
+     ((< window-count 4)
+      (when crewcapable-window
+        (select-window crewcapable-window))
+      (let ((new-column (split-window-right)))
+        (select-window new-column)
+        (balance-windows)
+        ;; Split the new column for Claude below
+        (setq target-window (split-window-below))
+        (select-window target-window)))
+     ;; 4+ windows - use CrewCapable window
+     (t
+      (if crewcapable-window
+          (progn
+            (select-window crewcapable-window)
+            (setq target-window crewcapable-window))
+        (setq target-window (selected-window)))))
+    ;; Now start Claude in the target window
+    (let ((default-directory path))
+      (if (fboundp 'claude-code)
+          (progn
+            (claude-code)
+            ;; Register after claude starts (buffer may change)
+            (run-at-time 0.5 nil
+                         (lambda ()
+                           (crewcapable--register-branch-window branch (selected-window)))))
+        (user-error "claude-code not available")))))
+
+(defun crewcapable-magit-at-point ()
+  "Open magit for worktree at point."
+  (interactive)
+  (if-let ((wt (crewcapable--get-worktree-at-point)))
+      (let* ((path (alist-get 'path wt))
+             (branch (alist-get 'branch wt))
+             (default-directory path)  ; Set for magit-get-mode-buffer
+             (magit-buf (magit-get-mode-buffer 'magit-status-mode)))
+        (if magit-buf
+            ;; Existing magit buffer
+            (crewcapable--display-buffer-for-branch magit-buf branch)
+          ;; Need to create magit buffer - use smart window placement
+          (crewcapable--open-magit-with-window path branch)))
+    (user-error "No worktree at point")))
+
+(defun crewcapable--open-magit-with-window (path branch)
+  "Open magit for PATH and manage window for BRANCH."
+  (let* ((existing-window (crewcapable--get-branch-window branch))
+         (crewcapable-window (crewcapable--get-crewcapable-window))
+         (window-count (crewcapable--count-windows))
+         (default-directory path))  ; Set for magit-status
+    (cond
+     ;; Branch already has a window - use it
+     (existing-window
+      (select-window existing-window))
+     ;; Less than 4 windows - split
+     ((< window-count 4)
+      (when crewcapable-window
+        (select-window crewcapable-window))
+      (let ((new-window (split-window-right)))
+        (select-window new-window)
+        (balance-windows)))
+     ;; 4+ windows - replace CrewCapable
+     (t
+      (when crewcapable-window
+        (select-window crewcapable-window))))
+    ;; Open magit - use default-directory set above
+    (magit-status)
+    (crewcapable--register-branch-window branch (selected-window))))
+
+(defun crewcapable-dired-at-point ()
+  "Open dired for worktree at point."
+  (interactive)
+  (if-let ((wt (crewcapable--get-worktree-at-point)))
+      (dired (alist-get 'path wt))
+    (user-error "No worktree at point")))
+
+(defun crewcapable-test-at-point ()
+  "Open test evidence for worktree at point."
+  (interactive)
+  (if-let ((wt (crewcapable--get-worktree-at-point)))
+      (let ((default-directory (alist-get 'path wt)))
+        (workspace-test-evidence))
+    (user-error "No worktree at point")))
+
+(defun crewcapable-start-services-at-point ()
+  "Start dev services (make dev) for worktree at point."
+  (interactive)
+  (if-let ((wt (crewcapable--get-worktree-at-point)))
+      (let ((path (alist-get 'path wt))
+            (port (alist-get 'port wt)))
+        (let ((default-directory path))
+          (compile "make dev")
+          (message "Starting services on port %d..." (+ 3000 (or port 0)))))
+    (user-error "No worktree at point")))
+
+(defun crewcapable-stop-services-at-point ()
+  "Stop dev services (make down) for worktree at point."
+  (interactive)
+  (if-let ((wt (crewcapable--get-worktree-at-point)))
+      (let ((path (alist-get 'path wt))
+            (port (alist-get 'port wt)))
+        (let ((default-directory path))
+          (shell-command "make down &")
+          (message "Stopping services on port %d..." (+ 3000 (or port 0)))
+          (run-at-time 2 nil #'crewcapable-refresh)))
+    (user-error "No worktree at point")))
+
+(defun crewcapable-toggle-services-at-point ()
+  "Toggle dev services for worktree at point."
+  (interactive)
+  (if-let ((wt (crewcapable--get-worktree-at-point)))
+      (if (alist-get 'service-running wt)
+          (crewcapable-stop-services-at-point)
+        (crewcapable-start-services-at-point))
+    (user-error "No worktree at point")))
+
+(defun crewcapable-push-at-point ()
+  "Push branch at point to origin."
+  (interactive)
+  (if-let ((wt (crewcapable--get-worktree-at-point)))
+      (let* ((path (alist-get 'path wt))
+             (branch (alist-get 'branch wt))
+             (default-directory path))
+        (when (yes-or-no-p (format "Push %s to origin? " branch))
+          (shell-command (format "git push -u origin %s" (shell-quote-argument branch)))
+          (message "Pushed %s" branch)
+          (crewcapable-refresh)))
+    (user-error "No worktree at point")))
+
+(defun crewcapable-pr-at-point ()
+  "Create PR for branch at point."
+  (interactive)
+  (if-let ((wt (crewcapable--get-worktree-at-point)))
+      (let* ((path (alist-get 'path wt))
+             (branch (alist-get 'branch wt))
+             (description (alist-get 'description wt))
+             (default-directory path))
+        ;; Push first
+        (message "Pushing %s..." branch)
+        (shell-command (format "git push -u origin %s" (shell-quote-argument branch)))
+        ;; Create PR with gh
+        (let ((title (read-string "PR Title: " (replace-regexp-in-string "^[A-Z]+/" "" branch)))
+              (body (read-string "PR Body: " (or description ""))))
+          (shell-command
+           (format "gh pr create --title %s --body %s --base dev"
+                   (shell-quote-argument title)
+                   (shell-quote-argument body)))
+          (message "Created PR for %s" branch)))
+    (user-error "No worktree at point")))
+
+(defun crewcapable-delete-at-point ()
+  "Delete worktree at point."
+  (interactive)
+  (if-let ((wt (crewcapable--get-worktree-at-point)))
+      (let* ((path (alist-get 'path wt))
+             (branch (alist-get 'branch wt)))
+        (when (yes-or-no-p (format "Delete worktree %s? This cannot be undone! " branch))
+          ;; Kill associated Claude buffer if any
+          (when-let ((claude-buf (alist-get 'claude-active wt)))
+            (kill-buffer claude-buf))
+          ;; Remove worktree
+          (let ((default-directory crewcapable-repo-path))
+            (shell-command (format "git worktree remove --force %s"
+                                   (shell-quote-argument path))))
+          (ghq--unregister-worktree path)
+          (crewcapable-refresh)
+          (message "Deleted %s" branch)))
+    (user-error "No worktree at point")))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Claude Management
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun crewcapable--get-claude-buffers ()
+  "Get all Claude buffers."
+  (cl-remove-if-not
+   (lambda (buf)
+     (string-prefix-p "*claude:" (buffer-name buf)))
+   (buffer-list)))
+
+(defun crewcapable-list-claudes ()
+  "Show all active Claude instances."
+  (interactive)
+  (let ((claudes (crewcapable--get-claude-buffers)))
+    (if claudes
+        (let ((choices (mapcar (lambda (buf)
+                                 (cons (buffer-name buf) buf))
+                               claudes)))
+          (when-let ((selection (completing-read "Claude instance: " choices nil t)))
+            (switch-to-buffer (cdr (assoc selection choices)))))
+      (message "No active Claude instances"))))
+
+(defun crewcapable-quit-all ()
+  "Quit dashboard and optionally kill all Claude instances."
+  (interactive)
+  (let ((claudes (crewcapable--get-claude-buffers)))
+    (when (and claudes
+               (yes-or-no-p (format "Kill %d Claude instance(s)? " (length claudes))))
+      (dolist (buf claudes)
+        (kill-buffer buf))))
+  (quit-window))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Toggle Between Magit and Claude (same worktree)
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun crewcapable--worktree-for-buffer ()
+  "Get the crewcapableai worktree path for the current buffer."
+  (let ((dir (expand-file-name default-directory)))
+    (cl-find-if (lambda (wt)
+                  (string-prefix-p (file-name-as-directory (alist-get 'path wt))
+                                   (file-name-as-directory dir)))
+                (crewcapable--get-worktrees))))
+
+(defun crewcapable--claude-buffer-for-path (path)
+  "Find Claude buffer for worktree at PATH."
+  (let ((name (file-name-nondirectory (directory-file-name path))))
+    (cl-find-if (lambda (buf)
+                  (string-match-p (regexp-quote name) (buffer-name buf)))
+                (crewcapable--get-claude-buffers))))
+
+(defun crewcapable--ensure-claude-loaded ()
+  "Ensure claude-code is loaded."
+  ;; vterm must be loaded first (claude-code is :after vterm)
+  (unless (featurep 'vterm)
+    (require 'vterm))
+  (unless (featurep 'claude-code)
+    (require 'claude-code)))
+
+(defun crewcapable--start-claude-in-path (path)
+  "Start Claude in PATH."
+  (crewcapable--ensure-claude-loaded)
+  (let ((default-directory path))
+    (if (fboundp 'claude-code)
+        (claude-code)
+      (user-error "claude-code not available"))))
+
+(defun crewcapable-toggle-magit-claude ()
+  "Toggle between magit and Claude for the current worktree.
+If in magit, switch to Claude (starting it if needed).
+If in Claude/vterm, switch to magit.
+If elsewhere in a worktree, switch to Claude."
+  (interactive)
+  (if-let ((wt (crewcapable--worktree-for-buffer)))
+      (let ((path (alist-get 'path wt)))
+        (cond
+         ;; In magit buffer -> go to Claude
+         ((derived-mode-p 'magit-mode)
+          (if-let ((claude-buf (crewcapable--claude-buffer-for-path path)))
+              (switch-to-buffer claude-buf)
+            (crewcapable--start-claude-in-path path)))
+         ;; In vterm/Claude buffer -> go to magit
+         ((derived-mode-p 'vterm-mode)
+          (magit-status path))
+         ;; Elsewhere -> go to Claude
+         (t
+          (if-let ((claude-buf (crewcapable--claude-buffer-for-path path)))
+              (switch-to-buffer claude-buf)
+            (crewcapable--start-claude-in-path path)))))
+    ;; Not in a crewcapable worktree - just toggle to magit
+    (magit-status)))
+
+(defun crewcapable-goto-magit ()
+  "Go to magit for current worktree."
+  (interactive)
+  (if-let ((wt (crewcapable--worktree-for-buffer)))
+      (magit-status (alist-get 'path wt))
+    (magit-status)))
+
+(defun crewcapable-goto-claude ()
+  "Go to Claude for current worktree (starting if needed)."
+  (interactive)
+  (if-let ((wt (crewcapable--worktree-for-buffer)))
+      (let ((path (alist-get 'path wt)))
+        (if-let ((claude-buf (crewcapable--claude-buffer-for-path path)))
+            (switch-to-buffer claude-buf)
+          (crewcapable--start-claude-in-path path)))
+    ;; Not in a worktree, start claude in current dir
+    (crewcapable--ensure-claude-loaded)
+    (if (fboundp 'claude-code)
+        (claude-code)
+      (user-error "claude-code not available"))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Transient Menus - The Discovery Layer
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(transient-define-prefix crewcapable-dispatch ()
+  "CrewCapable command dispatch."
+  ["CrewCapable"
+   ["New Branch"
+    ("f" "Feature (FEAT/)" crewcapable-new-feature)
+    ("x" "Fix (FIX/)" crewcapable-new-fix)
+    ("h" "Chore (CHORE/)" crewcapable-new-chore)
+    ("n" "New with description..." crewcapable-new-branch-dispatch)]
+   ["At Point"
+    ("RET" "Open (dired + magit)" crewcapable-open-at-point)
+    ("c" "Claude" crewcapable-claude-at-point)
+    ("m" "Magit" crewcapable-magit-at-point)
+    ("d" "Dired" crewcapable-dired-at-point)
+    ("t" "Test evidence" crewcapable-test-at-point)
+    ("s" "Toggle services" crewcapable-toggle-services-at-point)
+    ("S" "Stop services" crewcapable-stop-services-at-point)]
+   ["Workflow"
+    ("p" "Push to origin" crewcapable-push-at-point)
+    ("P" "Create PR" crewcapable-pr-at-point)
+    ("D" "Delete worktree" crewcapable-delete-at-point)]
+   ["Navigate"
+    ("l" "List Claudes" crewcapable-list-claudes)
+    ("g" "Refresh" crewcapable-refresh)
+    ("q" "Quit" transient-quit-one)
+    ("Q" "Quit + kill Claudes" crewcapable-quit-all)]])
+
+(transient-define-prefix crewcapable-new-branch-dispatch ()
+  "Create a new branch with full setup."
+  ["New Branch - Choose Type"
+   ("f" "Feature" crewcapable-new-feature-with-desc)
+   ("x" "Fix" crewcapable-new-fix-with-desc)
+   ("h" "Chore" crewcapable-new-chore-with-desc)])
+
+(defun crewcapable-new-feature-with-desc ()
+  "Create new feature with description."
+  (interactive)
+  (let ((name (read-string "Feature name (kebab-case): "))
+        (desc (read-string "Description (for Claude): ")))
+    (crewcapable--create-branch "FEAT" name desc)))
+
+(defun crewcapable-new-fix-with-desc ()
+  "Create new fix with description."
+  (interactive)
+  (let ((name (read-string "Fix name (kebab-case): "))
+        (desc (read-string "Description (for Claude): ")))
+    (crewcapable--create-branch "FIX" name desc)))
+
+(defun crewcapable-new-chore-with-desc ()
+  "Create new chore with description."
+  (interactive)
+  (let ((name (read-string "Chore name (kebab-case): "))
+        (desc (read-string "Description (for Claude): ")))
+    (crewcapable--create-branch "CHORE" name desc)))
+
+;; Simple versions without description prompt
+(defun crewcapable-new-feature (name)
+  "Create new FEAT/NAME branch."
+  (interactive "sFeature name: ")
+  (crewcapable--create-branch "FEAT" name nil))
+
+(defun crewcapable-new-fix (name)
+  "Create new FIX/NAME branch."
+  (interactive "sFix name: ")
+  (crewcapable--create-branch "FIX" name nil))
+
+(defun crewcapable-new-chore (name)
+  "Create new CHORE/NAME branch."
+  (interactive "sChore name: ")
+  (crewcapable--create-branch "CHORE" name nil))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Global Bindings
+;;; ════════════════════════════════════════════════════════════════════════════
+
+;; Single entry point: C-c C C
+(define-key ashton-mode-map (kbd "C-c C C") #'crewcapable-dashboard)
+(define-key ashton-mode-map (kbd "C-c C ?") #'crewcapable-dispatch)
+
+;; Quick access without dashboard
+(define-key ashton-mode-map (kbd "C-c C n") #'crewcapable-new-branch-dispatch)
+(define-key ashton-mode-map (kbd "C-c C f") #'crewcapable-new-feature)
+(define-key ashton-mode-map (kbd "C-c C c") #'crewcapable-list-claudes)
+(define-key ashton-mode-map (kbd "C-c C m") #'crewcapable-switch-magit)
+
+;; Toggle between magit and claude (same worktree)
+;; M-m toggles, M-M goes to magit, M-C goes to claude
+(define-key ashton-mode-map (kbd "M-m") #'crewcapable-toggle-magit-claude)
+(define-key ashton-mode-map (kbd "M-M") #'crewcapable-goto-magit)
+(define-key ashton-mode-map (kbd "M-C") #'crewcapable-goto-claude)
+
+;; Also bind in magit-mode to ensure it works there
+(with-eval-after-load 'magit
+  (define-key magit-mode-map (kbd "M-m") #'crewcapable-toggle-magit-claude))
+
+(defun crewcapable-switch-magit ()
+  "Switch to a worktree and open magit."
+  (interactive)
+  (let* ((worktrees (crewcapable--get-worktrees))
+         (choices (mapcar (lambda (wt)
+                            (cons (alist-get 'branch wt)
+                                  (alist-get 'path wt)))
+                          worktrees))
+         (selection (completing-read "Magit in: " choices nil t)))
+    (when-let ((path (cdr (assoc selection choices))))
+      (magit-status path))))
+
+(provide 'config-crewcapable)
+;;; config-crewcapable.el ends here

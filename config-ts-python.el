@@ -1,4 +1,4 @@
-;;; ../src/home/.doom.d/config-python.el -*- lexical-binding: t; -*-
+;;; ~/.doom.d/config-ts-python.el -*- lexical-binding: t; -*-
 
 ;; Set Python line length configurations globally
 (setq fill-column 88)
@@ -18,7 +18,7 @@
 
   (define-key python-ts-mode-map  (kbd "C-c m b") 'ruff-format-buffer)
   (define-key python-ts-mode-map  (kbd "C-c m r") 'ruff-format-region)
-  (define-key python-ts-mode-map (kbd "C-;") 'comment-or-uncomment-region)
+  ;; C-; handled by ashton-mode-map globally
   (define-key python-ts-mode-map (kbd "C-c t") 'python-pytest-dispatch)
 
   ;; (add-to-list 'apheleia-mode-alist '(python-mode . ruff))
@@ -59,7 +59,7 @@
               (setq python-pytest-executable
                     (concat "PYTHONPATH=" r " " "pipenv run pytest")))))
 
-(global-set-key (kbd "C-;") 'comment-or-uncomment-region)
+;; C-; handled by ashton-mode-map globally
 
 (defun insert-python-shebang ()
   "Insert a Python shebang line if the buffer is empty."

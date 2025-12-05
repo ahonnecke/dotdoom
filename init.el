@@ -21,11 +21,13 @@
        ;;layout            ; auie,ctsrnm is the superior home row
 
        :completion
-       company           ; the ultimate code completion backend
+       ;;company           ; REPLACED with corfu (2025-12-05)
+       (corfu +icons +orderless +dabbrev)  ; modern completion - lighter, capf-native
        ;;helm              ; the *other* search engine for love and life
        ;;ido               ; the other *other* search engine...
-       (ivy +prescient)               ; a search engine for love and life
-       vertico           ; the search engine of the future
+       ;;(ivy +prescient)  ; a search engine for love and life (switched to vertico)
+       (vertico +icons +childframe)  ; the search engine of the future
+                         ; NOTE: Doom's vertico includes: orderless, consult, embark, marginalia
 
        :ui
        ;;deft              ; notational velocity for Emacs
