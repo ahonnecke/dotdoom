@@ -8,10 +8,12 @@
 ;; - Architect mode: two-model approach (reasoning + editing)
 ;; - Project-aware analysis
 ;; - Comprehensive transient menu
-
-;; Keep aider CLI in PATH
-(add-to-list 'exec-path "~/.venvs/aider/bin")
-(setenv "PATH" (concat "~/.venvs/aider/bin:" (getenv "PATH")))
+;;
+;; Required env vars (set in ~/.secrets, sourced by shell):
+;;   OPENAI_API_KEY     - for GPT models
+;;   ANTHROPIC_API_KEY  - for Claude models
+;;
+;; Aider CLI must be in PATH (pip install aider-chat, or pipx)
 
 (use-package! aidermacs
   :config

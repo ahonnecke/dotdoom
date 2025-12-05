@@ -1,9 +1,17 @@
 # TODO
 
 * Add modes
+Generic modes that wrap their stupid cli clients
+Should be VERY explicit about if it's local or live
+Goal: quick visibility and access that does not break flow or get in the way
+Goal: get me quick sexy access from inside emacs so that I don't have to open
+gnome-terminal so much
 ** vercel
 ** supabase
 * Enhance modes
+Layer project specific stuff on top of the generic modes
+Goal: quick visibility and access that does not break flow or get in the way for
+this project
 ** vercel
 *** for crewcapable usage patterns
 ** supabase
