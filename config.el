@@ -226,6 +226,7 @@
 (load "~/.doom.d/config-testicular")  ; Manual testing mode (renamed from test-flow)
 (load "~/.doom.d/config-vercel")      ; Vercel CLI transient (C-c V)
 (load "~/.doom.d/config-supabase")    ; Supabase CLI transient (C-c B)
+(load "~/.doom.d/config-aws")         ; AWS CLI transient (C-c A)
 (load "~/.doom.d/config-crewcapable-services") ; Vercel/Supabase layer for crewcapable
 
 ;;(load "~/.doom.d/config-jolly-brancher")

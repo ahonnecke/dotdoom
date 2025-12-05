@@ -124,6 +124,9 @@ C-c C s     crewcapable-services CrewCapable: Vercel + Supabase + Dev
 C-c C d     crewcapable-dev      npm run dev
 C-c C D     crewcapable-dev-full Supabase + dev
 
+C-c A       aws-transient        AWS: S3, Lambda, CloudFormation, etc.
+C-c A b     aws-bedrock-chat     Bedrock AI chat (Claude!)
+
 ")
         ;; Quick Reference
         (insert (propertize "═══ STOCK EMACS LAYERING ═══\n" 'face '(:foreground "gray" :weight bold)))
