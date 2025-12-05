@@ -114,6 +114,17 @@ C-c p h     cape-history        Minibuffer history
 C-c p :     cape-emoji          Emoji :smile:
 
 ")
+        ;; Services
+        (insert (propertize "═══ SERVICES (Vercel/Supabase) ═══\n" 'face '(:foreground "cyan" :weight bold)))
+        (insert "
+C-c V       vercel-transient    Generic Vercel commands
+C-c B       supabase-transient  Generic Supabase commands
+
+C-c C s     crewcapable-services CrewCapable: Vercel + Supabase + Dev
+C-c C d     crewcapable-dev      npm run dev
+C-c C D     crewcapable-dev-full Supabase + dev
+
+")
         ;; Quick Reference
         (insert (propertize "═══ STOCK EMACS LAYERING ═══\n" 'face '(:foreground "gray" :weight bold)))
         (insert "

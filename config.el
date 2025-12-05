@@ -220,6 +220,7 @@
 (load "~/.doom.d/config-ghq")
 (load "~/.doom.d/config-orchard")
 (load "~/.doom.d/config-crewcapable-project")  ; Project-specific orchard settings
+(load "~/.doom.d/config-crewcapable-services") ; Vercel/Supabase/AWS for crewcapable
 (load "~/.doom.d/config-commando")
 (load "~/.doom.d/config-pr")
 (load "~/.doom.d/config-caldav")
