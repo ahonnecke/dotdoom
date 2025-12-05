@@ -204,6 +204,7 @@
 (load "~/.doom.d/config-direnv")
 (load "~/.doom.d/config-jolly-brancher")
 (load "~/.doom.d/config-llm")
+(load "~/.doom.d/config-mcp")  ; MCP tools for gptel (filesystem, fetch)
 (load "~/.doom.d/config-consult-embark")  ; MOVEC stack: consult, embark, marginalia, orderless
 ;; config-ellama.el disabled - entirely commented out
 (load "~/.doom.d/config-bookmark")
@@ -223,6 +224,8 @@
 (load "~/.doom.d/config-pr")
 (load "~/.doom.d/config-caldav")
 (load "~/.doom.d/config-testicular")  ; Manual testing mode (renamed from test-flow)
+(load "~/.doom.d/config-vercel")      ; Vercel CLI transient (C-c V)
+(load "~/.doom.d/config-supabase")    ; Supabase CLI transient (C-c B)
 
 ;;(load "~/.doom.d/config-jolly-brancher")
 ;;Load my ash-mode binding last
