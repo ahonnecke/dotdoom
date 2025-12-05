@@ -5,8 +5,9 @@
 ;;
 ;; Bindings: C-c C s (services transient)
 
-(require 'config-vercel)
-(require 'config-supabase)
+;; These are loaded via config.el, just declare dependency
+(declare-function vercel-transient "config-vercel")
+(declare-function supabase-transient "config-supabase")
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Project Constants

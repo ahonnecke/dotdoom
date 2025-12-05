@@ -220,13 +220,13 @@
 (load "~/.doom.d/config-ghq")
 (load "~/.doom.d/config-orchard")
 (load "~/.doom.d/config-crewcapable-project")  ; Project-specific orchard settings
-(load "~/.doom.d/config-crewcapable-services") ; Vercel/Supabase/AWS for crewcapable
 (load "~/.doom.d/config-commando")
 (load "~/.doom.d/config-pr")
 (load "~/.doom.d/config-caldav")
 (load "~/.doom.d/config-testicular")  ; Manual testing mode (renamed from test-flow)
 (load "~/.doom.d/config-vercel")      ; Vercel CLI transient (C-c V)
 (load "~/.doom.d/config-supabase")    ; Supabase CLI transient (C-c B)
+(load "~/.doom.d/config-crewcapable-services") ; Vercel/Supabase layer for crewcapable
 
 ;;(load "~/.doom.d/config-jolly-brancher")
 ;;Load my ash-mode binding last
