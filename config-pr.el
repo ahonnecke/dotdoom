@@ -42,21 +42,57 @@ Strips prefix like FEAT/, FIX/, CHORE/ and converts to title case."
   (let ((name (replace-regexp-in-string "^[A-Z]+/" "" branch)))
     (replace-regexp-in-string "-" " " name)))
 
+(defun pr--fetch-upstream ()
+  "Fetch from upstream remote to ensure we have latest refs."
+  (message "Fetching upstream...")
+  (shell-command-to-string (format "git fetch %s 2>/dev/null" pr-remote)))
+
+(defun pr--upstream-base ()
+  "Get the upstream version of the base branch (e.g., upstream/dev)."
+  (let ((upstream-ref (format "%s/%s" pr-remote pr-default-base)))
+    ;; Verify it exists
+    (if (string-empty-p
+         (string-trim
+          (shell-command-to-string
+           (format "git rev-parse --verify %s 2>/dev/null" upstream-ref))))
+        ;; Fall back to local base if upstream doesn't exist
+        pr-default-base
+      upstream-ref)))
+
+(defun pr--merge-base ()
+  "Get merge-base between upstream base and HEAD.
+This ensures we only get commits unique to this branch."
+  (pr--fetch-upstream)
+  (let ((upstream-base (pr--upstream-base)))
+    (string-trim
+     (shell-command-to-string
+      (format "git merge-base %s HEAD 2>/dev/null" upstream-base)))))
+
 (defun pr--get-commits-since-base (base)
-  "Get commit messages since BASE branch."
-  (let ((range (format "%s..HEAD" base)))
+  "Get commit messages since BASE branch.
+Uses merge-base to only get commits unique to this branch (not already in upstream)."
+  (let* ((merge-base (pr--merge-base))
+         (range (if (string-empty-p merge-base)
+                    (format "%s..HEAD" base)
+                  (format "%s..HEAD" merge-base))))
     (shell-command-to-string
      (format "git log %s --pretty=format:'%%s%%n%%b%%n---' 2>/dev/null" range))))
 
 (defun pr--get-diff-stat (base)
-  "Get diff stat since BASE branch."
-  (shell-command-to-string
-   (format "git diff %s --stat 2>/dev/null" base)))
+  "Get diff stat since BASE branch.
+Uses merge-base to only show changes unique to this branch."
+  (let ((merge-base (pr--merge-base)))
+    (shell-command-to-string
+     (format "git diff %s --stat 2>/dev/null"
+             (if (string-empty-p merge-base) base merge-base)))))
 
 (defun pr--get-changed-files (base)
-  "Get list of changed files since BASE branch."
-  (shell-command-to-string
-   (format "git diff %s --name-only 2>/dev/null" base)))
+  "Get list of changed files since BASE branch.
+Uses merge-base to only show files changed in this branch."
+  (let ((merge-base (pr--merge-base)))
+    (shell-command-to-string
+     (format "git diff %s --name-only 2>/dev/null"
+             (if (string-empty-p merge-base) base merge-base)))))
 
 (defun pr--generate-description (branch base)
   "Generate PR description for BRANCH against BASE.
@@ -126,9 +162,11 @@ Includes commits, changed files, and prompts for summary."
 (defun pr--ai-generate-description (branch base)
   "Generate AI-powered PR description for BRANCH against BASE.
 Uses llm CLI to create a concise, well-structured summary."
-  (let* ((commits (pr--get-commits-since-base base))
+  (let* ((merge-base (pr--merge-base))
+         (diff-base (if (string-empty-p merge-base) base merge-base))
+         (commits (pr--get-commits-since-base base))
          (diff (shell-command-to-string
-                (format "git diff %s --no-color 2>/dev/null | head -c 15000" base)))
+                (format "git diff %s --no-color 2>/dev/null | head -c 15000" diff-base)))
          (files (pr--get-changed-files base))
          (prompt (format "Generate a concise PR description for these changes.
 
@@ -177,11 +215,50 @@ Be specific and accurate. No fluff. No \"This PR...\" prefixes."
 ;;; Interactive Commands
 ;;; ════════════════════════════════════════════════════════════════════════════
 
+(defun pr--check-test-plan ()
+  "Check if a test plan exists and has been executed.
+Returns a plist with :has-plan :has-results :passed :failed."
+  (let* ((root (or (projectile-project-root) default-directory))
+         (plan-file (expand-file-name ".test-plan.md" root))
+         (results-file (expand-file-name ".test-results.md" root))
+         (has-plan (file-exists-p plan-file))
+         (has-results (file-exists-p results-file)))
+    (list :has-plan has-plan
+          :has-results has-results
+          :plan-file plan-file
+          :results-file results-file)))
+
+(defun pr--prompt-for-test-plan ()
+  "Prompt user about missing test plan/results.
+Returns t if user wants to proceed, nil to abort."
+  (let* ((status (pr--check-test-plan))
+         (has-plan (plist-get status :has-plan))
+         (has-results (plist-get status :has-results)))
+    (cond
+     ;; No test plan at all
+     ((not has-plan)
+      (if (yes-or-no-p "No .test-plan.md found. Create PR anyway? (Consider running /test-plan in Claude first) ")
+          t
+        (progn
+          (message "Create test plan: run /test-plan in Claude, then use C-c T (testicular) to execute")
+          nil)))
+     ;; Test plan exists but not executed
+     ((and has-plan (not has-results))
+      (if (yes-or-no-p ".test-plan.md exists but tests not run. Create PR anyway? (Consider C-c T to run testicular) ")
+          t
+        (progn
+          (message "Run tests: C-c T starts testicular to step through the test plan")
+          nil)))
+     ;; All good
+     (t t))))
+
 ;;;###autoload
 (defun pr-create-ai (&optional base)
   "Create a PR with AI-generated description.
 Pushes to origin, uses AI to generate description, creates PR against BASE."
   (interactive)
+  (unless (pr--prompt-for-test-plan)
+    (user-error "PR creation aborted"))
   (let* ((branch (pr--current-branch))
          (base (or base pr-default-base))
          (title (read-string "PR Title: " (pr--branch-title branch)))
@@ -204,6 +281,8 @@ Pushes to origin, uses AI to generate description, creates PR against BASE."
   "Create a PR for the current branch.
 Pushes to origin, generates description, creates PR against BASE (default: dev)."
   (interactive)
+  (unless (pr--prompt-for-test-plan)
+    (user-error "PR creation aborted"))
   (let* ((branch (pr--current-branch))
          (base (or base pr-default-base))
          (title (read-string "PR Title: " (pr--branch-title branch)))
@@ -238,6 +317,115 @@ Uses branch name as title, commits as body."
       (message "No PR found for this branch"))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Ship It - One command to commit, push, PR
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun pr--generate-commit-message ()
+  "Generate a commit message from staged changes using AI."
+  (let* ((diff (shell-command-to-string "git diff --cached --stat 2>/dev/null"))
+         (full-diff (shell-command-to-string "git diff --cached 2>/dev/null | head -c 8000"))
+         (prompt (format "Generate a concise git commit message for these changes.
+
+Staged files:
+%s
+
+Diff (truncated):
+%s
+
+Rules:
+- First line: type(scope): description (50 chars max)
+- Types: feat, fix, chore, refactor, docs, test
+- Be specific about WHAT changed
+- No body needed unless complex
+- Return ONLY the commit message, nothing else"
+                         (string-trim diff)
+                         full-diff))
+         (cmd (format "echo %s | llm 2>/dev/null" (shell-quote-argument prompt))))
+    (string-trim (shell-command-to-string cmd))))
+
+(defun pr--has-staged-changes-p ()
+  "Return t if there are staged changes."
+  (not (string-empty-p
+        (string-trim
+         (shell-command-to-string "git diff --cached --name-only 2>/dev/null")))))
+
+(defun pr--commit-staged (message)
+  "Commit staged changes with MESSAGE."
+  (let* ((msg-with-trailer (format "%s\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>" message))
+         (cmd (format "git commit -m %s 2>&1" (shell-quote-argument msg-with-trailer)))
+         (output (shell-command-to-string cmd)))
+    (if (string-match-p "\\[.*\\]" output)  ; Success shows [branch hash]
+        (progn
+          (message "Committed: %s" (car (split-string message "\n")))
+          t)
+      (error "Commit failed: %s" output))))
+
+;;;###autoload
+(defun pr-ship-it ()
+  "Ship it! Commit staged changes, push, and create PR - no questions asked.
+Uses AI to generate commit message and PR description."
+  (interactive)
+  (let ((branch (pr--current-branch)))
+    ;; Sanity checks
+    (when (member branch '("dev" "main" "master"))
+      (user-error "Won't ship directly to %s - create a feature branch first" branch))
+    (unless (pr--has-staged-changes-p)
+      (user-error "No staged changes - stage something first (in magit: s)"))
+
+    ;; Generate commit message
+    (message "Generating commit message...")
+    (let ((commit-msg (pr--generate-commit-message)))
+      (when (string-empty-p commit-msg)
+        (setq commit-msg (read-string "Commit message (AI failed): ")))
+
+      ;; Show what we're about to do
+      (message "Shipping: %s" (car (split-string commit-msg "\n")))
+
+      ;; Commit
+      (pr--commit-staged commit-msg)
+
+      ;; Push
+      (message "Pushing to %s..." pr-remote)
+      (pr--push-branch branch)
+
+      ;; Create PR with AI description
+      (message "Creating PR...")
+      (let* ((title (pr--branch-title branch))
+             (body (pr--ai-generate-description branch pr-default-base)))
+        (pr--create-pr title body pr-default-base)))))
+
+;;;###autoload
+(defun pr-ship-it-hierarchically ()
+  "Ship it with interactive commit message editing.
+Shows generated message, lets you edit, then ships."
+  (interactive)
+  (let ((branch (pr--current-branch)))
+    ;; Sanity checks
+    (when (member branch '("dev" "main" "master"))
+      (user-error "Won't ship directly to %s" branch))
+    (unless (pr--has-staged-changes-p)
+      (user-error "No staged changes"))
+
+    ;; Generate and edit commit message
+    (message "Generating commit message...")
+    (let* ((ai-msg (pr--generate-commit-message))
+           (commit-msg (read-string "Commit: " ai-msg)))
+
+      (when (string-empty-p commit-msg)
+        (user-error "Aborted - empty commit message"))
+
+      ;; Commit
+      (pr--commit-staged commit-msg)
+
+      ;; Push
+      (pr--push-branch branch)
+
+      ;; PR
+      (let* ((title (read-string "PR Title: " (pr--branch-title branch)))
+             (body (pr--ai-generate-description branch pr-default-base)))
+        (pr--create-pr title body pr-default-base)))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Magit Integration
 ;;; ════════════════════════════════════════════════════════════════════════════
 
@@ -250,7 +438,11 @@ Uses branch name as title, commits as body."
   (transient-append-suffix 'magit-push "R"
     '("A" "AI PR (smart desc)" pr-create-ai))
   (transient-append-suffix 'magit-push "A"
-    '("v" "View PR" pr-view)))
+    '("v" "View PR" pr-view))
+  (transient-append-suffix 'magit-push "v"
+    '("!" "SHIP IT (commit+push+PR)" pr-ship-it))
+  (transient-append-suffix 'magit-push "!"
+    '("@" "Ship (edit msg first)" pr-ship-it-hierarchically)))
 
 (provide 'config-pr)
 ;;; config-pr.el ends here

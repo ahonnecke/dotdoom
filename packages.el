@@ -97,3 +97,25 @@
 ;; Gives LLMs access to tools
 (package! mcp
   :recipe (:host github :repo "lizqwerscott/mcp.el"))
+
+;; Slack: Full Slack client in Emacs
+;; Token/cookie auth via auth-source, can be automated via cron
+(package! slack
+  :recipe (:host github :repo "emacs-slack/emacs-slack"))
+
+;; Wgrep: Editable grep buffers
+;; Use with embark-export (C-. E) on grep results → edit → C-c C-c to apply
+(package! wgrep)
+
+;; Consult-flycheck: Navigate errors with consult preview
+(package! consult-flycheck)
+
+;; Consult-dir: Quick directory switching in minibuffer
+;; Insert directory paths with C-x C-d, switch default-directory with C-x C-j
+(package! consult-dir)
+
+;; String-inflection: Convert between snake_case, camelCase, PascalCase, etc.
+(package! string-inflection)
+
+;; Posframe: Pop up frames at point (used for ace-window centering)
+(package! posframe)

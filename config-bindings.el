@@ -51,35 +51,123 @@
 (define-key ashton-mode-map (kbd "C-M-v") '+vterm/toggle)
 ;;(define-key ashton-mode-map (kbd "C-M-t") '+vterm/toggle)
 
-;; C-c g (go to thing)
-;;(define-key ashton-mode-map (kbd "C-c g r") 'browse-at-remote)
-;; TODO: move to hydra?
-;; GOTO keys:
-(define-key ashton-mode-map (kbd "C-c g g") '+vc/browse-at-remote)
-(define-key ashton-mode-map (kbd "C-c g f") 'find-file-at-point-with-line)
-(define-key ashton-mode-map (kbd "C-c g u") 'browse-url-of-file)
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; C-c g = Go to (navigation)
+;;; ════════════════════════════════════════════════════════════════════════════
+;;
+;; Mnemonic single letters, organized by type:
+;;   Code: d(efinition) r(eferences) i(menu) e(rror) t(est)
+;;   Avy:  l(ine) c(har) w(ord)
+;;   External: g(ithub) b(rowser) f(ile-at-point)
+
+;; Code navigation (LSP/xref)
+(define-key ashton-mode-map (kbd "C-c g d") 'xref-find-definitions)
+(define-key ashton-mode-map (kbd "C-c g r") 'xref-find-references)
+(define-key ashton-mode-map (kbd "C-c g i") 'consult-imenu)
+(define-key ashton-mode-map (kbd "C-c g I") 'consult-imenu-multi)  ; across project
+(define-key ashton-mode-map (kbd "C-c g e") 'consult-flycheck)
 (define-key ashton-mode-map (kbd "C-c g t") 'projectile-toggle-between-implementation-and-test)
-(define-key ashton-mode-map (kbd "C-c g b") 'browse-url-at-point)
-(define-key ashton-mode-map (kbd "C-c g s") 'firefox-search-region)
+
+;; Visual jump (avy) - for when you SEE where you want to go
 (define-key ashton-mode-map (kbd "C-c g l") 'avy-goto-line)
-(define-key ashton-mode-map (kbd "C-c g c") 'avy-goto-char)
+(define-key ashton-mode-map (kbd "C-c g c") 'avy-goto-char-timer)  ; type chars, then jump
+(define-key ashton-mode-map (kbd "C-c g w") 'avy-goto-word-1)      ; first char of word
+
+;; External/files
+(define-key ashton-mode-map (kbd "C-c g g") '+vc/browse-at-remote) ; GitHub/GitLab
+(define-key ashton-mode-map (kbd "C-c g b") 'browse-url-at-point)
+(define-key ashton-mode-map (kbd "C-c g f") 'find-file-at-point-with-line)
+
+;; Transient menu for discoverability
+(transient-define-prefix goto-transient ()
+  "Go to places - navigation commands."
+  ["Go to (C-c g)"
+   ["Code"
+    ("d" "Definition" xref-find-definitions)
+    ("r" "References" xref-find-references)
+    ("i" "Symbol (imenu)" consult-imenu)
+    ("I" "Symbol (project)" consult-imenu-multi)
+    ("e" "Error" consult-flycheck)
+    ("t" "Test/Impl toggle" projectile-toggle-between-implementation-and-test)]
+   ["Visual (avy)"
+    ("l" "Line" avy-goto-line)
+    ("c" "Char(s)" avy-goto-char-timer)
+    ("w" "Word" avy-goto-word-1)]
+   ["External"
+    ("g" "GitHub" +vc/browse-at-remote)
+    ("b" "URL at point" browse-url-at-point)
+    ("f" "File at point" find-file-at-point-with-line)]])
+
+(define-key ashton-mode-map (kbd "C-c g ?") 'goto-transient)
 
 
-;; String inflection bindings (C-c i = inflection)
-(define-key ashton-mode-map (kbd "C-c i _") 'xah-cycle-hyphen-underscore-space)
-(define-key ashton-mode-map (kbd "C-c i c") 'string-inflection-camelcase)
-(define-key ashton-mode-map (kbd "C-c i s") 'string-inflection-underscore)  ; s = snake_case
-(define-key ashton-mode-map (kbd "C-c i k") 'string-inflection-kebab-case)
-(define-key ashton-mode-map (kbd "C-c i u") 'string-inflection-upcase)
-(define-key ashton-mode-map (kbd "C-c i p") 'string-inflection-python-style-cycle)
-(define-key ashton-mode-map (kbd "C-c i U") 'crux-upcase-region)
-(define-key ashton-mode-map (kbd "C-c i l") 'crux-downcase-region)
+;; String inflection bindings moved to config-inflection.el
+;; C-c i prefix: s=snake, c=camel, p=Pascal, u=CONST, k=kebab, i=smart-cycle, ?=menu
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Indent region left/right - with repeat mode!
+;;; ════════════════════════════════════════════════════════════════════════════
+;; C-c < or C-c > to start, then just < or > to keep adjusting
+;; Press any other key to exit
+
+(defun indent--get-step ()
+  "Get the appropriate indent step for current buffer.
+Uses mode-specific settings: python-indent-offset, typescript-indent-level,
+js-indent-level, or defaults to tab-width (usually 4)."
+  (or (and (boundp 'python-indent-offset) python-indent-offset)
+      (and (boundp 'typescript-indent-level) typescript-indent-level)
+      (and (boundp 'js-indent-level) js-indent-level)
+      (and (boundp 'css-indent-offset) css-indent-offset)
+      tab-width
+      4))
+
+(defun indent--region-bounds ()
+  "Get region bounds, or current line if no region."
+  (if (use-region-p)
+      (cons (region-beginning) (region-end))
+    (cons (line-beginning-position) (line-end-position))))
+
+(defun indent-region-left ()
+  "Indent region/line left by mode-appropriate amount. Repeatable with <."
+  (interactive)
+  (let* ((bounds (indent--region-bounds))
+         (step (indent--get-step))
+         (deactivate-mark nil))
+    (indent-rigidly (car bounds) (cdr bounds) (- step))
+    (message "Indent: < or > to continue, any other key to stop")
+    (set-transient-map
+     (let ((map (make-sparse-keymap)))
+       (define-key map (kbd "<") #'indent-region-left)
+       (define-key map (kbd ">") #'indent-region-right)
+       map)
+     t)))
+
+(defun indent-region-right ()
+  "Indent region/line right by mode-appropriate amount. Repeatable with >."
+  (interactive)
+  (let* ((bounds (indent--region-bounds))
+         (step (indent--get-step))
+         (deactivate-mark nil))
+    (indent-rigidly (car bounds) (cdr bounds) step)
+    (message "Indent: < or > to continue, any other key to stop")
+    (set-transient-map
+     (let ((map (make-sparse-keymap)))
+       (define-key map (kbd "<") #'indent-region-left)
+       (define-key map (kbd ">") #'indent-region-right)
+       map)
+     t)))
+
+(define-key ashton-mode-map (kbd "C-c <") #'indent-region-left)
+(define-key ashton-mode-map (kbd "C-c >") #'indent-region-right)
+;; M-<left>/M-<right> removed - conflicts with org-mode promote/demote
 
 ;; Global standup bindings (C-c S = Standup, works from any buffer)
 (define-key ashton-mode-map (kbd "C-c S s") 'standup)
 (define-key ashton-mode-map (kbd "C-c S d") 'standup-done)
 (define-key ashton-mode-map (kbd "C-c S g") 'standup-doing)
 (define-key ashton-mode-map (kbd "C-c S b") 'standup-blocker)
+(define-key ashton-mode-map (kbd "C-c S a") 'standup-agenda)    ; add to tomorrow
+(define-key ashton-mode-map (kbd "C-c S T") 'standup-tomorrow)  ; jump to tomorrow
 
 ;; Global workspace bindings (C-c w = Workspace)
 (define-key ashton-mode-map (kbd "C-c w w") 'workspace-show)
@@ -146,7 +234,7 @@
 (define-key ashton-mode-map (kbd "C-c l f") 'copy-full-path-to-clipboard)
 (define-key ashton-mode-map (kbd "C-c l w") 'copy-wrapped-full-path-to-clipboard)
 
-(define-key ashton-mode-map (kbd "C-c g n") 'goto-line)
+;; C-c g n removed - use M-g g (consult-goto-line) instead
 
 ;; Bind to C-c f in Dired mode
 (with-eval-after-load 'dired

@@ -37,10 +37,10 @@
 ;; See: https://github.com/lizqwerscott/mcp.el for manual setup
 ;; The integration is still evolving - check repo for latest
 
-;; Keybindings
+;; Keybindings (C-c M = MCP)
 (after! mcp
-  (define-key ashton-mode-map (kbd "C-c g m") #'mcp-hub)  ; MCP hub status
-  (define-key ashton-mode-map (kbd "C-c g s") #'mcp-hub-start-all-server))
+  (define-key ashton-mode-map (kbd "C-c M m") #'mcp-hub)  ; MCP hub status
+  (define-key ashton-mode-map (kbd "C-c M s") #'mcp-hub-start-all-server))
 
 (provide 'config-mcp)
 ;;; config-mcp.el ends here

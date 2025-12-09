@@ -22,9 +22,15 @@
 ;;; Legacy Keybindings (for muscle memory)
 ;;; ════════════════════════════════════════════════════════════════════════════
 
-;; Keep C-c C C working for now (alias to orchard)
+;; Keep C-c C C working for now (alias to orchard dashboard)
 (define-key ashton-mode-map (kbd "C-c C C") #'orchard)
 (define-key ashton-mode-map (kbd "C-c C ?") #'orchard-dispatch)
+;; Create branches (uppercase, unique first char)
+(define-key ashton-mode-map (kbd "C-c C F") #'orchard-new-feature)
+(define-key ashton-mode-map (kbd "C-c C B") #'orchard-new-bugfix)
+(define-key ashton-mode-map (kbd "C-c C H") #'orchard-new-chore)  ; H for cHore (C taken by dashboard)
+(define-key ashton-mode-map (kbd "C-c C R") #'orchard-new-refactor)
+;; Legacy aliases
 (define-key ashton-mode-map (kbd "C-c C n") #'orchard-new-feature)
 (define-key ashton-mode-map (kbd "C-c C f") #'orchard-new-feature)
 

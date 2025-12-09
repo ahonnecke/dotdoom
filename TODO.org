@@ -1,5 +1,20 @@
 # TODO
 
+* Cleanup
+** cleanup all the string manipulations bindings
+*** maybe a transient menu that shows all the manipulations? (so it would open with var_name, varName, VarName)
+** for all my custom actions: make everything work on either the current region or smart "thing at point"
+*** go to actions
+*** string manipulation actions
+**** make these smarter per mode
+***** python: snake case and ClassCase, etc
+***** ts: camelCase ClassCase, etc
+** clean up the indent tool binding
+*** bind such that there's consistent behavior that indents the region left or right if there's region
+*** left indent and a good binding
+*** right indent and a good binding
+*** C-c used to do crux duplicate but that's gone now?
+** look for other ways to clean up my custom files, suggest
 * Add modes
 Generic modes that wrap their stupid cli clients
 Should be VERY explicit about if it's local or live
@@ -18,3 +33,12 @@ this project
 *** for crewcapable usage patterns
 ** aws
 *** for crewcapable usage patterns
+* Indent
+ * does not indent by 4 in python mode
+ * by 4 should be the default
+ * nor in text mode
+ * not in ts
+ * furthermore, "C-c >" only works one time and then I have to "C-c >" again
+   but I want it to be EASY to indent twice (meaning I don't have to C-c before
+   each ">"), in fact if there were a "move this region around" mode that I
+   could enable that would be great, maybe there's a package like that?

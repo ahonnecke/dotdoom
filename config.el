@@ -79,7 +79,7 @@
 ;;(load! config-bindings)
 (load "~/.doom.d/config-quad-screen")
 ;;(triple-screen)
-(load "~/.doom.d/config-string-inflection")
+(load "~/.doom.d/config-inflection")  ; replaces config-string-inflection
 (load "~/.doom.d/config-custom-movement")
 ;;(load "~/.doom.d/config-black")
 (load "~/.doom.d/config-ffap")
@@ -213,6 +213,7 @@
 ;; (load "~/.doom.d/custom-completion")  ; ARCHIVED - replaced by config-corfu.el (2025-12-05)
 (load "~/.doom.d/config-corfu")          ; Corfu + Cape completion
 (load "~/.doom.d/config-standup")
+(load "~/.doom.d/config-slack")     ; Slack client (C-c K)
 (load "~/.doom.d/config-workspace")
 (load "~/.doom.d/config-claude")
 (load "~/.doom.d/config-monet")  ; Claude IDE integration (selection sharing, diagnostics)

@@ -53,8 +53,8 @@ Returns the vterm buffer."
     (setenv "PROOT" project-root)
     (funcall display-fn)))
 
-;; Bind to C-c g t
-(global-set-key (kbd "C-c g e") '+vterm/open-here-or-fallback)
+;; C-c v e = vterm here (in current directory)
+(global-set-key (kbd "C-c v e") '+vterm/open-here-or-fallback)
 
 ;; Move this
 

@@ -55,8 +55,30 @@ Set this in your project-specific config."
 
 (defcustom orchard-worktree-prefix nil
   "Prefix for worktree directories (e.g., \"myproject\").
-Worktrees will be named PREFIX--BRANCH. If nil, uses repo name."
+With nested structure: worktrees are PREFIX/BRANCH-name.
+With flat structure: worktrees are PREFIX--BRANCH-name.
+If nil, uses repo name."
   :type '(choice string (const nil))
+  :group 'orchard)
+
+(defcustom orchard-nested-worktrees t
+  "If non-nil, use nested directory structure for worktrees.
+Nested:  ~/src/project/FEATURE-name/
+Flat:    ~/src/project--FEATURE-name/ (legacy)"
+  :type 'boolean
+  :group 'orchard)
+
+(defcustom orchard-branch-types
+  '(("FEATURE" . "f")   ; F - new functionality
+    ("BUGFIX"  . "b")   ; B - bug fix
+    ("CHORE"   . "c")   ; C - maintenance
+    ("REFACTOR" . "r")  ; R - code improvement
+    ("DOCS"    . "d")   ; D - documentation
+    ("EXPERIMENT" . "e") ; E - spike/experiment
+    ("TEST"    . "t"))  ; T - test improvements
+  "Branch type prefixes with unique first character for tab completion.
+Each entry is (PREFIX . shortcut-key)."
+  :type '(alist :key-type string :value-type string)
   :group 'orchard)
 
 (defcustom orchard-shared-claude-settings nil
@@ -324,17 +346,37 @@ Called with the worktree path as argument."
 
 (defface orchard-branch-feature
   '((t :foreground "#98C379"))
-  "Face for FEAT branches (green)."
+  "Face for FEATURE branches (green)."
   :group 'orchard)
 
-(defface orchard-branch-fix
-  '((t :foreground "#E5C07B"))
-  "Face for FIX branches (yellow)."
+(defface orchard-branch-bugfix
+  '((t :foreground "#E06C75"))
+  "Face for BUGFIX branches (red)."
   :group 'orchard)
 
 (defface orchard-branch-chore
   '((t :foreground "#56B6C2"))
   "Face for CHORE branches (cyan)."
+  :group 'orchard)
+
+(defface orchard-branch-refactor
+  '((t :foreground "#E5C07B"))
+  "Face for REFACTOR branches (yellow)."
+  :group 'orchard)
+
+(defface orchard-branch-docs
+  '((t :foreground "#61AFEF"))
+  "Face for DOCS branches (blue)."
+  :group 'orchard)
+
+(defface orchard-branch-experiment
+  '((t :foreground "#C678DD"))
+  "Face for EXPERIMENT branches (purple)."
+  :group 'orchard)
+
+(defface orchard-branch-test
+  '((t :foreground "#ABB2BF"))
+  "Face for TEST branches (gray)."
   :group 'orchard)
 
 (defface orchard-branch-main
@@ -495,7 +537,7 @@ If INCLUDE-HIDDEN is non-nil, include hidden worktrees."
       (let ((default-directory repo-root))
         (let* ((output (shell-command-to-string "git worktree list --porcelain"))
                (worktrees (orchard--parse-worktrees output))
-               (enriched (mapcar #'orchard--enrich-worktree worktrees)))
+               (enriched (delq nil (mapcar #'orchard--enrich-worktree worktrees))))
           ;; Filter out hidden unless requested
           (if include-hidden
               enriched
@@ -525,44 +567,47 @@ If INCLUDE-HIDDEN is non-nil, include hidden worktrees."
     (nreverse worktrees)))
 
 (defun orchard--enrich-worktree (wt)
-  "Add status info to worktree WT."
+  "Add status info to worktree WT.
+Returns nil if worktree path doesn't exist (skip it)."
   (let* ((path (alist-get 'path wt))
-         (branch (alist-get 'branch wt))
-         (default-directory path))
-    ;; Port allocation (from ghq)
-    (when (fboundp 'ghq--get-worktree-port)
-      (when-let ((port-slot (ghq--get-worktree-port path)))
-        (push (cons 'port port-slot) wt)))
-    ;; Dirty status
-    (let ((dirty (not (string-empty-p
-                       (shell-command-to-string "git status --porcelain 2>/dev/null")))))
-      (push (cons 'dirty dirty) wt))
-    ;; Ahead/behind upstream
-    (let ((counts (shell-command-to-string
-                   (format "git rev-list --left-right --count %s...HEAD 2>/dev/null"
-                           orchard-upstream-branch))))
-      (when (string-match "\\([0-9]+\\)\\s-+\\([0-9]+\\)" counts)
-        (push (cons 'behind (string-to-number (match-string 1 counts))) wt)
-        (push (cons 'ahead (string-to-number (match-string 2 counts))) wt)))
-    ;; Claude status: nil, 'stopped, or 'running
-    (let ((claude-buf (orchard--claude-buffer-for-path path)))
-      (when (and claude-buf (buffer-live-p claude-buf))
-        (let ((running (orchard--claude-process-running-p claude-buf)))
-          (push (cons 'claude-status (if running 'running 'stopped)) wt))))
-    ;; Column assignment
-    (when branch
-      (push (cons 'column (orchard--column-for-branch branch)) wt))
-    ;; Feature description
-    (when-let ((desc (orchard--load-feature-description path)))
-      (push (cons 'description desc) wt))
-    ;; Stage tracking
-    (push (cons 'stage (orchard--detect-stage path)) wt)
-    ;; Dev mode ownership
-    (when (and orchard--dev-owner
-               (string= (file-name-as-directory path)
-                        (file-name-as-directory orchard--dev-owner)))
-      (push (cons 'dev-owner t) wt))
-    wt))
+         (branch (alist-get 'branch wt)))
+    ;; Skip if path doesn't exist
+    (when (file-directory-p path)
+      (let ((default-directory path))
+        ;; Port allocation (from ghq)
+        (when (fboundp 'ghq--get-worktree-port)
+          (when-let ((port-slot (ghq--get-worktree-port path)))
+            (push (cons 'port port-slot) wt)))
+        ;; Dirty status
+        (let ((dirty (not (string-empty-p
+                           (shell-command-to-string "git status --porcelain 2>/dev/null")))))
+          (push (cons 'dirty dirty) wt))
+        ;; Ahead/behind upstream
+        (let ((counts (shell-command-to-string
+                       (format "git rev-list --left-right --count %s...HEAD 2>/dev/null"
+                               orchard-upstream-branch))))
+          (when (string-match "\\([0-9]+\\)\\s-+\\([0-9]+\\)" counts)
+            (push (cons 'behind (string-to-number (match-string 1 counts))) wt)
+            (push (cons 'ahead (string-to-number (match-string 2 counts))) wt)))
+        ;; Claude status: nil, 'stopped, or 'running
+        (let ((claude-buf (orchard--claude-buffer-for-path path)))
+          (when (and claude-buf (buffer-live-p claude-buf))
+            (let ((running (orchard--claude-process-running-p claude-buf)))
+              (push (cons 'claude-status (if running 'running 'stopped)) wt))))
+        ;; Column assignment
+        (when branch
+          (push (cons 'column (orchard--column-for-branch branch)) wt))
+        ;; Feature description
+        (when-let ((desc (orchard--load-feature-description path)))
+          (push (cons 'description desc) wt))
+        ;; Stage tracking
+        (push (cons 'stage (orchard--detect-stage path)) wt)
+        ;; Dev mode ownership
+        (when (and orchard--dev-owner
+                   (string= (file-name-as-directory path)
+                            (file-name-as-directory orchard--dev-owner)))
+          (push (cons 'dev-owner t) wt))
+        wt))))
 
 (defun orchard--save-feature-description (path description)
   "Save DESCRIPTION for worktree at PATH."
@@ -659,14 +704,22 @@ If INCLUDE-HIDDEN is non-nil, include hidden worktrees."
                                    (file-name-as-directory dir)))
                 (orchard--get-worktrees))))
 
+(defun orchard--project-root ()
+  "Get project root for current directory (fallback when not in orchard worktree)."
+  (or (locate-dominating-file default-directory ".git")
+      default-directory))
+
 (defun orchard-cycle-mode ()
   "Cycle between magit and claude in the current column.
 If in magit → switch to claude (start if needed).
 If in claude → switch to magit.
-If in compile → close compile, go to magit."
+If in compile → close compile, go to magit.
+
+Works both in orchard-managed worktrees and regular git repos."
   (interactive)
   (let* ((wt (orchard--current-worktree))
-         (path (when wt (alist-get 'path wt)))
+         (path (or (when wt (alist-get 'path wt))
+                   (orchard--project-root)))  ; Fallback to git root
          (branch (when wt (alist-get 'branch wt))))
     (cond
      ;; In compilation buffer - close it, go to magit
@@ -684,16 +737,18 @@ If in compile → close compile, go to magit."
               (orchard--ensure-claude-loaded)
               (let ((default-directory path))
                 (claude-code))))
-        (user-error "Not in a worktree")))
+        ;; Fallback: start claude in current directory
+        (orchard--ensure-claude-loaded)
+        (claude-code)))
      ;; In vterm/claude - go to magit
      ((derived-mode-p 'vterm-mode)
       (if path
           (magit-status path)
-        (user-error "Not in a worktree")))
+        (magit-status)))  ; Fallback to magit in current dir
      ;; Elsewhere in a worktree - go to magit
      (path
       (magit-status path))
-     ;; Not in a worktree
+     ;; Not in a worktree - just open magit
      (t
       (magit-status)))))
 
@@ -733,10 +788,15 @@ If in compile → close compile, go to magit."
     (suppress-keymap map t)
     ;; Help
     (define-key map (kbd "?") #'orchard-dispatch)
-    ;; Create branches
+    ;; Create branches (uppercase = create, unique first char for TAB completion)
+    (define-key map (kbd "F") #'orchard-new-feature)
+    (define-key map (kbd "B") #'orchard-new-bugfix)
+    (define-key map (kbd "C") #'orchard-new-chore)
+    (define-key map (kbd "R") #'orchard-new-refactor)
+    (define-key map (kbd "D") #'orchard-new-docs)
+    (define-key map (kbd "E") #'orchard-new-experiment)
+    ;; Legacy shortcuts (lowercase, will be removed eventually)
     (define-key map (kbd "f") #'orchard-new-feature)
-    (define-key map (kbd "x") #'orchard-new-fix)
-    (define-key map (kbd "h") #'orchard-new-chore)
     ;; Open/interact with worktree at point
     (define-key map (kbd "RET") #'orchard-open-at-point)
     (define-key map (kbd "c") #'orchard-claude-at-point)
@@ -786,18 +846,36 @@ If in compile → close compile, go to magit."
 (defun orchard--branch-face (branch)
   "Return face for BRANCH based on prefix."
   (cond
-   ((string-prefix-p "FEAT/" branch) 'orchard-branch-feature)
-   ((string-prefix-p "FIX/" branch) 'orchard-branch-fix)
+   ;; New prefixes (unique first char for tab completion)
+   ((string-prefix-p "FEATURE/" branch) 'orchard-branch-feature)
+   ((string-prefix-p "BUGFIX/" branch) 'orchard-branch-bugfix)
    ((string-prefix-p "CHORE/" branch) 'orchard-branch-chore)
+   ((string-prefix-p "REFACTOR/" branch) 'orchard-branch-refactor)
+   ((string-prefix-p "DOCS/" branch) 'orchard-branch-docs)
+   ((string-prefix-p "EXPERIMENT/" branch) 'orchard-branch-experiment)
+   ((string-prefix-p "TEST/" branch) 'orchard-branch-test)
+   ;; Legacy prefixes (for existing branches)
+   ((string-prefix-p "FEAT/" branch) 'orchard-branch-feature)
+   ((string-prefix-p "FIX/" branch) 'orchard-branch-bugfix)
+   ;; Main branches
    ((member branch '("dev" "main" "master")) 'orchard-branch-main)
    (t 'default)))
 
 (defun orchard--branch-icon (branch)
   "Return icon for BRANCH type."
   (cond
-   ((string-prefix-p "FEAT/" branch) "✨")
-   ((string-prefix-p "FIX/" branch) "🔧")
+   ;; New prefixes
+   ((string-prefix-p "FEATURE/" branch) "✨")
+   ((string-prefix-p "BUGFIX/" branch) "🐛")
    ((string-prefix-p "CHORE/" branch) "🧹")
+   ((string-prefix-p "REFACTOR/" branch) "♻️")
+   ((string-prefix-p "DOCS/" branch) "📖")
+   ((string-prefix-p "EXPERIMENT/" branch) "🧪")
+   ((string-prefix-p "TEST/" branch) "✅")
+   ;; Legacy prefixes
+   ((string-prefix-p "FEAT/" branch) "✨")
+   ((string-prefix-p "FIX/" branch) "🐛")
+   ;; Main branches
    ((member branch '("dev" "main" "master")) "📦")
    (t "📁")))
 
@@ -1442,15 +1520,26 @@ Based on current stage, performs the appropriate action:
          (safe-branch (replace-regexp-in-string "/" "-" full-branch))
          (wt-prefix (or orchard-worktree-prefix
                         (file-name-nondirectory (directory-file-name repo-root))))
-         (worktree-path (expand-file-name
-                         (concat wt-prefix "--" safe-branch)
-                         orchard-worktree-parent))
+         ;; Nested: ~/src/project/FEATURE-name
+         ;; Flat:   ~/src/project--FEATURE-name
+         (worktree-path (if orchard-nested-worktrees
+                            (expand-file-name
+                             safe-branch
+                             (expand-file-name wt-prefix orchard-worktree-parent))
+                          (expand-file-name
+                           (concat wt-prefix "--" safe-branch)
+                           orchard-worktree-parent)))
          (port-num (when (fboundp 'ghq--allocate-port)
                      (ghq--allocate-port))))
     (unless repo-root
       (user-error "No repository root configured"))
     (when (file-exists-p worktree-path)
       (user-error "Worktree already exists: %s" worktree-path))
+    ;; Ensure parent directory exists (for nested structure)
+    (when orchard-nested-worktrees
+      (let ((parent-dir (expand-file-name wt-prefix orchard-worktree-parent)))
+        (unless (file-directory-p parent-dir)
+          (make-directory parent-dir t))))
     ;; Fetch upstream
     (message "Fetching upstream...")
     (let ((default-directory repo-root))
@@ -1491,16 +1580,16 @@ Based on current stage, performs the appropriate action:
     worktree-path))
 
 (defun orchard-new-feature (name)
-  "Create new FEAT/NAME branch."
+  "Create new FEATURE/NAME branch."
   (interactive "sFeature name: ")
   (let ((desc (read-string "Description (optional): ")))
-    (orchard--create-branch "FEAT" name desc)))
+    (orchard--create-branch "FEATURE" name desc)))
 
-(defun orchard-new-fix (name)
-  "Create new FIX/NAME branch."
-  (interactive "sFix name: ")
+(defun orchard-new-bugfix (name)
+  "Create new BUGFIX/NAME branch."
+  (interactive "sBugfix name: ")
   (let ((desc (read-string "Description (optional): ")))
-    (orchard--create-branch "FIX" name desc)))
+    (orchard--create-branch "BUGFIX" name desc)))
 
 (defun orchard-new-chore (name)
   "Create new CHORE/NAME branch."
@@ -1508,23 +1597,58 @@ Based on current stage, performs the appropriate action:
   (let ((desc (read-string "Description (optional): ")))
     (orchard--create-branch "CHORE" name desc)))
 
+(defun orchard-new-refactor (name)
+  "Create new REFACTOR/NAME branch."
+  (interactive "sRefactor name: ")
+  (let ((desc (read-string "Description (optional): ")))
+    (orchard--create-branch "REFACTOR" name desc)))
+
+(defun orchard-new-docs (name)
+  "Create new DOCS/NAME branch."
+  (interactive "sDocs name: ")
+  (let ((desc (read-string "Description (optional): ")))
+    (orchard--create-branch "DOCS" name desc)))
+
+(defun orchard-new-experiment (name)
+  "Create new EXPERIMENT/NAME branch."
+  (interactive "sExperiment name: ")
+  (let ((desc (read-string "Description (optional): ")))
+    (orchard--create-branch "EXPERIMENT" name desc)))
+
+;; Legacy aliases
+(defalias 'orchard-new-fix 'orchard-new-bugfix)
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Transient Menu
 ;;; ════════════════════════════════════════════════════════════════════════════
 
+(defun orchard-commando-at-point ()
+  "Open commando in the worktree at point."
+  (interactive)
+  (when-let* ((wt (orchard--worktree-at-point))
+              (path (alist-get 'path wt)))
+    (let ((default-directory path))
+      (if (fboundp 'commando)
+          (commando)
+        (user-error "Commando not available")))))
+
 (transient-define-prefix orchard-dispatch ()
   "Orchard command menu."
   ["Orchard - Worktree Manager"
-   ["Create"
-    ("f" "Feature (FEAT/)" orchard-new-feature)
-    ("x" "Fix (FIX/)" orchard-new-fix)
-    ("h" "Chore (CHORE/)" orchard-new-chore)]
+   ["Create (TAB-completable)"
+    ("F" "Feature (FEATURE/)" orchard-new-feature)
+    ("B" "Bugfix (BUGFIX/)" orchard-new-bugfix)
+    ("C" "Chore (CHORE/)" orchard-new-chore)
+    ("R" "Refactor (REFACTOR/)" orchard-new-refactor)
+    ("D" "Docs (DOCS/)" orchard-new-docs)
+    ("E" "Experiment (EXPERIMENT/)" orchard-new-experiment)]
    ["At Point"
     ("RET" "Open in column" orchard-open-at-point)
     ("m" "Magit" orchard-magit-at-point)
     ("c" "Claude" orchard-claude-at-point)
     ("d" "Dired" orchard-dired-at-point)
-    ("t" "Test (testicular)" orchard-test-at-point)]
+    ("t" "Test (testicular)" orchard-test-at-point)
+    ("`" "Commands (commando)" orchard-commando-at-point)]
    ["Lifecycle"
     ("N" "Next step" orchard-next-step)
     ("u" "Push (upload)" orchard-push-at-point)
@@ -1532,9 +1656,13 @@ Based on current stage, performs the appropriate action:
     ("-" "Hide (dismiss)" orchard-hide-at-point)
     ("H" "Show hidden" orchard-show-hidden)
     ("a" "Archive (rm worktree)" orchard-archive-at-point)
-    ("D" "Delete (rm branch too)" orchard-delete-at-point)]
+    ("X" "Delete (rm branch too)" orchard-delete-at-point)]
+   ["Services"
+    ("V" "Vercel" vercel-transient)
+    ("S" "Supabase" supabase-transient)
+    ("A" "AWS" aws-transient)]
    ["Maintenance"
-    ("C" "Cleanup stale entries" orchard-cleanup)
+    ("K" "Cleanup stale entries" orchard-cleanup)
     ("g" "Refresh" orchard-refresh)
     ("q" "Quit" transient-quit-one)
     ("Q" "Quit + kill Claudes" orchard-quit-all)]])
@@ -1546,37 +1674,51 @@ Based on current stage, performs the appropriate action:
 ;; Global
 (define-key ashton-mode-map (kbd "C-c O O") #'orchard)
 (define-key ashton-mode-map (kbd "C-c O ?") #'orchard-dispatch)
-(define-key ashton-mode-map (kbd "C-c O n") #'orchard-new-feature)
+;; Create branches (uppercase, unique first char)
+(define-key ashton-mode-map (kbd "C-c O F") #'orchard-new-feature)
+(define-key ashton-mode-map (kbd "C-c O B") #'orchard-new-bugfix)
+(define-key ashton-mode-map (kbd "C-c O C") #'orchard-new-chore)
+(define-key ashton-mode-map (kbd "C-c O R") #'orchard-new-refactor)
+(define-key ashton-mode-map (kbd "C-c O D") #'orchard-new-docs)
+(define-key ashton-mode-map (kbd "C-c O E") #'orchard-new-experiment)
+;; Legacy aliases (lowercase)
 (define-key ashton-mode-map (kbd "C-c O f") #'orchard-new-feature)
-(define-key ashton-mode-map (kbd "C-c O x") #'orchard-new-fix)
+(define-key ashton-mode-map (kbd "C-c O n") #'orchard-new-feature)
+(define-key ashton-mode-map (kbd "C-c O x") #'orchard-new-bugfix)
 (define-key ashton-mode-map (kbd "C-c O h") #'orchard-new-chore)
 
 ;; M-m cycles magit/claude everywhere
+;; Also bind C-c m m as backup since M-m can be tricky in some modes
 (define-key ashton-mode-map (kbd "M-m") #'orchard-cycle-mode)
+(define-key ashton-mode-map (kbd "C-c M") #'orchard-cycle-mode)  ; Backup binding
 
-;; For magit-mode: use multiple strategies to ensure M-m works
-;; Strategy 1: Hook that runs late (depth 100)
+;; For magit-mode: Use Doom's after! macro for better integration
+;; This runs AFTER Doom's own magit configuration
+(after! magit
+  ;; Unbind M-m first if it's bound to something else
+  (define-key magit-mode-map (kbd "M-m") nil)
+  (define-key magit-mode-map (kbd "M-m") #'orchard-cycle-mode)
+
+  ;; Bind in all sub-mode maps
+  (dolist (map (list magit-mode-map
+                     magit-status-mode-map
+                     magit-log-mode-map
+                     magit-diff-mode-map
+                     magit-revision-mode-map
+                     magit-stash-mode-map
+                     magit-refs-mode-map
+                     magit-cherry-mode-map))
+    (when (and map (keymapp map))
+      (define-key map (kbd "M-m") #'orchard-cycle-mode)
+      (define-key map (kbd "C-c M") #'orchard-cycle-mode))))
+
+;; Hook for buffer-local override (runs late)
 (defun orchard--bind-m-m-in-magit ()
   "Bind M-m to orchard-cycle-mode in magit buffers."
-  (define-key (current-local-map) (kbd "M-m") #'orchard-cycle-mode))
+  (local-set-key (kbd "M-m") #'orchard-cycle-mode)
+  (local-set-key (kbd "C-c M") #'orchard-cycle-mode))
 
 (add-hook 'magit-mode-hook #'orchard--bind-m-m-in-magit 100)
-
-;; Strategy 2: Also bind directly in magit keymaps after they're defined
-(with-eval-after-load 'magit-mode
-  (define-key magit-mode-map (kbd "M-m") #'orchard-cycle-mode))
-
-(with-eval-after-load 'magit-status
-  (when (boundp 'magit-status-mode-map)
-    (define-key magit-status-mode-map (kbd "M-m") #'orchard-cycle-mode)))
-
-(with-eval-after-load 'magit-log
-  (when (boundp 'magit-log-mode-map)
-    (define-key magit-log-mode-map (kbd "M-m") #'orchard-cycle-mode)))
-
-(with-eval-after-load 'magit-diff
-  (when (boundp 'magit-diff-mode-map)
-    (define-key magit-diff-mode-map (kbd "M-m") #'orchard-cycle-mode)))
 
 (provide 'config-orchard)
 ;;; config-orchard.el ends here

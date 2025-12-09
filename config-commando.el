@@ -268,14 +268,15 @@ Takes over the current window. Press q to return to magit."
   "Counter for generating unique transient names.")
 
 (defvar commando--group-labels
-  '((dev    . "Development")
-    (infra  . "Infrastructure")
-    (ops    . "Operations")
-    (domain . "Domain")
-    (util   . "Utilities"))
+  '((domain   . "Domain")
+    (dev      . "Development")
+    (infra    . "Infrastructure")
+    (services . "Services")
+    (ops      . "Operations")
+    (util     . "Utilities"))
   "Mapping of group symbols to display labels.")
 
-(defvar commando--group-order '(dev infra ops domain util)
+(defvar commando--group-order '(domain dev services infra ops util)
   "Order in which groups appear in the transient.")
 
 (defun commando--category-group (category)
@@ -375,6 +376,17 @@ Returns a list suitable for use in transient-define-prefix."
         (push `[,label ,@entries] columns)))
     (nreverse columns)))
 
+(defun commando--services-available-p ()
+  "Return list of available service transients."
+  (let ((services nil))
+    (when (fboundp 'vercel-transient)
+      (push '("V" "Vercel" vercel-transient) services))
+    (when (fboundp 'supabase-transient)
+      (push '("B" "Supabase" supabase-transient) services))
+    (when (fboundp 'aws-transient)
+      (push '("A" "AWS" aws-transient) services))
+    (nreverse services)))
+
 (defun commando--generate-transient ()
   "Generate the main commando dispatch transient."
   (let ((categories (commando--load-file)))
@@ -394,7 +406,9 @@ Returns a list suitable for use in transient-define-prefix."
              ;; Group categories by :group
              (grouped (commando--group-categories categories))
              ;; Create column specs
-             (group-columns (commando--make-group-columns grouped)))
+             (group-columns (commando--make-group-columns grouped))
+             ;; Check for available service integrations
+             (services (commando--services-available-p)))
         ;; Define the main transient with multi-column layout
         (eval
          `(transient-define-prefix commando-dispatch ()
@@ -403,6 +417,9 @@ Returns a list suitable for use in transient-define-prefix."
                 `([" ★ Recent"
                    ,@favorites-entries]))
             ,@group-columns
+            ,@(when services
+                `([" ⚡ Services"
+                   ,@services]))
             [""
              ("!" "Run any command" commando-run-any)
              ("q" "Quit" transient-quit-one)]))))))

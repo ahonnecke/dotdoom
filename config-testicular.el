@@ -36,12 +36,163 @@ STATUS is 'passed, 'failed, or 'pending."
 
 (defvar testicular-tests nil "List of parsed test cases.")
 (defvar testicular-current-index 0 "Current test index.")
-(defvar testicular-results nil "Alist of (index . (:status :screenshots)).")
+(defvar testicular-results nil "Alist of (index . (:status :screenshots :notes)).")
 (defvar testicular-plan-file nil "Path to the test plan file.")
 (defvar testicular-screenshot-dir nil "Directory for screenshots.")
 (defvar testicular-project-root nil "Project root for current test flow.")
 (defvar testicular--return-buffer nil "Buffer to return to after Claude session.")
 (defvar testicular--claude-buffer nil "Claude buffer spawned from testicular.")
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Environment Support
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defcustom testicular-environments '("local" "staging" "prod")
+  "List of available test environments."
+  :type '(repeat string)
+  :group 'testicular)
+
+(defvar testicular-current-environment "local"
+  "Current test environment.")
+
+(defvar testicular-results-by-env nil
+  "Hash table mapping environment -> results alist.
+Allows tracking test results across multiple environments.")
+
+(defun testicular--init-env-results ()
+  "Initialize results storage for all environments."
+  (setq testicular-results-by-env (make-hash-table :test 'equal))
+  (dolist (env testicular-environments)
+    (puthash env nil testicular-results-by-env)))
+
+(defun testicular--get-env-results (env)
+  "Get results for ENV, initializing if needed."
+  (or (gethash env testicular-results-by-env)
+      (let ((results nil))
+        (dotimes (i (length testicular-tests))
+          (push (cons i (list :status 'pending :screenshots nil :notes nil)) results))
+        (setq results (nreverse results))
+        (puthash env results testicular-results-by-env)
+        results)))
+
+(defun testicular--save-current-results ()
+  "Save current results to the environment hash."
+  (puthash testicular-current-environment testicular-results testicular-results-by-env))
+
+(defun testicular--switch-to-env (env)
+  "Switch to ENV, saving current results first."
+  (testicular--save-current-results)
+  (setq testicular-current-environment env)
+  (setq testicular-results (testicular--get-env-results env)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; State Persistence
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defvar testicular-state-file ".test-evidence/results.json"
+  "Relative path to state file within project root.")
+
+(defun testicular--plan-hash ()
+  "Return MD5 hash of current test plan file."
+  (when (and testicular-plan-file (file-exists-p testicular-plan-file))
+    (with-temp-buffer
+      (insert-file-contents testicular-plan-file)
+      (secure-hash 'md5 (buffer-string)))))
+
+(defun testicular--state-file-path ()
+  "Return absolute path to state file."
+  (expand-file-name testicular-state-file testicular-project-root))
+
+(defun testicular--results-to-alist (results)
+  "Convert RESULTS to alist suitable for JSON encoding."
+  (mapcar (lambda (r)
+            (let ((idx (car r))
+                  (data (cdr r)))
+              `((index . ,idx)
+                (status . ,(symbol-name (plist-get data :status)))
+                (notes . ,(or (plist-get data :notes) ""))
+                (screenshots . ,(or (plist-get data :screenshots) [])))))
+          results))
+
+(defun testicular--alist-to-results (alist)
+  "Convert ALIST from JSON back to results format."
+  (mapcar (lambda (item)
+            (cons (alist-get 'index item)
+                  (list :status (intern (alist-get 'status item))
+                        :notes (let ((n (alist-get 'notes item)))
+                                 (if (string-empty-p n) nil n))
+                        :screenshots (let ((s (alist-get 'screenshots item)))
+                                       (if (vectorp s) (append s nil) s)))))
+          alist))
+
+(defun testicular--save-state ()
+  "Save current state to JSON file."
+  (when testicular-project-root
+    ;; Save current results to env hash first
+    (testicular--save-current-results)
+    (let* ((state-file (testicular--state-file-path))
+           (state-dir (file-name-directory state-file))
+           (env-data (make-hash-table :test 'equal)))
+      ;; Build env data from hash table
+      (dolist (env testicular-environments)
+        (let ((results (gethash env testicular-results-by-env)))
+          (when results
+            (puthash env (testicular--results-to-alist results) env-data))))
+      ;; Build state object
+      (let ((state `((plan_hash . ,(testicular--plan-hash))
+                     (current_environment . ,testicular-current-environment)
+                     (current_index . ,testicular-current-index)
+                     (environments . ,env-data))))
+        ;; Ensure directory exists
+        (make-directory state-dir t)
+        ;; Write JSON
+        (with-temp-file state-file
+          (insert (json-encode state)))
+        (message "Testicular state saved")))))
+
+(defun testicular--load-state ()
+  "Load state from JSON file. Returns t if loaded successfully, nil otherwise."
+  (let ((state-file (testicular--state-file-path)))
+    (when (file-exists-p state-file)
+      (condition-case err
+          (let* ((json-object-type 'alist)
+                 (json-array-type 'list)
+                 (json-key-type 'symbol)
+                 (state (json-read-file state-file))
+                 (saved-hash (alist-get 'plan_hash state))
+                 (current-hash (testicular--plan-hash)))
+            ;; Check if plan has changed
+            (if (not (string= saved-hash current-hash))
+                (progn
+                  (if (yes-or-no-p "Test plan has changed since last run. Load old results anyway? ")
+                      (testicular--apply-loaded-state state)
+                    (message "Starting fresh"))
+                  nil)
+              ;; Plan unchanged, load state
+              (testicular--apply-loaded-state state)
+              t))
+        (error
+         (message "Warning: Could not load state file: %s" (error-message-string err))
+         nil)))))
+
+(defun testicular--apply-loaded-state (state)
+  "Apply loaded STATE to current session."
+  (let ((envs (alist-get 'environments state))
+        (saved-env (alist-get 'current_environment state))
+        (saved-index (alist-get 'current_index state)))
+    ;; Initialize env hash
+    (testicular--init-env-results)
+    ;; Load each environment's results
+    (dolist (env-pair envs)
+      (let ((env (symbol-name (car env-pair)))
+            (results-alist (cdr env-pair)))
+        (puthash env (testicular--alist-to-results results-alist) testicular-results-by-env)))
+    ;; Restore current environment and index
+    (setq testicular-current-environment (or saved-env "local"))
+    (setq testicular-current-index (or saved-index 0))
+    (setq testicular-results (testicular--get-env-results testicular-current-environment))
+    (message "Loaded testicular state (%s environment, test %d)"
+             testicular-current-environment (1+ testicular-current-index))))
 
 (defvar testicular-mode-map
   (let ((map (make-sparse-keymap)))
@@ -53,14 +204,51 @@ STATUS is 'passed, 'failed, or 'pending."
     (define-key map (kbd "s") #'testicular-screenshot-clipboard)
     (define-key map (kbd "F") #'testicular-screenshot-file)
     (define-key map (kbd "v") #'testicular-view-screenshots)
+    (define-key map (kbd "N") #'testicular-edit-notes)
+    (define-key map (kbd "E") #'testicular-switch-environment)
     (define-key map (kbd "e") #'testicular-export-to-file)
     (define-key map (kbd "r") #'testicular-refresh)
     (define-key map (kbd "g") #'testicular-refresh)
     (define-key map (kbd "RET") #'testicular-finish)
     (define-key map (kbd "q") #'quit-window)
     (define-key map (kbd "?") #'testicular-help)
+    ;; Service shortcuts for quick verification
+    (define-key map (kbd "V") #'testicular-vercel)
+    (define-key map (kbd "B") #'testicular-supabase)
+    (define-key map (kbd "A") #'testicular-aws)
+    (define-key map (kbd "O") #'testicular-open-url)
     map)
   "Keymap for testicular-mode.")
+
+(defun testicular-vercel ()
+  "Open Vercel transient for deployment verification."
+  (interactive)
+  (if (fboundp 'vercel-transient)
+      (vercel-transient)
+    (user-error "Vercel mode not available")))
+
+(defun testicular-supabase ()
+  "Open Supabase transient for database verification."
+  (interactive)
+  (if (fboundp 'supabase-transient)
+      (supabase-transient)
+    (user-error "Supabase mode not available")))
+
+(defun testicular-aws ()
+  "Open AWS transient for cloud verification."
+  (interactive)
+  (if (fboundp 'aws-transient)
+      (aws-transient)
+    (user-error "AWS mode not available")))
+
+(defun testicular-open-url ()
+  "Open URL based on current environment."
+  (interactive)
+  (let ((url (pcase testicular-current-environment
+               ("local" "http://localhost:3000")
+               ("staging" (read-string "Staging URL: " "https://staging."))
+               ("prod" (read-string "Prod URL: " "https://")))))
+    (browse-url url)))
 
 (define-derived-mode testicular-mode special-mode "Testicular"
   "Mode for stepping through test cases."
@@ -71,8 +259,10 @@ STATUS is 'passed, 'failed, or 'pending."
 ;;; Core Functions
 ;;; ════════════════════════════════════════════════════════════════════════════
 
-(defun testicular-start ()
-  "Start testicular for current project."
+(defun testicular-start (&optional environment)
+  "Start testicular for current project.
+With optional ENVIRONMENT, start in that environment (default: local).
+Loads existing state if available and test plan hasn't changed."
   (interactive)
   (let* ((root (or (projectile-project-root) default-directory))
          (plan-file (expand-file-name ".test-plan.md" root)))
@@ -83,14 +273,22 @@ STATUS is 'passed, 'failed, or 'pending."
     (setq testicular-screenshot-dir (expand-file-name ".test-evidence/screenshots" root))
     (make-directory testicular-screenshot-dir t)
     (setq testicular-tests (testicular-parse-plan plan-file))
-    (setq testicular-current-index 0)
-    (setq testicular-results nil)
     (setq testicular--return-buffer nil)
     (setq testicular--claude-buffer nil)
-    ;; Initialize results
-    (dotimes (i (length testicular-tests))
-      (push (cons i (list :status 'pending :screenshots nil)) testicular-results))
-    (setq testicular-results (nreverse testicular-results))
+    ;; Try to load existing state
+    (if (testicular--load-state)
+        ;; State loaded successfully - override environment if specified
+        (when environment
+          (testicular--switch-to-env environment))
+      ;; No state or plan changed - initialize fresh
+      (testicular--init-env-results)
+      (setq testicular-current-environment (or environment "local"))
+      (setq testicular-current-index 0)
+      (setq testicular-results nil)
+      (dotimes (i (length testicular-tests))
+        (push (cons i (list :status 'pending :screenshots nil :notes nil)) testicular-results))
+      (setq testicular-results (nreverse testicular-results))
+      (puthash testicular-current-environment testicular-results testicular-results-by-env))
     ;; Run start hook
     (run-hook-with-args 'testicular-start-hook root)
     (testicular-show-buffer)))
@@ -139,6 +337,33 @@ STATUS is 'passed, 'failed, or 'pending."
   "Return t if all tests have been passed, failed, or skipped."
   (zerop (plist-get (testicular--count-by-status) :pending)))
 
+(defun testicular--env-face (env)
+  "Return face for environment ENV."
+  (pcase env
+    ("local" '(:foreground "green" :weight bold))
+    ("staging" '(:foreground "yellow" :weight bold))
+    ("prod" '(:foreground "red" :weight bold))
+    (_ '(:foreground "cyan" :weight bold))))
+
+(defun testicular--env-summary ()
+  "Return summary of results across all environments."
+  (let ((summary nil))
+    (dolist (env testicular-environments)
+      (let* ((results (gethash env testicular-results-by-env))
+             (has-results (and results
+                               (cl-some (lambda (r)
+                                          (not (eq (plist-get (cdr r) :status) 'pending)))
+                                        results))))
+        (when has-results
+          (let ((passed 0) (failed 0) (total 0))
+            (dolist (r results)
+              (cl-incf total)
+              (pcase (plist-get (cdr r) :status)
+                ('passed (cl-incf passed))
+                ('failed (cl-incf failed))))
+            (push (format "%s:%d/%d" env passed total) summary)))))
+    (nreverse summary)))
+
 (defun testicular-render ()
   "Render current test in buffer."
   (let ((inhibit-read-only t)
@@ -147,7 +372,12 @@ STATUS is 'passed, 'failed, or 'pending."
         (total (length testicular-tests))
         (counts (testicular--count-by-status)))
     (erase-buffer)
-    (insert (propertize "TESTICULAR" 'face 'bold) "\n")
+    ;; Header with environment
+    (insert (propertize "TESTICULAR" 'face 'bold))
+    (insert "  ")
+    (insert (propertize (format "[%s]" (upcase testicular-current-environment))
+                        'face (testicular--env-face testicular-current-environment)))
+    (insert "\n")
     (insert (format "Test %d of %d" (1+ testicular-current-index) total))
     (insert "  |  ")
     ;; Progress indicators
@@ -165,12 +395,19 @@ STATUS is 'passed, 'failed, or 'pending."
                     (plist-get counts :passed)
                     (plist-get counts :failed)
                     (plist-get counts :skipped)))
+    ;; Cross-environment summary
+    (let ((env-summary (testicular--env-summary)))
+      (when (> (length env-summary) 1)
+        (insert "\n")
+        (insert (propertize "Environments: " 'face 'font-lock-comment-face))
+        (insert (mapconcat #'identity env-summary "  "))))
     (insert "\n\n")
     (insert (make-string 60 ?-) "\n\n")
     ;; Test content
     (when test
       (let ((status (plist-get result :status))
-            (screenshots (plist-get result :screenshots)))
+            (screenshots (plist-get result :screenshots))
+            (notes (plist-get result :notes)))
         (insert (propertize (format "## Test %d: %s"
                                     (plist-get test :number)
                                     (plist-get test :name))
@@ -185,6 +422,12 @@ STATUS is 'passed, 'failed, or 'pending."
         (insert "\n\n")
         (insert (plist-get test :body))
         (insert "\n\n")
+        ;; Notes section
+        (when (and notes (not (string-empty-p notes)))
+          (insert (make-string 40 ?-) "\n")
+          (insert (propertize "Notes:\n" 'face '(:foreground "cyan" :weight bold)))
+          (insert notes)
+          (insert "\n\n"))
         ;; Screenshots
         (when screenshots
           (insert (make-string 40 ?-) "\n")
@@ -200,7 +443,7 @@ STATUS is 'passed, 'failed, or 'pending."
           (insert (propertize "Press RET to finish and create PR\n\n" 'face 'bold)))
       (insert ""))
     (insert (propertize "Keys: " 'face 'bold))
-    (insert "n/p:nav  P:pass  f:fail  S:skip  s:screenshot  RET:finish  q:quit  ?:help")
+    (insert "n/p:nav  P:pass  f:fail  S:skip  s:screenshot  N:notes  E:env  ?:help")
     (goto-char (point-min))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -234,6 +477,8 @@ STATUS is 'passed, 'failed, or 'pending."
                       testicular-project-root
                       testicular-current-index
                       status)
+  ;; Auto-save state
+  (testicular--save-state)
   ;; Check if all tests are complete
   (testicular--check-completion))
 
@@ -277,6 +522,102 @@ STATUS is 'passed, 'failed, or 'pending."
   (testicular-render)
   (when (< testicular-current-index (1- (length testicular-tests)))
     (testicular-next)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Notes
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun testicular--get-notes ()
+  "Get notes for current test."
+  (let ((result (cdr (assoc testicular-current-index testicular-results))))
+    (or (plist-get result :notes) "")))
+
+(defun testicular--set-notes (notes)
+  "Set NOTES for current test."
+  (let ((result (assoc testicular-current-index testicular-results)))
+    (setcdr result (plist-put (cdr result) :notes notes))))
+
+(defun testicular-edit-notes ()
+  "Edit notes for current test.
+Opens a buffer to edit multiline notes."
+  (interactive)
+  (let* ((test (nth testicular-current-index testicular-tests))
+         (test-name (plist-get test :name))
+         (current-notes (testicular--get-notes))
+         (buf (get-buffer-create "*Testicular Notes*")))
+    (with-current-buffer buf
+      (erase-buffer)
+      (insert current-notes)
+      (goto-char (point-min))
+      (setq-local testicular--notes-test-index testicular-current-index)
+      (setq-local header-line-format
+                  (format " Notes for Test %d: %s  |  C-c C-c: save  C-c C-k: cancel"
+                          (1+ testicular-current-index) test-name))
+      (local-set-key (kbd "C-c C-c") #'testicular--save-notes)
+      (local-set-key (kbd "C-c C-k") #'testicular--cancel-notes)
+      (text-mode))
+    (pop-to-buffer buf)))
+
+(defun testicular--save-notes ()
+  "Save notes and return to testicular."
+  (interactive)
+  (let ((notes (buffer-string))
+        (test-index (buffer-local-value 'testicular--notes-test-index (current-buffer))))
+    (kill-buffer)
+    ;; Update notes in results
+    (let ((result (assoc test-index testicular-results)))
+      (setcdr result (plist-put (cdr result) :notes (string-trim notes))))
+    ;; Auto-save state
+    (testicular--save-state)
+    (testicular-render)
+    (message "Notes saved")))
+
+(defun testicular--cancel-notes ()
+  "Cancel notes editing."
+  (interactive)
+  (kill-buffer)
+  (message "Notes cancelled"))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Environment Switching
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun testicular-switch-environment ()
+  "Switch to a different test environment.
+Results are preserved per-environment."
+  (interactive)
+  (let* ((choices (mapcar (lambda (env)
+                            (let* ((results (gethash env testicular-results-by-env))
+                                   (status (if results
+                                               (let ((passed 0) (total 0))
+                                                 (dolist (r results)
+                                                   (cl-incf total)
+                                                   (when (eq (plist-get (cdr r) :status) 'passed)
+                                                     (cl-incf passed)))
+                                                 (format " (%d/%d)" passed total))
+                                             " (new)")))
+                              (cons (concat env status) env)))
+                          testicular-environments))
+         (selected (completing-read
+                    (format "Switch environment (current: %s): " testicular-current-environment)
+                    choices nil t))
+         (env (cdr (assoc selected choices))))
+    (when (and env (not (string= env testicular-current-environment)))
+      (testicular--switch-to-env env)
+      ;; Auto-save state after switch
+      (testicular--save-state)
+      (testicular-render)
+      (message "Switched to %s environment" env))))
+
+(defun testicular-start-staging ()
+  "Start testicular in staging environment."
+  (interactive)
+  (testicular-start "staging"))
+
+(defun testicular-start-prod ()
+  "Start testicular in prod environment."
+  (interactive)
+  (testicular-start "prod"))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Screenshots
@@ -328,7 +669,9 @@ STATUS is 'passed, 'failed, or 'pending."
   (let* ((result (assoc testicular-current-index testicular-results))
          (screenshots (plist-get (cdr result) :screenshots)))
     (setcdr result (plist-put (cdr result) :screenshots
-                              (append screenshots (list filepath))))))
+                              (append screenshots (list filepath)))))
+  ;; Auto-save state
+  (testicular--save-state))
 
 (defun testicular-view-screenshots ()
   "View screenshots for current test."
@@ -358,6 +701,7 @@ STATUS is 'passed, 'failed, or 'pending."
   (with-temp-buffer
     (let ((counts (testicular--count-by-status)))
       (insert "# Test Results\n\n")
+      (insert (format "**Environment:** %s\n\n" testicular-current-environment))
       (insert (format "- **Passed:** %d\n" (plist-get counts :passed)))
       (insert (format "- **Failed:** %d\n" (plist-get counts :failed)))
       (insert (format "- **Skipped:** %d\n\n" (plist-get counts :skipped))))
@@ -366,6 +710,7 @@ STATUS is 'passed, 'failed, or 'pending."
              (result (cdr (assoc i testicular-results)))
              (status (plist-get result :status))
              (screenshots (plist-get result :screenshots))
+             (notes (plist-get result :notes))
              (icon (pcase status
                      ('passed ":white_check_mark:")
                      ('failed ":x:")
@@ -375,6 +720,11 @@ STATUS is 'passed, 'failed, or 'pending."
                         icon
                         (plist-get test :number)
                         (plist-get test :name)))
+        ;; Notes
+        (when (and notes (not (string-empty-p notes)))
+          (insert "**Notes:**\n")
+          (insert notes)
+          (insert "\n\n"))
         ;; Reference screenshots by relative path (for GitHub)
         (when screenshots
           (insert "**Screenshots:**\n")
@@ -385,17 +735,68 @@ STATUS is 'passed, 'failed, or 'pending."
         (insert "\n")))
     (buffer-string)))
 
+(defun testicular--generate-multi-env-export ()
+  "Generate markdown export with results from all tested environments."
+  (with-temp-buffer
+    (insert "# Test Results\n\n")
+    ;; Summary across environments
+    (insert "## Environment Summary\n\n")
+    (insert "| Environment | Passed | Failed | Skipped |\n")
+    (insert "|-------------|--------|--------|----------|\n")
+    (dolist (env testicular-environments)
+      (let* ((results (gethash env testicular-results-by-env))
+             (has-results (and results
+                               (cl-some (lambda (r)
+                                          (not (eq (plist-get (cdr r) :status) 'pending)))
+                                        results))))
+        (when has-results
+          (let ((passed 0) (failed 0) (skipped 0))
+            (dolist (r results)
+              (pcase (plist-get (cdr r) :status)
+                ('passed (cl-incf passed))
+                ('failed (cl-incf failed))
+                ('skipped (cl-incf skipped))))
+            (insert (format "| %s | %d | %d | %d |\n" env passed failed skipped))))))
+    (insert "\n")
+    ;; Detailed results per environment
+    (dolist (env testicular-environments)
+      (let* ((results (gethash env testicular-results-by-env))
+             (has-results (and results
+                               (cl-some (lambda (r)
+                                          (not (eq (plist-get (cdr r) :status) 'pending)))
+                                        results))))
+        (when has-results
+          (insert (format "## %s Environment\n\n" (capitalize env)))
+          (dotimes (i (length testicular-tests))
+            (let* ((test (nth i testicular-tests))
+                   (result (cdr (assoc i results)))
+                   (status (plist-get result :status))
+                   (notes (plist-get result :notes))
+                   (icon (pcase status
+                           ('passed ":white_check_mark:")
+                           ('failed ":x:")
+                           ('skipped ":fast_forward:")
+                           (_ ":hourglass:"))))
+              (insert (format "### %s Test %d: %s\n\n"
+                              icon
+                              (plist-get test :number)
+                              (plist-get test :name)))
+              (when (and notes (not (string-empty-p notes)))
+                (insert notes)
+                (insert "\n\n"))))
+          (insert "\n"))))
+    (buffer-string)))
+
 (defun testicular-finish ()
-  "Finish testing: export results, commit, push, and create PR."
+  "Finish testing: export results, commit, push, and create PR.
+No prompts - just ships it."
   (interactive)
   (let ((counts (testicular--count-by-status)))
     (if (not (testicular--all-resolved-p))
         (user-error "Not all tests resolved. %d pending" (plist-get counts :pending))
-      ;; Check for failures - warn but allow proceeding
+      ;; Note failures in message but don't block
       (when (> (plist-get counts :failed) 0)
-        (unless (yes-or-no-p (format "%d test(s) failed. Continue anyway? "
-                                     (plist-get counts :failed)))
-          (user-error "Aborted")))
+        (message "Note: %d test(s) failed - shipping anyway" (plist-get counts :failed)))
       ;; Export results to file
       (testicular-export-to-file)
       ;; Run completion hook for orchard integration
@@ -404,12 +805,13 @@ STATUS is 'passed, 'failed, or 'pending."
                           (plist-get counts :passed)
                           (plist-get counts :failed)
                           (length testicular-results))
-      ;; Offer to commit, push, create PR
+      ;; Ship it - commit, push, create PR
       (testicular--finish-workflow counts))))
 
 (defun testicular--finish-workflow (counts)
   "Run the finish workflow: commit, push, PR.
-COUNTS is plist with test result counts."
+COUNTS is plist with test result counts.
+No prompts - just ships it."
   (let ((default-directory testicular-project-root))
     ;; Stage test evidence
     (when (file-exists-p (expand-file-name ".test-results.md" testicular-project-root))
@@ -419,7 +821,7 @@ COUNTS is plist with test result counts."
     ;; Check if there's anything to commit
     (let ((staged (string-trim (shell-command-to-string "git diff --cached --name-only"))))
       (if (string-empty-p staged)
-          (message "No test evidence to commit")
+          (message "No test evidence to commit - pushing and creating PR...")
         ;; Commit test results
         (let ((commit-msg (format "Add test results: %d passed, %d failed, %d skipped"
                                   (plist-get counts :passed)
@@ -427,39 +829,38 @@ COUNTS is plist with test result counts."
                                   (plist-get counts :skipped))))
           (shell-command (format "git commit -m %s" (shell-quote-argument commit-msg)))
           (message "Committed test results"))))
-    ;; Ask about push and PR
-    (when (yes-or-no-p "Push and create PR? ")
-      (testicular--push-and-pr))))
+    ;; Ship it - no questions asked
+    (testicular--push-and-pr)))
 
 (defun testicular--push-and-pr ()
-  "Push current branch and create PR."
+  "Push current branch and create PR. No prompts."
   (let* ((default-directory testicular-project-root)
          (branch (string-trim (shell-command-to-string "git branch --show-current"))))
+    ;; Refuse to ship main/dev
+    (when (member branch '("dev" "main" "master"))
+      (user-error "Won't ship directly to %s" branch))
     ;; Push
     (message "Pushing %s..." branch)
     (shell-command (format "git push -u origin %s" (shell-quote-argument branch)))
     ;; Get PR title from branch name
-    (let* ((title (replace-regexp-in-string "^[A-Z]+/" "" branch))
+    (let* ((title (replace-regexp-in-string "^[A-Z]+[-/]" "" branch))
            (title (replace-regexp-in-string "-" " " title))
            (title (capitalize title))
-           ;; Read description or use default
-           (description (read-string "PR description (or empty for default): ")))
-      (when (string-empty-p description)
-        (setq description (testicular--generate-pr-body)))
+           ;; Auto-generate description with test results
+           (description (testicular--generate-pr-body)))
       ;; Create PR
       (let ((pr-cmd (format "gh pr create --title %s --body %s --base dev 2>&1"
                             (shell-quote-argument title)
                             (shell-quote-argument description))))
         (let ((result (shell-command-to-string pr-cmd)))
           (if (string-match-p "https://github" result)
-              (progn
+              (let ((pr-url (string-trim result)))
                 ;; Save PR URL
-                (let ((pr-url (string-trim result)))
-                  (with-temp-file (expand-file-name ".pr-url" testicular-project-root)
-                    (insert pr-url))
-                  (message "PR created: %s" pr-url)
-                  (when (yes-or-no-p "Open PR in browser? ")
-                    (browse-url pr-url))))
+                (with-temp-file (expand-file-name ".pr-url" testicular-project-root)
+                  (insert pr-url))
+                (message "PR created: %s" pr-url)
+                ;; Auto-open in browser
+                (browse-url pr-url))
             (message "PR creation output: %s" result)))))))
 
 (defun testicular--generate-pr-body ()
@@ -487,11 +888,20 @@ COUNTS is plist with test result counts."
     (princ "  P       Mark PASSED and advance\n")
     (princ "  f       Mark FAILED and open Claude to fix\n")
     (princ "  S       Mark SKIPPED and advance\n\n")
+    (princ "NOTES & ENVIRONMENT\n")
+    (princ "  N       Edit notes for current test (multiline, C-c C-c to save)\n")
+    (princ "  E       Switch environment (local/staging/prod)\n")
+    (princ "          Results are preserved per-environment\n\n")
     (princ "SCREENSHOTS (optional, multiple per test allowed)\n")
     (princ "  s       Capture from clipboard (take shot with Flameshot etc, then press s)\n")
     (princ "  F       Attach from file (prompts for path)\n")
     (princ "  v       View attached screenshots for current test\n")
     (princ "          Screenshots saved to .test-evidence/screenshots/\n\n")
+    (princ "SERVICES (for verification during testing)\n")
+    (princ "  V       Vercel menu (deployments, logs)\n")
+    (princ "  B       Supabase menu (database, functions)\n")
+    (princ "  A       AWS menu (lambda, s3, cloudwatch)\n")
+    (princ "  O       Open URL (environment-aware: local/staging/prod)\n\n")
     (princ "COMPLETION\n")
     (princ "  e       Export results to .test-results.md\n")
     (princ "  RET     Finish: export, commit evidence, push, create PR\n")
@@ -501,10 +911,19 @@ COUNTS is plist with test result counts."
     (princ "  q       Quit testicular\n")
     (princ "  ?       This help\n\n")
     (princ "WORKFLOW\n")
-    (princ "  1. Step through tests with n/p\n")
-    (princ "  2. Mark each: P=pass, f=fail (opens Claude), S=skip\n")
-    (princ "  3. Optionally attach screenshots with s or F\n")
-    (princ "  4. When all resolved, press RET to finish and create PR\n")))
+    (princ "  1. Start with C-c T (defaults to 'local' environment)\n")
+    (princ "  2. Step through tests with n/p\n")
+    (princ "  3. Mark each: P=pass, f=fail (opens Claude), S=skip\n")
+    (princ "  4. Press N to add notes explaining pass/fail reasoning\n")
+    (princ "  5. Use V/B/A to check services during testing\n")
+    (princ "  6. Optionally attach screenshots with s or F\n")
+    (princ "  7. Press E to switch to staging/prod and re-run tests\n")
+    (princ "  8. When all resolved, press RET to finish and create PR\n\n")
+    (princ "MULTI-ENVIRONMENT TESTING\n")
+    (princ "  - Same test plan, different environments\n")
+    (princ "  - Results tracked separately per environment\n")
+    (princ "  - Cross-env summary shown when multiple envs tested\n")
+    (princ "  - Export includes all environment results\n")))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Integration - Drop into Claude on failure, return on close

@@ -138,5 +138,58 @@
   ;; Add useful actions for buffers
   (define-key embark-buffer-map (kbd "M") #'magit-status))
 
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Wgrep - Editable grep buffers
+;;; ════════════════════════════════════════════════════════════════════════════
+
+;; Workflow:
+;; 1. M-s r (consult-ripgrep) → search
+;; 2. C-. E (embark-export) → export to grep buffer
+;; 3. C-c C-p (wgrep-change-to-wgrep-mode) → make editable
+;; 4. Edit the results as a normal buffer
+;; 5. C-c C-c (wgrep-finish-edit) → apply changes to files
+;; 6. C-c C-k to abort
+
+(use-package! wgrep
+  :after grep
+  :config
+  (setq wgrep-auto-save-buffer t)    ; Auto-save after applying changes
+  (setq wgrep-change-readonly-file t)) ; Allow editing read-only files
+
+;; Auto-enter wgrep mode when exporting from embark
+(after! embark
+  (setq embark-consult-export-grep-wgrep t))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Consult-flycheck - Error navigation with preview
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(use-package! consult-flycheck
+  :after (consult flycheck)
+  :config
+  ;; M-g f - jump to flycheck error with preview
+  (define-key ashton-mode-map (kbd "M-g f") #'consult-flycheck))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Consult-dir - Quick directory switching
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(use-package! consult-dir
+  :after consult
+  :config
+  ;; Global: switch default-directory
+  (define-key ashton-mode-map (kbd "C-x C-d") #'consult-dir)
+
+  ;; In minibuffer: insert directory path
+  (define-key minibuffer-local-completion-map (kbd "C-x C-d") #'consult-dir)
+  (define-key minibuffer-local-completion-map (kbd "C-x C-j") #'consult-dir-jump-file)
+
+  ;; Sources for consult-dir
+  (setq consult-dir-sources
+        '(consult-dir--source-bookmark
+          consult-dir--source-default
+          consult-dir--source-project
+          consult-dir--source-recentf)))
+
 (provide 'config-consult-embark)
 ;;; config-consult-embark.el ends here

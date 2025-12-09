@@ -186,6 +186,56 @@ Located in `config-magit.el`:
 
 ---
 
+## Slack Integration (C-c K prefix)
+
+Located in `config-slack.el`:
+
+Full Slack client via emacs-slack. Requires token/cookie authentication.
+
+### Setup
+
+```bash
+# Run token extraction helper
+~/bin/slack-token-refresh.sh --team TEAMNAME --email you@example.com
+
+# Or set up cron for automatic refresh (tokens expire periodically)
+0 8 * * * ~/bin/slack-token-refresh.sh --cron --team crewcapable --email ashton@crewcapable.ai
+```
+
+Then configure team in `config-slack.el`:
+```elisp
+(slack-register-team
+ :name "crewcapable"
+ :default t
+ :token (slack--get-auth "crewcapable.slack.com" "ashton@crewcapable.ai")
+ :cookie (slack--get-auth "crewcapable.slack.com" "ashton@crewcapable.ai^cookie")
+ :subscribed-channels '(general engineering))
+```
+
+### Keybindings
+
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `C-c K K` | `slack-open` | Open Slack (start + select channel) |
+| `C-c K s` | `slack-start` | Start Slack connection |
+| `C-c K c` | `slack-channel-select` | Switch channel |
+| `C-c K d` | `slack-im-select` | Direct message |
+| `C-c K u` | `slack-select-unread-rooms` | Unread channels |
+| `C-c K t` | `slack-thread-show-or-create` | Show thread |
+| `C-c K r` | `slack-message-reply-to` | Reply in thread |
+| `C-c K e` | `slack-message-edit` | Edit message |
+| `C-c K R` | `slack-message-add-reaction` | Add reaction |
+| `C-c K /` | `slack-search-from-messages` | Search messages |
+| `C-c K @` | `slack-all-mentions` | All mentions |
+| `C-c K l` | `slack-copy-link-at-point` | Copy message link |
+| `C-c K ?` | `slack-transient` | Full command menu |
+
+### Standup Integration
+
+From STANDUP.org, press `M-s p` to post today's standup directly to a Slack channel.
+
+---
+
 ## GHQ + Worktree Management (NEW)
 
 Located in `config-ghq.el`:

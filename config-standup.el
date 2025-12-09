@@ -41,6 +41,14 @@
   "Return regex pattern to match yesterday's date."
   (format-time-string "%a %d %b %Y" (time-subtract (current-time) (days-to-time 1))))
 
+(defun standup--get-tomorrow-date-pattern ()
+  "Return regex pattern to match tomorrow's date."
+  (format-time-string "%a %d %b %Y" (time-add (current-time) (days-to-time 1))))
+
+(defun standup--get-tomorrow-timestamp ()
+  "Return tomorrow's timestamp string for standup header."
+  (format-time-string standup-timestamp-format (time-add (current-time) (days-to-time 1))))
+
 (defun standup--ensure-file-open ()
   "Ensure standup file is open, return the buffer."
   (or (find-buffer-visiting standup-file)
@@ -62,9 +70,11 @@ Returns point at the beginning of today's entry."
         (beginning-of-line))
       (point))))
 
-(defun standup--create-day-entry ()
-  "Create a new day entry with template sections at the top of the file."
-  (let ((buf (standup--ensure-file-open)))
+(defun standup--create-day-entry (&optional timestamp)
+  "Create a new day entry with template sections at the top of the file.
+If TIMESTAMP is provided, use it; otherwise use today's timestamp."
+  (let ((buf (standup--ensure-file-open))
+        (ts (or timestamp (standup--get-today-timestamp))))
     (with-current-buffer buf
       (goto-char (point-min))
       ;; Skip past #+title: line if present
@@ -76,7 +86,7 @@ Returns point at the beginning of today's entry."
         (when (looking-at "^$")
           (forward-line)))
       ;; Insert new day entry
-      (insert (format "* %s\n" (standup--get-today-timestamp)))
+      (insert (format "* %s\n" ts))
       (dolist (section standup-sections)
         (insert (format "** %s\n" section)))
       (insert "\n")
@@ -114,6 +124,69 @@ Returns point at end of section header line."
   (let ((buf (standup--ensure-file-open)))
     (with-current-buffer buf
       (standup--goto-section section-name)
+      ;; Find end of section (next ** or * or end of file)
+      (let ((section-end (save-excursion
+                          (if (re-search-forward "^\\*\\*? " nil t)
+                              (line-beginning-position)
+                            (point-max)))))
+        (goto-char section-end)
+        ;; Back up past any blank lines
+        (skip-chars-backward "\n\t ")
+        (end-of-line)
+        (insert (format "\n*** %s" item-text))
+        (save-buffer)))))
+
+(defun standup--goto-or-create-tomorrow ()
+  "Go to tomorrow's entry, creating it if it doesn't exist.
+Returns point at the beginning of tomorrow's entry."
+  (let ((buf (standup--ensure-file-open))
+        (tomorrow-pattern (standup--get-tomorrow-date-pattern)))
+    (with-current-buffer buf
+      (goto-char (point-min))
+      (if (re-search-forward (concat "^\\* " tomorrow-pattern) nil t)
+          (beginning-of-line)
+        ;; Create tomorrow's entry
+        (standup--create-day-entry (standup--get-tomorrow-timestamp))
+        (goto-char (point-min))
+        (re-search-forward (concat "^\\* " tomorrow-pattern) nil t)
+        (beginning-of-line))
+      (point))))
+
+(defun standup--goto-section-for-date (section-name date-pattern)
+  "Go to SECTION-NAME under the entry matching DATE-PATTERN, creating if needed.
+Returns point at end of section header line."
+  (let ((buf (standup--ensure-file-open)))
+    (with-current-buffer buf
+      (goto-char (point-min))
+      (let ((section-point nil))
+        ;; Find the section under the date
+        (save-excursion
+          (when (re-search-forward (concat "^\\* " date-pattern) nil t)
+            (let ((day-end (save-excursion
+                            (if (re-search-forward "^\\* " nil t)
+                                (line-beginning-position)
+                              (point-max)))))
+              (if (re-search-forward (concat "^\\*\\* " section-name) day-end t)
+                  (setq section-point (point))
+                ;; Section doesn't exist, create it
+                (goto-char day-end)
+                (forward-line -1)
+                (end-of-line)
+                (insert (format "\n** %s" section-name))
+                (setq section-point (point))))))
+        (when section-point
+          (goto-char section-point))
+        section-point))))
+
+(defun standup--add-item-to-tomorrow (section-name item-text)
+  "Add ITEM-TEXT to SECTION-NAME under tomorrow's entry."
+  (let ((buf (standup--ensure-file-open))
+        (tomorrow-pattern (standup--get-tomorrow-date-pattern)))
+    (with-current-buffer buf
+      ;; Ensure tomorrow's entry exists
+      (standup--goto-or-create-tomorrow)
+      ;; Go to the section
+      (standup--goto-section-for-date section-name tomorrow-pattern)
       ;; Find end of section (next ** or * or end of file)
       (let ((section-end (save-excursion
                           (if (re-search-forward "^\\*\\*? " nil t)
@@ -171,6 +244,27 @@ If region is active, use region text. Otherwise prompt."
   (when (and item (not (string-empty-p item)))
     (standup--add-item-to-section "Blockers" item)
     (message "Added to Blockers: %s" item)))
+
+;;;###autoload
+(defun standup-agenda (item)
+  "Add ITEM to tomorrow's Doing section. Works from any buffer.
+Use this to add agenda items for tomorrow's standup.
+If region is active, use region text. Otherwise prompt."
+  (interactive
+   (list (if (use-region-p)
+             (buffer-substring-no-properties (region-beginning) (region-end))
+           (read-string "Tomorrow: "))))
+  (when (and item (not (string-empty-p item)))
+    (standup--add-item-to-tomorrow "Doing" item)
+    (message "Added to tomorrow's Doing: %s" item)))
+
+;;;###autoload
+(defun standup-tomorrow ()
+  "Jump to tomorrow's standup entry (create if needed)."
+  (interactive)
+  (find-file standup-file)
+  (standup--goto-or-create-tomorrow)
+  (recenter 0))
 
 ;;;###autoload
 (defun standup-new-day ()
@@ -265,6 +359,28 @@ If region is active, use region text. Otherwise prompt."
         (message "Moved to Done: %s" item-text)))))
 
 ;;;###autoload
+(defun standup-post-to-slack ()
+  "Export today's standup and post to Slack channel.
+Requires emacs-slack to be configured."
+  (interactive)
+  (if (and (fboundp 'slack-channel-select)
+           (boundp 'slack-teams)
+           slack-teams)
+      (let ((export-text nil))
+        ;; Get the export text
+        (standup-export)
+        (setq export-text (current-kill 0))
+        (if (and export-text (not (string-empty-p export-text)))
+            ;; Post to slack
+            (slack-channel-select
+             :on-select (lambda (room team)
+                          (slack-message-send-internal
+                           export-text room team)
+                          (message "Standup posted to #%s" (slack-room-name room team))))
+          (message "No standup to post")))
+    (message "Slack not configured. Run M-x slack-start first")))
+
+;;;###autoload
 (defun standup-carryover ()
   "Copy unfinished Doing items from yesterday to today's Doing section."
   (interactive)
@@ -301,12 +417,15 @@ If region is active, use region text. Otherwise prompt."
     (define-key map (kbd "M-s d") 'standup-done)
     (define-key map (kbd "M-s g") 'standup-doing)
     (define-key map (kbd "M-s b") 'standup-blocker)
+    (define-key map (kbd "M-s a") 'standup-agenda)      ; add to tomorrow
+    (define-key map (kbd "M-s T") 'standup-tomorrow)    ; jump to tomorrow
     (define-key map (kbd "M-s e") 'standup-export)
     (define-key map (kbd "M-s y") 'standup-yesterday)
     (define-key map (kbd "M-s c") 'standup-carryover)
     (define-key map (kbd "M-s m") 'standup-move-to-done)
     (define-key map (kbd "M-s n") 'standup-new-day)
     (define-key map (kbd "M-s t") 'standup-today)
+    (define-key map (kbd "M-s p") 'standup-post-to-slack)
     map)
   "Keymap for standup-mode.")
 

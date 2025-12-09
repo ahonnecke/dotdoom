@@ -3,10 +3,10 @@
 ;; C-c m is now monet prefix - use M-m (orchard-cycle-mode) for magit instead
 ;; (global-set-key (kbd "C-c m") 'magit-status)
 
-;; Override M-m in dirvish-mode to use magit-status
+;; Override M-m in dirvish-mode to use orchard-cycle-mode (consistent with magit)
 (with-eval-after-load 'dirvish
   (define-key dirvish-mode-map (kbd "M-m") nil)  ; First unbind it
-  (define-key dirvish-mode-map (kbd "M-m") 'magit-status))
+  (define-key dirvish-mode-map (kbd "M-m") #'orchard-cycle-mode))
 
 (with-eval-after-load "magit"
   (define-key magit-process-mode-map (kbd "<return>")

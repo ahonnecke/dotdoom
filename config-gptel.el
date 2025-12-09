@@ -23,7 +23,7 @@
 ;; Require the main `gptel` file
 (require 'gptel)
 
-;; Example key binding for starting GPTel
-(global-set-key (kbd "C-c g p") #'gptel)
+;; C-c L = Local LLM (gptel via Ollama)
+(global-set-key (kbd "C-c L") #'gptel)
 
 ;;; config-gptel.el ends here

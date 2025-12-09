@@ -108,6 +108,17 @@
   (interactive)
   (vercel--run "whoami"))
 
+(defun vercel-login ()
+  "Login to Vercel (interactive - uses vterm)."
+  (interactive)
+  (let ((default-directory (vercel--project-root)))
+    (if (fboundp 'vterm)
+        (progn
+          (vterm "*vercel-login*")
+          (vterm-send-string "vercel login")
+          (vterm-send-return))
+      (async-shell-command "vercel login" "*vercel-login*"))))
+
 (defun vercel-link ()
   "Link directory to Vercel project."
   (interactive)
@@ -140,7 +151,8 @@
    ["Project"
     ("v" "Dev server" vercel-dev)
     ("k" "Link project" vercel-link)
-    ("w" "Whoami" vercel-whoami)]])
+    ("w" "Whoami" vercel-whoami)
+    ("K" "Login" vercel-login)]])
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Keybindings
