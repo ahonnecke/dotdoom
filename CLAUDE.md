@@ -63,58 +63,69 @@ A global minor mode (`ashton-mode`) provides a unified keymap that overrides mod
 
 | Binding | Function | Description |
 |---------|----------|-------------|
-| `M-m` | `magit-status` | Open Magit |
-| `M-g` | `+default/search-project` | Project-wide search |
-| `C-x f` | `+ivy/projectile-find-file` | Find file in project |
+| `M-m` | `orchard-cycle-mode` | Cycle magit/claude/compile |
+| `C-x f` | `projectile-find-file` | Find file in project |
 | `C-;` | `comment-or-uncomment-region` | Toggle comments |
 | `C-'` | `er/expand-region` | Expand selection |
 | `C-"` | `er/contract-region` | Contract selection |
 | `C-c v t` | `+vterm/toggle` | Toggle terminal |
 | `C-c t` | `python-pytest-dispatch` | Python test dispatch |
-| `C-c a` | aider transient | AI assistant |
+| `C-c a` | `aidermacs-transient` | Aider AI assistant |
 
 ### Navigation (C-c g prefix)
 
-| Binding | Function |
-|---------|----------|
-| `C-c g g` | Browse file at remote |
-| `C-c g f` | Find file at point with line |
-| `C-c g t` | Toggle impl/test file |
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `C-c g d` | `xref-find-definitions` | Go to definition |
+| `C-c g r` | `xref-find-references` | Find all references |
+| `C-c g i` | `consult-imenu` | Jump to symbol |
+| `C-c g e` | `consult-flycheck` | Jump to error |
+| `C-c g t` | `projectile-toggle-impl/test` | Toggle impl/test file |
+| `C-c g l` | `avy-goto-line` | Jump to visible line |
+| `C-c g c` | `avy-goto-char-timer` | Type chars, jump |
+| `C-c g g` | `+vc/browse-at-remote` | Open in GitHub |
+| `C-c g f` | `find-file-at-point-with-line` | Goto file:line |
+| `C-c g ?` | `goto-transient` | Navigation menu |
 
 ### String Inflection (C-c i prefix)
 
-| Binding | Function |
-|---------|----------|
-| `C-c i c` | camelCase |
-| `C-c i s` | snake_case |
-| `C-c i k` | kebab-case |
-| `C-c i u` | UPCASE |
-| `C-c i p` | Python style cycle |
-| `C-c i U` | Upcase region |
-| `C-c i l` | Downcase region |
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `C-c i i` | `inflection-cycle` | Smart mode-aware cycle |
+| `C-c i ?` | `inflection-transient` | Menu with preview |
+| `C-c i s` | snake_case | |
+| `C-c i c` | camelCase | |
+| `C-c i p` | PascalCase | |
+| `C-c i u` | CONST_CASE | |
+| `C-c i k` | kebab-case | |
+| `C-c i _` | cycle separator | underscore/hyphen/space |
 
-### Standup Mode (C-c S prefix - global)
+### Meeting Notes (C-c M prefix)
 
-| Binding | Function |
-|---------|----------|
-| `C-c S s` | Open standup file |
-| `C-c S d` | Add done item (from any buffer) |
-| `C-c S g` | Add doing item |
-| `C-c S b` | Add blocker |
+Generalized meeting system - standup is one meeting type. Per-occurrence files in `~/org/meetings/<type>/<date>.org`.
 
-### Standup Mode (M-s prefix - in STANDUP.org only)
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `C-c M o` | `meeting-open` | Open any occurrence |
+| `C-c M t` | `meeting-open-today` | Open today's notes |
+| `C-c M n` | `meeting-add-to-next` | Add to next meeting |
+| `C-c M c` | `meeting-carryover` | Copy from previous |
+| `C-c M e` | `meeting-export` | Export to clipboard |
+| `C-c M ?` | `meeting-transient` | Full menu |
 
-| Binding | Function |
-|---------|----------|
-| `M-s d` | Add done item |
-| `M-s g` | Add doing item |
-| `M-s b` | Add blocker |
-| `M-s e` | Export to clipboard |
-| `M-s y` | Jump to yesterday |
-| `M-s c` | Carryover from yesterday |
-| `M-s m` | Move item to done |
-| `M-s n` | New day entry |
-| `M-s t` | Jump to today |
+### Standup Shortcuts (C-c M s prefix)
+
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `C-c M s s` | `meeting-standup` | Open today's standup |
+| `C-c M s d` | Done | Add to Done section |
+| `C-c M s g` | Doing | Add to Doing section |
+| `C-c M s b` | Blocker | Add to Blockers |
+| `C-c M s q` | Question | Add to Questions |
+| `C-c M s a` | Agenda | Add to Agenda |
+| `C-c M s p` | Post Slack | Post standup to Slack |
+
+Meeting types: `standup`, `psc-it-sync`, `psc-pm-sync`
 
 ### Org-Mode Specific
 
@@ -131,8 +142,8 @@ A global minor mode (`ashton-mode`) provides a unified keymap that overrides mod
 
 ### Startup Behavior
 
-- Opens `~/MAIN_ASHTON_TODO.org` on startup (not splash screen)
-- `initial-buffer-choice` configured in `config.el:210-211`
+- Opens **Orchard dashboard** on startup (worktree manager)
+- `initial-buffer-choice` set to `#'orchard` in `config.el`
 
 ### Org Directory
 
@@ -230,9 +241,9 @@ Then configure team in `config-slack.el`:
 | `C-c K l` | `slack-copy-link-at-point` | Copy message link |
 | `C-c K ?` | `slack-transient` | Full command menu |
 
-### Standup Integration
+### Meeting Integration
 
-From STANDUP.org, press `M-s p` to post today's standup directly to a Slack channel.
+From any buffer, `C-c M s p` posts today's standup to Slack.
 
 ---
 
@@ -416,21 +427,39 @@ Track test items with attached Fireshot screenshots for PR descriptions.
 Located in `config-combobulate.el`:
 
 - **Source**: `/home/ahonnecke/src/combobulate`
-- **Prefix**: `C-c o`
 - **Enabled for**: python-ts-mode, js-ts-mode, typescript-ts-mode, tsx-ts-mode, json-ts-mode, yaml-ts-mode, css-ts-mode
 
-Combobulate provides tree-sitter powered structural editing - navigate and manipulate code by AST nodes rather than text.
+Tree-sitter powered structural editing - navigate and manipulate code by AST nodes.
+
+### Keybindings (standard Emacs keys)
+
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `C-M-u` | `combobulate-navigate-up` | Parent node |
+| `C-M-d` | `combobulate-navigate-down` | First child |
+| `C-M-n` | `combobulate-navigate-next` | Next sibling |
+| `C-M-p` | `combobulate-navigate-previous` | Previous sibling |
+| `M-h` | `combobulate-mark-node-dwim` | Mark node |
+| `M-k` | `combobulate-kill-node-dwim` | Kill node |
+| `M-N` / `M-P` | drag down/up | Move node |
+| `C-c o o` | `combobulate` | Main menu |
 
 ---
 
 ## Completion System
 
-- **Company-mode** with 0.1s idle delay, 2-char minimum
-- Custom completion functions in `custom-completion.el`:
-  - `C-c c b` - Buffer completion
-  - `C-c c p` - Project completion
-  - `C-c c l` - LSP completion
-  - `C-c c f` - File completion
+Located in `config-corfu.el`:
+
+- **Corfu** for in-buffer completion popup
+- **Cape** for completion-at-point extensions
+
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `C-c p p` | `completion-at-point` | Default completion |
+| `C-c p d` | `cape-dabbrev` | Words from buffers |
+| `C-c p f` | `cape-file` | File paths |
+| `C-c p l` | `cape-line` | Complete lines |
+| `C-c p k` | `cape-keyword` | Programming keywords |
 
 ---
 
@@ -545,3 +574,7 @@ These files attempted clever completion features that never fully worked:
 | `config-ellama.el` | Local LLM via Ellama (entirely commented out) |
 | `config-vscode.el` | VSCode integration (no longer used) |
 | `config-windsurf.el` | Windsurf integration (no longer used) |
+| `config-standup.el` | Replaced by config-meeting.el (Dec 2025) |
+| `config-string-inflection.el` | Replaced by config-inflection.el (Dec 2025) |
+| `config-aws-mode.el` | Not loaded, config-aws.el used instead |
+| `config-gitlab-upload.el` | Not loaded, GitLab screenshot upload |
