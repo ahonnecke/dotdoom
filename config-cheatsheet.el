@@ -253,24 +253,28 @@ C-c A b     aws-bedrock-chat     Bedrock AI chat (Claude!)
 
 ")
         ;; Combobulate (structural editing)
-        (insert (propertize "═══ COMBOBULATE (C-c o) - Structural Editing ═══\n" 'face '(:foreground "green" :weight bold)))
+        (insert (propertize "═══ COMBOBULATE - Structural Editing ═══\n" 'face '(:foreground "green" :weight bold)))
         (insert "
 Tree-sitter powered navigation/manipulation (works in *-ts-mode buffers)
 
-C-c o o     combobulate          Enter combobulate menu
-C-c o n     next-sibling         Move to next sibling node
-C-c o p     prev-sibling         Move to previous sibling
-C-c o u     up                   Move to parent node
-C-c o d     down                 Move to first child
-C-c o N     drag-down            Drag node down
-C-c o P     drag-up              Drag node up
-C-c o t     transpose            Swap with sibling
-C-c o k     kill-node            Kill current node
-C-c o m     mark-node            Mark current node
-C-c o e     edit-node            Edit cluster interactively
-C-c o x     xref-definitions     Xref at point
+Navigation (standard Emacs keys):
+C-M-u       navigate-up          Move to parent node
+C-M-d       navigate-down        Move to first child
+C-M-n       navigate-next        Move to next sibling
+C-M-p       navigate-previous    Move to previous sibling
+C-M-a       beginning-of-defun   Start of function
+C-M-e       end-of-defun         End of function
+
+Manipulation:
+M-h         mark-node            Mark current node
+M-k         kill-node            Kill current node
+M-N         drag-down            Drag node down
+M-P         drag-up              Drag node up
+C-M-t       transpose            Swap with sibling
+
+Menu:
+C-c o o     combobulate          Main menu (all commands)
 C-c o c     clone-node           Clone/duplicate node
-C-c o v     vanish-node          Remove node, keep children
 
 ")
         ;; Tree-sitter
