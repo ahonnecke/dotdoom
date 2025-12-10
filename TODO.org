@@ -1,44 +1,42 @@
 # TODO
 
-* Cleanup
-** cleanup all the string manipulations bindings
-*** maybe a transient menu that shows all the manipulations? (so it would open with var_name, varName, VarName)
-** for all my custom actions: make everything work on either the current region or smart "thing at point"
-*** go to actions
-*** string manipulation actions
-**** make these smarter per mode
-***** python: snake case and ClassCase, etc
-***** ts: camelCase ClassCase, etc
-** clean up the indent tool binding
-*** bind such that there's consistent behavior that indents the region left or right if there's region
-*** left indent and a good binding
-*** right indent and a good binding
-*** C-c used to do crux duplicate but that's gone now?
-** look for other ways to clean up my custom files, suggest
-* Add modes
-Generic modes that wrap their stupid cli clients
-Should be VERY explicit about if it's local or live
-Goal: quick visibility and access that does not break flow or get in the way
-Goal: get me quick sexy access from inside emacs so that I don't have to open
-gnome-terminal so much
-** vercel
-** supabase
-* Enhance modes
-Layer project specific stuff on top of the generic modes
-Goal: quick visibility and access that does not break flow or get in the way for
-this project
-** vercel
-*** for crewcapable usage patterns
-** supabase
-*** for crewcapable usage patterns
-** aws
-*** for crewcapable usage patterns
-* Indent
- * does not indent by 4 in python mode
- * by 4 should be the default
- * nor in text mode
- * not in ts
- * furthermore, "C-c >" only works one time and then I have to "C-c >" again
-   but I want it to be EASY to indent twice (meaning I don't have to C-c before
-   each ">"), in fact if there were a "move this region around" mode that I
-   could enable that would be great, maybe there's a package like that?
+* DONE Cleanup (Dec 2025)
+** DONE cleanup all the string manipulation bindings
+   - config-inflection.el: transient menu (C-c i ?) shows all conversions with preview
+   - Mode-aware cycling (C-c i i): Python=snake/CONST/Pascal, TS=camel/CONST/Pascal
+** DONE indent tool binding
+   - C-c < / C-c > with repeat mode (just press < or > to keep adjusting)
+   - Mode-specific step: python-indent-offset, typescript-indent-level, etc.
+   - C-c d = duplicate line/region (was crux-duplicate)
+** TODO for all custom actions: make everything work on region or thing-at-point
+   - String manipulation: already works on symbol-at-point
+   - Go-to actions: some work, some don't
+
+* DONE Add generic CLI modes (Dec 2025)
+** DONE vercel - C-c V transient
+** DONE supabase - C-c B transient
+** DONE aws - C-c A transient
+
+* DONE Enhance modes for crewcapable
+** DONE C-c C prefix for crewcapable-services
+** DONE Dev workflow integration
+
+* DONE Meeting system (Dec 2025)
+** DONE Replace standalone standup with generic meeting system
+   - config-meeting.el: C-c M prefix
+   - Per-occurrence files: ~/org/meetings/<type>/<date>.org
+   - Meeting types: standup, psc-it-sync, psc-pm-sync
+** DONE Standup sections: Done/Doing/Blockers/Questions/Agenda
+** DONE Slack posting: C-c M s p
+
+* TODO Calendar integration
+** TODO Gmail calendar (read-only via org-caldav)
+   - Query meeting times from calendar
+   - Smart "next meeting" detection
+** TODO Other calendars (Fastmail, Apple, personal Gmail)
+   - Deferred - "whole project"
+
+* TODO Other improvements
+** TODO Tree-sitter: ensure all grammars installed
+   - M-x treesit-install-all-grammars
+** TODO Combobulate: verify working in ts-modes
