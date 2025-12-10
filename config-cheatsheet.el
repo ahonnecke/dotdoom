@@ -173,29 +173,30 @@ C-c K /     slack-search        Search messages
 C-c K ?     slack-transient     Full menu
 
 ")
-        ;; Standup
-        (insert (propertize "═══ STANDUP (C-c S prefix - global) ═══\n" 'face '(:foreground "yellow" :weight bold)))
+        ;; Meeting Notes
+        (insert (propertize "═══ MEETING NOTES (C-c M prefix) ═══\n" 'face '(:foreground "yellow" :weight bold)))
         (insert "
-C-c S s     standup             Open standup file, jump to today
-C-c S d     standup-done        Add item to today's Done
-C-c S g     standup-doing       Add item to today's Doing
-C-c S b     standup-blocker     Add blocker
-C-c S a     standup-agenda      Add item to TOMORROW's Doing
-C-c S T     standup-tomorrow    Jump to tomorrow's entry
+Generic (works for any meeting type):
+C-c M o     meeting-open        Open a specific occurrence
+C-c M t     meeting-open-today  Open/create today's notes
+C-c M n     meeting-add-to-next Add item to next occurrence
+C-c M c     meeting-carryover   Copy items from previous
+C-c M e     meeting-export      Export to clipboard
+C-c M ?     meeting-transient   Full menu
 
-In STANDUP.org (M-s prefix):
-M-s d       done                Add done item
-M-s g       doing               Add doing item
-M-s b       blocker             Add blocker
-M-s a       agenda              Add to tomorrow
-M-s T       tomorrow            Jump to tomorrow
-M-s e       export              Export to clipboard
-M-s y       yesterday           Jump to yesterday
-M-s c       carryover           Carry items from yesterday
-M-s m       move-to-done        Move current item to Done
-M-s n       new-day             Create new day entry
-M-s t       today               Jump to today
-M-s p       post-to-slack       Post to Slack channel
+Standup shortcuts (C-c M s prefix):
+C-c M s s   standup             Open today's standup
+C-c M s d   done                Add to Done
+C-c M s g   doing               Add to Doing
+C-c M s b   blocker             Add to Blockers
+C-c M s q   question            Add to Questions
+C-c M s a   agenda              Add to Agenda (discussion topics)
+C-c M s c   carryover           Carry over Doing from yesterday
+C-c M s e   export              Export standup
+C-c M s p   post-slack          Post standup to Slack
+
+Meeting types: standup, psc-it-sync, psc-pm-sync
+Files: ~/org/meetings/<type>/<date>.org
 
 ")
         ;; Services

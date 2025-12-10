@@ -161,13 +161,8 @@ js-indent-level, or defaults to tab-width (usually 4)."
 (define-key ashton-mode-map (kbd "C-c >") #'indent-region-right)
 ;; M-<left>/M-<right> removed - conflicts with org-mode promote/demote
 
-;; Global standup bindings (C-c S = Standup, works from any buffer)
-(define-key ashton-mode-map (kbd "C-c S s") 'standup)
-(define-key ashton-mode-map (kbd "C-c S d") 'standup-done)
-(define-key ashton-mode-map (kbd "C-c S g") 'standup-doing)
-(define-key ashton-mode-map (kbd "C-c S b") 'standup-blocker)
-(define-key ashton-mode-map (kbd "C-c S a") 'standup-agenda)    ; add to tomorrow
-(define-key ashton-mode-map (kbd "C-c S T") 'standup-tomorrow)  ; jump to tomorrow
+;; Meeting bindings moved to config-meeting.el (C-c M prefix)
+;; C-c M s s = standup, C-c M s d = done, C-c M s g = doing, etc.
 
 ;; Global workspace bindings (C-c w = Workspace)
 (define-key ashton-mode-map (kbd "C-c w w") 'workspace-show)

@@ -1688,9 +1688,8 @@ Based on current stage, performs the appropriate action:
 (define-key ashton-mode-map (kbd "C-c O h") #'orchard-new-chore)
 
 ;; M-m cycles magit/claude everywhere
-;; Also bind C-c m m as backup since M-m can be tricky in some modes
+;; C-c M is now meetings prefix, so only M-m for orchard-cycle
 (define-key ashton-mode-map (kbd "M-m") #'orchard-cycle-mode)
-(define-key ashton-mode-map (kbd "C-c M") #'orchard-cycle-mode)  ; Backup binding
 
 ;; For magit-mode: Use Doom's after! macro for better integration
 ;; This runs AFTER Doom's own magit configuration
@@ -1709,14 +1708,12 @@ Based on current stage, performs the appropriate action:
                      magit-refs-mode-map
                      magit-cherry-mode-map))
     (when (and map (keymapp map))
-      (define-key map (kbd "M-m") #'orchard-cycle-mode)
-      (define-key map (kbd "C-c M") #'orchard-cycle-mode))))
+      (define-key map (kbd "M-m") #'orchard-cycle-mode))))
 
 ;; Hook for buffer-local override (runs late)
 (defun orchard--bind-m-m-in-magit ()
   "Bind M-m to orchard-cycle-mode in magit buffers."
-  (local-set-key (kbd "M-m") #'orchard-cycle-mode)
-  (local-set-key (kbd "C-c M") #'orchard-cycle-mode))
+  (local-set-key (kbd "M-m") #'orchard-cycle-mode))
 
 (add-hook 'magit-mode-hook #'orchard--bind-m-m-in-magit 100)
 
