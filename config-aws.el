@@ -71,7 +71,8 @@
     ("L" "Login (SSO)" aws-login)
     ("p" "Switch Profile" aws-set-profile)]])
 
-(define-key ashton-mode-map (kbd "C-c A") #'aws-transient)
+;; C-c A is a prefix, so use ? for transient menu
+(define-key ashton-mode-map (kbd "C-c A ?") #'aws-transient)
 
 (provide 'config-aws)
 ;;; config-aws.el ends here
