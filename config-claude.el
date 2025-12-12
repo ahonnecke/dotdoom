@@ -34,20 +34,30 @@
   ;; Use vterm as the terminal backend (already have it via Doom)
   (setq claude-code-terminal-backend 'vterm)
 
-  ;; Display Claude below the current window (same column)
-  ;; This keeps branch work in a single column: magit on top, claude below
-  (defun claude-code-display-buffer-below (buffer)
-    "Display Claude BUFFER below current window, staying in same column."
-    (let* ((current-win (selected-window))
-           (new-window (split-window-below)))
-      (set-window-buffer new-window buffer)
-      (select-window new-window)
-      new-window))
+  ;; Custom command that captures window first, then starts Claude
+  (defun claude-code-here ()
+    "Start Claude in the current window (replaces current buffer).
+Use this instead of claude-code to ensure Claude opens HERE."
+    (interactive)
+    (let ((target-window (selected-window)))
+      ;; Suppress all display-buffer shenanigans
+      (cl-letf (((symbol-function 'display-buffer)
+                 (lambda (buffer &rest _)
+                   (set-window-buffer target-window buffer)
+                   target-window))
+                ((symbol-function 'pop-to-buffer)
+                 (lambda (buffer &rest _)
+                   (set-window-buffer target-window buffer)
+                   (select-window target-window)
+                   target-window)))
+        (claude-code))))
 
-  (setq claude-code-display-window-fn #'claude-code-display-buffer-below)
+  ;; Also set the display fn as backup (wrap to provide required alist arg)
+  (setq claude-code-display-window-fn
+        (lambda (buf) (display-buffer-same-window buf nil)))
 
   ;; Bind to C-c c prefix via ashton-mode-map for consistency
-  (define-key ashton-mode-map (kbd "C-c c c") #'claude-code)
+  (define-key ashton-mode-map (kbd "C-c c c") #'claude-code-here)
   (define-key ashton-mode-map (kbd "C-c c s") #'claude-code-send-command)
   (define-key ashton-mode-map (kbd "C-c c r") #'claude-code-send-region)
   (define-key ashton-mode-map (kbd "C-c c b") #'claude-code-send-buffer)

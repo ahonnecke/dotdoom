@@ -94,6 +94,7 @@ External:
 C-c g g     browse-at-remote       Open in GitHub/GitLab
 C-c g b     browse-url-at-point    Open URL under cursor
 C-c g f     find-file-at-point     Goto file:line
+C-c g s     firefox-search         Search region/symbol (Firefox)
 
 ")
         ;; Project Tools
@@ -197,6 +198,18 @@ C-c M s p   post-slack          Post standup to Slack
 
 Meeting types: standup, psc-it-sync, psc-pm-sync
 Files: ~/org/meetings/<type>/<date>.org
+
+")
+        ;; Calendar
+        (insert (propertize "═══ CALENDAR (C-c @ prefix) ═══\n" 'face '(:foreground "cyan" :weight bold)))
+        (insert "
+C-c @ a     calendar-show-agenda   Show agenda (7 days)
+C-c @ t     calendar-show-today    Today's events
+C-c @ n     calendar-next-meeting  Next meeting
+C-c @ w     calendar-show-week     This week
+C-c @ ?     calendar-transient     Menu
+
+Setup: gcalcli init (for Google calendars)
 
 ")
         ;; Services

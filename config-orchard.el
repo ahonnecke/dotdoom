@@ -290,7 +290,7 @@ Called with the worktree path as argument."
     (orchard--set-dev-owner path)
     (message "Dev mode: %s" (file-name-nondirectory (directory-file-name path)))))
 
-(defun orchard--on-commando-finish (command path status)
+(defun orchard--on-commando-finish (command path _status)
   "Handle commando command finish. Release dev mode if needed."
   (when (and (boundp 'commando-dev-commands)
              (member command commando-dev-commands)
@@ -299,7 +299,7 @@ Called with the worktree path as argument."
     (orchard--set-dev-owner nil)
     (message "Dev mode released")))
 
-(defun orchard--on-testicular-start (project-root)
+(defun orchard--on-testicular-start (_project-root)
   "Handle testicular session start."
   (orchard--refresh-if-visible))
 
@@ -435,6 +435,11 @@ Called with the worktree path as argument."
 ;;   - window: the current window object
 ;;   - mode: 'magit, 'claude, or 'compile
 ;;   - previous-mode: for restoring after compile
+;;
+;; WINDOW LOCKING STRATEGY:
+;;   - Use `set-window-buffer` instead of `switch-to-buffer` to bypass display machinery
+;;   - Mark branch windows as dedicated to prevent buffer poaching
+;;   - Override `display-buffer-alist` for orchard-managed buffer patterns
 
 (defvar orchard--columns (make-hash-table :test 'eq)
   "Hash table mapping column index to column state plist.")
@@ -516,6 +521,118 @@ Creates columns if needed, up to orchard-max-columns."
           (select-window rightmost)
           (setq rightmost (split-window-right))
           (balance-windows))))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Window Locking - Prevent Buffer Escape
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--display-buffer-in-window (buffer window)
+  "Display BUFFER in WINDOW, bypassing display-buffer machinery.
+This is the core function for enforcing column locking."
+  (when (and buffer window (window-live-p window))
+    (select-window window)
+    (set-window-buffer window buffer)
+    buffer))
+
+(defun orchard--display-buffer-in-column (buffer column)
+  "Display BUFFER in COLUMN, creating window if needed."
+  (orchard--ensure-columns)
+  (let ((win (orchard--get-column-window column)))
+    (orchard--display-buffer-in-window buffer win)))
+
+(defun orchard--set-window-dedicated (window dedicated)
+  "Set WINDOW dedication to DEDICATED.
+Dedicated windows won't be commandeered by other buffer displays."
+  (when (window-live-p window)
+    (set-window-dedicated-p window dedicated)))
+
+(defun orchard--dedicate-branch-column (column)
+  "Mark COLUMN as dedicated to its branch."
+  (when-let ((win (orchard--get-column-window column)))
+    (orchard--set-window-dedicated win t)))
+
+(defun orchard--undedicate-branch-column (column)
+  "Remove dedication from COLUMN (needed before switching buffers)."
+  (when-let ((win (orchard--get-column-window column)))
+    (orchard--set-window-dedicated win nil)))
+
+(defun orchard--with-undedicated-window (window fn)
+  "Temporarily undedicate WINDOW, run FN, re-dedicate.
+FN is called with no arguments."
+  (let ((was-dedicated (window-dedicated-p window)))
+    (when was-dedicated
+      (set-window-dedicated-p window nil))
+    (unwind-protect
+        (funcall fn)
+      (when was-dedicated
+        (set-window-dedicated-p window t)))))
+
+(defun orchard--magit-in-window (path window)
+  "Open magit for PATH in WINDOW without letting it escape."
+  (orchard--with-undedicated-window window
+    (lambda ()
+      (select-window window)
+      (let ((display-buffer-overriding-action '(display-buffer-same-window)))
+        (magit-status path)))))
+
+(defun orchard--claude-in-window (path window)
+  "Start or switch to Claude for PATH in WINDOW without letting it escape."
+  (orchard--ensure-claude-loaded)
+  (orchard--with-undedicated-window window
+    (lambda ()
+      (select-window window)
+      ;; Check for existing buffer
+      (let ((claude-buf (orchard--claude-buffer-for-path path)))
+        (if (and claude-buf (buffer-live-p claude-buf))
+            ;; Existing - force into window
+            (set-window-buffer window claude-buf)
+          ;; New - start Claude and capture the buffer
+          (let ((default-directory path)
+                (buffers-before (buffer-list)))
+            (claude-code)
+            ;; Find the new Claude buffer
+            (let ((new-claude (cl-find-if
+                               (lambda (buf)
+                                 (and (string-prefix-p "*claude:" (buffer-name buf))
+                                      (not (memq buf buffers-before))))
+                               (buffer-list))))
+              (when new-claude
+                (set-window-buffer window new-claude)))))))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Display Buffer Rules for Orchard
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--buffer-branch (buffer)
+  "Get branch name for BUFFER based on its default-directory."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when-let ((wt (orchard--current-worktree)))
+        (alist-get 'branch wt)))))
+
+(defun orchard--display-buffer-in-branch-column (buffer _alist)
+  "Display BUFFER in its branch's column if tracked by orchard.
+For use in `display-buffer-alist'."
+  (when-let* ((branch (orchard--buffer-branch buffer))
+              (column (orchard--column-for-branch branch))
+              (window (orchard--get-column-window column)))
+    (orchard--with-undedicated-window window
+      (lambda ()
+        (set-window-buffer window buffer)))
+    window))
+
+;; Add display-buffer rules for orchard-managed buffers
+(defun orchard--setup-display-buffer-rules ()
+  "Setup display-buffer-alist rules for orchard window locking."
+  (dolist (pattern '("^\\*claude:" "^magit:" "^\\*compilation\\*"))
+    (add-to-list 'display-buffer-alist
+                 `(,pattern
+                   (orchard--display-buffer-in-branch-column
+                    display-buffer-same-window)
+                   (inhibit-same-window . nil)))))
+
+;; Setup rules when orchard loads
+(orchard--setup-display-buffer-rules)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Worktree Data
@@ -648,6 +765,7 @@ Returns nil if worktree path doesn't exist (skip it)."
   (let ((name (file-name-nondirectory (directory-file-name path))))
     (cl-find-if (lambda (buf)
                   (and (buffer-live-p buf)
+                       (string-prefix-p "*claude:" (buffer-name buf))
                        (string-match-p (regexp-quote name) (buffer-name buf))))
                 (buffer-list))))
 
@@ -709,74 +827,158 @@ Returns nil if worktree path doesn't exist (skip it)."
   (or (locate-dominating-file default-directory ".git")
       default-directory))
 
+(defun orchard--find-sibling-window (mode-predicate)
+  "Find a sibling window in the same column matching MODE-PREDICATE."
+  (let ((current (selected-window))
+        (current-left (car (window-edges))))
+    (cl-find-if
+     (lambda (w)
+       (and (not (eq w current))
+            ;; Same column (same left edge)
+            (= (car (window-edges w)) current-left)
+            ;; Matches mode
+            (with-current-buffer (window-buffer w)
+              (funcall mode-predicate))))
+     (window-list))))
+
 (defun orchard-cycle-mode ()
-  "Cycle between magit and claude in the current column.
-If in magit → switch to claude (start if needed).
-If in claude → switch to magit.
+  "Cycle between magit and claude windows in the current column.
+If in magit → switch to claude window (or start claude if none).
+If in claude → switch to magit window.
 If in compile → close compile, go to magit.
 
-Works both in orchard-managed worktrees and regular git repos."
+With split layout, this switches between windows in the same column."
   (interactive)
   (let* ((wt (orchard--current-worktree))
          (path (or (when wt (alist-get 'path wt))
-                   (orchard--project-root)))  ; Fallback to git root
-         (branch (when wt (alist-get 'branch wt))))
+                   (orchard--project-root))))
     (cond
      ;; In compilation buffer - close it, go to magit
      ((derived-mode-p 'compilation-mode)
       (quit-window)
-      (when path
-        (magit-status path)))
-     ;; In magit - go to claude
+      (when-let ((magit-win (orchard--find-sibling-window
+                             (lambda () (derived-mode-p 'magit-mode)))))
+        (select-window magit-win)))
+
+     ;; In magit - find claude window in same column, or start claude
      ((derived-mode-p 'magit-mode)
-      (if path
-          (let ((claude-buf (orchard--claude-buffer-for-path path)))
-            (if claude-buf
-                (switch-to-buffer claude-buf)
-              ;; Start new Claude
-              (orchard--ensure-claude-loaded)
-              (let ((default-directory path))
-                (claude-code))))
-        ;; Fallback: start claude in current directory
-        (orchard--ensure-claude-loaded)
-        (claude-code)))
-     ;; In vterm/claude - go to magit
+      (if-let ((claude-win (orchard--find-sibling-window
+                            (lambda () (derived-mode-p 'vterm-mode)))))
+          (select-window claude-win)
+        ;; No claude window - start one below
+        (when path
+          (let ((claude-win (split-window nil nil 'below)))
+            (select-window claude-win)
+            (orchard--ensure-claude-loaded)
+            ;; Start Claude and capture the buffer
+            (let ((default-directory path)
+                  (buffers-before (buffer-list)))
+              (claude-code)
+              ;; Find the new Claude buffer and force it into our window
+              (let ((new-claude (cl-find-if
+                                 (lambda (buf)
+                                   (and (string-prefix-p "*claude:" (buffer-name buf))
+                                        (not (memq buf buffers-before))))
+                                 (buffer-list))))
+                (when new-claude
+                  (set-window-buffer claude-win new-claude))))))))
+
+     ;; In vterm/claude - find magit window in same column
      ((derived-mode-p 'vterm-mode)
-      (if path
-          (magit-status path)
-        (magit-status)))  ; Fallback to magit in current dir
-     ;; Elsewhere in a worktree - go to magit
-     (path
-      (magit-status path))
-     ;; Not in a worktree - just open magit
+      (if-let ((magit-win (orchard--find-sibling-window
+                           (lambda () (derived-mode-p 'magit-mode)))))
+          (select-window magit-win)
+        ;; No magit window - open magit in a split above
+        (when path
+          (let ((magit-win (split-window nil nil 'above)))
+            (select-window magit-win)
+            (let ((display-buffer-overriding-action '(display-buffer-same-window)))
+              (magit-status path))))))
+
+     ;; Elsewhere - go to magit
      (t
-      (magit-status)))))
+      (let ((display-buffer-overriding-action '(display-buffer-same-window)))
+        (magit-status path))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Branch Opening - Column Assignment
 ;;; ════════════════════════════════════════════════════════════════════════════
 
 (defun orchard-open-branch (wt)
-  "Open worktree WT in its assigned column (or assign one)."
+  "Open worktree WT in its assigned column (or assign one).
+Opens magit on top, Claude below. Uses window locking."
   (let* ((path (alist-get 'path wt))
          (branch (alist-get 'branch wt))
          (existing-col (orchard--column-for-branch branch)))
     (if existing-col
-        ;; Already has a column - switch to it
+        ;; Already has a column - switch to it with locking
         (let ((win (orchard--get-column-window existing-col)))
           (when win
-            (select-window win)
-            (magit-status path)))
+            (orchard--open-magit-and-claude path win)))
       ;; Need to assign a column
       (let ((col (orchard--find-available-column)))
         (orchard--assign-branch-to-column branch col)
         ;; Ensure we have enough columns
         (orchard--ensure-columns)
-        ;; Switch to that column
+        ;; Switch to that column with locking
         (let ((win (orchard--get-column-window col)))
           (when win
-            (select-window win)
-            (magit-status path)))))))
+            (orchard--open-magit-and-claude path win)))))))
+
+(defun orchard--open-magit-and-claude (path window)
+  "Open magit and Claude for PATH in WINDOW (split vertically).
+Magit on top, Claude below."
+  ;; First, undedicate and put magit in the window
+  (orchard--with-undedicated-window window
+    (lambda ()
+      (select-window window)
+      (let ((display-buffer-overriding-action '(display-buffer-same-window)))
+        (magit-status path))))
+  ;; Now split for Claude below
+  (let* ((magit-win window)
+         (claude-win (split-window magit-win nil 'below)))
+    ;; Resize - give magit 40%, claude 60%
+    (window-resize magit-win (- (floor (* 0.4 (window-height magit-win)))
+                                 (window-height magit-win)))
+    ;; Check for existing Claude buffer first
+    (orchard--ensure-claude-loaded)
+    (let ((existing-claude (orchard--claude-buffer-for-path path)))
+      (if (and existing-claude (buffer-live-p existing-claude))
+          ;; Existing Claude - just show it
+          (progn
+            (message "Orchard: reusing existing Claude buffer %s" (buffer-name existing-claude))
+            (set-window-buffer claude-win existing-claude))
+        ;; Need to start new Claude - do it in a way we can capture the buffer
+        (let ((default-directory path)
+              (buffers-before (buffer-list)))
+          (message "Orchard: starting new Claude for %s" path)
+          ;; Start Claude - let it go wherever
+          (condition-case err
+              (claude-code)
+            (error (message "Orchard: claude-code error: %s" err)))
+          ;; Find the new Claude buffer (wasn't in buffers-before)
+          (let ((new-claude (cl-find-if
+                             (lambda (buf)
+                               (and (string-prefix-p "*claude:" (buffer-name buf))
+                                    (not (memq buf buffers-before))))
+                             (buffer-list))))
+            (if new-claude
+                (progn
+                  (message "Orchard: found new Claude buffer %s" (buffer-name new-claude))
+                  (set-window-buffer claude-win new-claude))
+              ;; Fallback: look for ANY claude buffer for this path
+              (let ((any-claude (cl-find-if
+                                 (lambda (buf)
+                                   (string-prefix-p "*claude:" (buffer-name buf)))
+                                 (buffer-list))))
+                (if any-claude
+                    (progn
+                      (message "Orchard: using fallback Claude buffer %s" (buffer-name any-claude))
+                      (set-window-buffer claude-win any-claude))
+                  (message "Orchard: no Claude buffer found, deleting split")
+                  (delete-window claude-win))))))))
+    ;; Return focus to magit
+    (select-window magit-win)))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Dashboard Buffer
@@ -830,6 +1032,8 @@ Works both in orchard-managed worktrees and regular git repos."
     (define-key map (kbd "r") #'orchard-refresh)
     (define-key map (kbd "q") #'quit-window)
     (define-key map (kbd "Q") #'orchard-quit-all)
+    ;; Debug
+    (define-key map (kbd "!") #'orchard-toggle-window-dedication)
     map)
   "Keymap for orchard-mode.")
 
@@ -879,6 +1083,10 @@ Works both in orchard-managed worktrees and regular git repos."
    ((member branch '("dev" "main" "master")) "📦")
    (t "📁")))
 
+(defun orchard--count-dedicated-windows ()
+  "Count windows that are currently dedicated."
+  (cl-count-if #'window-dedicated-p (window-list nil 'no-mini)))
+
 (defun orchard--format-dashboard ()
   "Format the Orchard dashboard."
   (let* ((worktrees (orchard--get-worktrees))
@@ -886,7 +1094,8 @@ Works both in orchard-managed worktrees and regular git repos."
          (current-path (when current (alist-get 'path current)))
          (claude-bufs (orchard--get-claude-buffers))
          (running-count (cl-count-if #'orchard--claude-process-running-p claude-bufs))
-         (stopped-count (- (length claude-bufs) running-count)))
+         (stopped-count (- (length claude-bufs) running-count))
+         (dedicated-count (orchard--count-dedicated-windows)))
     (concat
      "\n"
      (propertize "  🌳 Orchard" 'face 'orchard-header)
@@ -895,6 +1104,8 @@ Works both in orchard-managed worktrees and regular git repos."
        (propertize (format "  %d◉" running-count) 'face 'orchard-claude-running))
      (when (> stopped-count 0)
        (propertize (format "  %d○" stopped-count) 'face 'orchard-claude-stopped))
+     (when (> dedicated-count 0)
+       (propertize (format "  %d🔒" dedicated-count) 'face 'font-lock-keyword-face))
      "\n\n"
      ;; Quick actions
      (propertize "  " 'face 'default)
@@ -929,6 +1140,11 @@ Works both in orchard-managed worktrees and regular git repos."
      (propertize "C" 'face 'orchard-key)
      (propertize " cleanup" 'face 'font-lock-comment-face))))
 
+(defun orchard--column-dedicated-p (column)
+  "Return t if COLUMN's window is dedicated."
+  (when-let ((win (orchard--get-column-window column)))
+    (window-dedicated-p win)))
+
 (defun orchard--format-worktree (wt current-path)
   "Format worktree WT for display. CURRENT-PATH highlights current."
   (let* ((path (alist-get 'path wt))
@@ -939,6 +1155,7 @@ Works both in orchard-managed worktrees and regular git repos."
          (behind (or (alist-get 'behind wt) 0))
          (claude-status (alist-get 'claude-status wt))  ; nil, 'running, or 'stopped
          (column (alist-get 'column wt))
+         (column-locked (and column (orchard--column-dedicated-p column)))
          (description (alist-get 'description wt))
          (stage (alist-get 'stage wt))
          (dev-owner (alist-get 'dev-owner wt))
@@ -962,7 +1179,12 @@ Works both in orchard-managed worktrees and regular git repos."
                    (_ ""))
                  ;; Dev mode indicator
                  (if dev-owner (propertize " [DEV]" 'face '(:foreground "#E5C07B" :weight bold)) "")
-                 (if column (format " [%d]" column) "")
+                 ;; Column + lock status
+                 (if column
+                     (if column-locked
+                         (propertize (format " [%d🔒]" column) 'face 'font-lock-keyword-face)
+                       (format " [%d]" column))
+                   "")
                  (if port (format " :%d" (+ 3000 port)) "")
                  (if is-current (propertize " ← here" 'face 'font-lock-comment-face) "")
                  "\n"
@@ -1025,8 +1247,7 @@ Works both in orchard-managed worktrees and regular git repos."
 (defun orchard--find-next-worktree-pos ()
   "Find position of next worktree after point, or nil if none."
   (save-excursion
-    (let ((current-wt (orchard--get-worktree-at-point))
-          (start-pos (point)))
+    (let ((current-wt (orchard--get-worktree-at-point)))
       ;; Move forward until we find a different worktree
       (forward-line 1)
       (while (and (not (eobp))
@@ -1095,7 +1316,8 @@ Works both in orchard-managed worktrees and regular git repos."
   (orchard-open-at-point))
 
 (defun orchard-claude-at-point ()
-  "Open Claude for worktree at point in its assigned column."
+  "Open Claude for worktree at point in its assigned column.
+Uses window locking to prevent Claude from escaping."
   (interactive)
   (if-let ((wt (orchard--get-worktree-at-point)))
       (let* ((path (alist-get 'path wt))
@@ -1106,33 +1328,14 @@ Works both in orchard-managed worktrees and regular git repos."
           (setq existing-col (orchard--find-available-column))
           (orchard--assign-branch-to-column branch existing-col)
           (orchard--ensure-columns))
-        ;; Check for existing Claude buffer
-        (let ((claude-buf (orchard--claude-buffer-for-path path)))
-          (if (and claude-buf (buffer-live-p claude-buf))
-              ;; Existing buffer - display it forcefully
+        ;; Get the target window
+        (let ((win (orchard--get-column-window existing-col)))
+          (if win
               (progn
-                (message "Switching to Claude for %s" branch)
-                ;; Try multiple methods to ensure it displays
-                (let ((win (orchard--get-column-window existing-col)))
-                  (if win
-                      (progn
-                        (select-window win)
-                        (set-window-buffer win claude-buf))
-                    ;; Fallback: pop-to-buffer
-                    (pop-to-buffer claude-buf))))
-            ;; Start new Claude
-            (let ((win (orchard--get-column-window existing-col)))
-              (when win (select-window win)))
-            (message "Starting Claude for %s..." branch)
-            (condition-case err
-                (progn
-                  (orchard--ensure-claude-loaded)
-                  (let ((default-directory path))
-                    (if (fboundp 'claude-code)
-                        (claude-code)
-                      (user-error "claude-code function not found"))))
-              (error
-               (user-error "Failed to start Claude: %s" (error-message-string err)))))))
+                (message "Opening Claude for %s in column %d" branch existing-col)
+                (orchard--claude-in-window path win)
+                (orchard--dedicate-branch-column existing-col))
+            (user-error "Could not get window for column %d" existing-col))))
     (user-error "No worktree at point")))
 
 (defun orchard-dired-at-point ()
@@ -1284,15 +1487,33 @@ For main worktree, just hides it instead."
           (message "Deleted %s (worktree and branch)" branch)))
     (user-error "No worktree at point")))
 
+(defun orchard--undedicate-all-columns ()
+  "Remove dedication from all branch columns.
+Useful when exiting orchard workflow."
+  (dolist (win (window-list nil 'no-mini))
+    (set-window-dedicated-p win nil)))
+
 (defun orchard-quit-all ()
-  "Quit and optionally kill all Claude instances."
+  "Quit and optionally kill all Claude instances.
+Also undedicates all windows."
   (interactive)
   (let ((claudes (orchard--get-claude-buffers)))
     (when (and claudes
                (yes-or-no-p (format "Kill %d Claude instance(s)? " (length claudes))))
       (dolist (buf claudes)
         (kill-buffer buf))))
+  (orchard--undedicate-all-columns)
   (quit-window))
+
+(defun orchard-toggle-window-dedication ()
+  "Toggle dedication of current window (for debugging)."
+  (interactive)
+  (let* ((win (selected-window))
+         (dedicated (window-dedicated-p win)))
+    (set-window-dedicated-p win (not dedicated))
+    (message "Window %s now %s"
+             (window-buffer win)
+             (if (window-dedicated-p win) "DEDICATED" "undedicated"))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Cleanup Functions
@@ -1663,6 +1884,7 @@ Based on current stage, performs the appropriate action:
     ("A" "AWS" aws-transient)]
    ["Maintenance"
     ("K" "Cleanup stale entries" orchard-cleanup)
+    ("!" "Toggle window dedication" orchard-toggle-window-dedication)
     ("g" "Refresh" orchard-refresh)
     ("q" "Quit" transient-quit-one)
     ("Q" "Quit + kill Claudes" orchard-quit-all)]])
@@ -1691,9 +1913,8 @@ Based on current stage, performs the appropriate action:
 ;; C-c M is now meetings prefix, so only M-m for orchard-cycle
 (define-key ashton-mode-map (kbd "M-m") #'orchard-cycle-mode)
 
-;; For magit-mode: Use Doom's after! macro for better integration
-;; This runs AFTER Doom's own magit configuration
-(after! magit
+;; For magit-mode: bind M-m after magit loads
+(with-eval-after-load 'magit
   ;; Unbind M-m first if it's bound to something else
   (define-key magit-mode-map (kbd "M-m") nil)
   (define-key magit-mode-map (kbd "M-m") #'orchard-cycle-mode)

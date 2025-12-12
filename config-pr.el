@@ -150,6 +150,34 @@ Includes commits, changed files, and prompts for summary."
           output)
       (error "PR creation failed: %s" output))))
 
+(defun pr--create-pr-silent (title body base)
+  "Create PR with TITLE and BODY against BASE - no prompts, auto-open browser."
+  (let* ((cmd (format "gh pr create --title %s --body %s --base %s 2>&1"
+                      (shell-quote-argument title)
+                      (shell-quote-argument body)
+                      (shell-quote-argument base)))
+         (output (shell-command-to-string cmd)))
+    (if (string-match-p "https://github.com" output)
+        (let ((url (string-trim output)))
+          (message "PR created: %s" url)
+          (browse-url url)
+          url)
+      (error "PR creation failed: %s" output))))
+
+(defun pr--create-pr-no-browser (title body base)
+  "Create PR with TITLE and BODY against BASE - no prompts, no browser."
+  (let* ((cmd (format "gh pr create --title %s --body %s --base %s 2>&1"
+                      (shell-quote-argument title)
+                      (shell-quote-argument body)
+                      (shell-quote-argument base)))
+         (output (shell-command-to-string cmd)))
+    (if (string-match-p "https://github.com" output)
+        (let ((url (string-trim output)))
+          (message "PR created: %s" url)
+          (kill-new url)  ; Copy URL to clipboard instead
+          url)
+      (error "PR creation failed: %s" output))))
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; AI-Powered Description Generation
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -254,27 +282,23 @@ Returns t if user wants to proceed, nil to abort."
 
 ;;;###autoload
 (defun pr-create-ai (&optional base)
-  "Create a PR with AI-generated description.
-Pushes to origin, uses AI to generate description, creates PR against BASE."
+  "Create a PR with AI-generated description - NO PROMPTS.
+Pushes to origin, uses AI to generate description, creates PR against BASE.
+Auto-opens in browser when done."
   (interactive)
-  (unless (pr--prompt-for-test-plan)
-    (user-error "PR creation aborted"))
   (let* ((branch (pr--current-branch))
          (base (or base pr-default-base))
-         (title (read-string "PR Title: " (pr--branch-title branch)))
-         (body (pr--ai-generate-description branch base)))
-    ;; Show preview
-    (with-current-buffer (get-buffer-create "*PR Preview*")
-      (erase-buffer)
-      (insert (format "# %s\n\n%s" title body))
-      (markdown-mode)
-      (goto-char (point-min))
-      (display-buffer (current-buffer)))
-    ;; Confirm
-    (when (yes-or-no-p (format "Create PR: %s -> %s? " branch base))
-      (kill-buffer "*PR Preview*")
+         (title (pr--branch-title branch)))
+    ;; Sanity check - don't PR from main branches
+    (when (member branch '("dev" "main" "master"))
+      (user-error "Won't create PR from %s - use a feature branch" branch))
+    (message "Creating AI PR: %s -> %s..." branch base)
+    ;; Generate description
+    (let ((body (pr--ai-generate-description branch base)))
+      ;; Push
       (pr--push-branch branch)
-      (pr--create-pr title body base))))
+      ;; Create PR (no prompts)
+      (pr--create-pr-silent title body base))))
 
 ;;;###autoload
 (defun pr-create (&optional base)
@@ -296,17 +320,16 @@ Pushes to origin, generates description, creates PR against BASE (default: dev).
 
 ;;;###autoload
 (defun pr-create-quick ()
-  "Quick PR creation with minimal prompts.
-Uses branch name as title, commits as body."
+  "Quick PR creation - no prompts, no browser.
+Uses branch name as title, commits as body. URL copied to clipboard."
   (interactive)
   (let* ((branch (pr--current-branch))
          (base pr-default-base)
          (title (pr--branch-title branch))
          (commits (pr--get-commits-since-base base))
          (body (format "## Commits\n```\n%s\n```" (string-trim commits))))
-    (when (yes-or-no-p (format "Quick PR: %s -> %s? " branch base))
-      (pr--push-branch branch)
-      (pr--create-pr title body base))))
+    (pr--push-branch branch)
+    (pr--create-pr-no-browser title body base)))
 
 ;;;###autoload
 (defun pr-view ()
@@ -436,7 +459,7 @@ Shows generated message, lets you edit, then ships."
   (transient-append-suffix 'magit-push "r"
     '("R" "Quick PR" pr-create-quick))
   (transient-append-suffix 'magit-push "R"
-    '("A" "AI PR (smart desc)" pr-create-ai))
+    '("A" "AI PR (no prompts)" pr-create-ai))
   (transient-append-suffix 'magit-push "A"
     '("v" "View PR" pr-view))
   (transient-append-suffix 'magit-push "v"

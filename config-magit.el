@@ -16,7 +16,7 @@
   (define-key magit-mode-map (kbd "C-c n") 'forge-create-pullreq)
   (define-key magit-mode-map (kbd "C-c w") 'forge-browse-dwim)
   (define-key magit-mode-map (kbd "C-c a") 'magit-abort-dwim)
-  (define-key magit-mode-map (kbd "C-c g g") '+vc/browse-at-remote)
+  (define-key magit-mode-map (kbd "C-c g g") 'browse-at-remote-smart)
   (define-key magit-mode-map [tab] 'magit-section-toggle))
 
 ;;(add-hook 'magit-mode-hook (lambda () (magit-delta-mode +1)))

@@ -225,6 +225,7 @@
 (load "~/.doom.d/config-commando")
 (load "~/.doom.d/config-pr")
 (load "~/.doom.d/config-caldav")
+(load "~/.doom.d/config-calendar")  ; Read-only calendar viewer (C-c @)
 (load "~/.doom.d/config-testicular")  ; Manual testing mode (renamed from test-flow)
 (load "~/.doom.d/config-vercel")      ; Vercel CLI transient (C-c V)
 (load "~/.doom.d/config-supabase")    ; Supabase CLI transient (C-c B)

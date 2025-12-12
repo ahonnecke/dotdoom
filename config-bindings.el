@@ -58,7 +58,7 @@
 ;; Mnemonic single letters, organized by type:
 ;;   Code: d(efinition) r(eferences) i(menu) e(rror) t(est)
 ;;   Avy:  l(ine) c(har) w(ord)
-;;   External: g(ithub) b(rowser) f(ile-at-point)
+;;   External: g(ithub) b(rowser) f(ile-at-point) s(earch)
 
 ;; Code navigation (LSP/xref)
 (define-key ashton-mode-map (kbd "C-c g d") 'xref-find-definitions)
@@ -96,7 +96,8 @@
    ["External"
     ("g" "GitHub" +vc/browse-at-remote)
     ("b" "URL at point" browse-url-at-point)
-    ("f" "File at point" find-file-at-point-with-line)]])
+    ("f" "File at point" find-file-at-point-with-line)
+    ("s" "Search (Firefox)" firefox-search)]])
 
 (define-key ashton-mode-map (kbd "C-c g ?") 'goto-transient)
 

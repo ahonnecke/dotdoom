@@ -20,6 +20,20 @@
 ;;   C-c K R - Add reaction
 ;;   C-c K ? - Transient menu
 
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Auth Helper (defined early so it's available at load time)
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun slack--get-auth (host user)
+  "Get password from auth-source for HOST and USER."
+  (require 'auth-source)
+  (let ((found (car (auth-source-search :host host :user user :max 1))))
+    (when found
+      (let ((secret (plist-get found :secret)))
+        (if (functionp secret)
+            (funcall secret)
+          secret)))))
+
 (use-package! slack
   :commands (slack-start slack-channel-select slack-im-select)
   :init
@@ -40,27 +54,16 @@
   ;; Alert integration (uses your existing alert setup)
   (setq slack-alert-icon nil)  ; Use system default
 
-  ;; Register team(s) - tokens from auth-source
-  ;; Add your team(s) here after running slack-token-refresh.sh
-  (defun slack--get-auth (host user)
-    "Get password from auth-source for HOST and USER."
-    (let ((found (car (auth-source-search :host host :user user :max 1))))
-      (when found
-        (let ((secret (plist-get found :secret)))
-          (if (functionp secret)
-              (funcall secret)
-            secret)))))
-
-  ;; Example team registration - customize for your workspace
-  ;; Uncomment and modify after setting up auth:
-  ;;
-  ;; (slack-register-team
-  ;;  :name "crewcapable"
-  ;;  :default t
-  ;;  :token (slack--get-auth "crewcapable.slack.com" "ashton@crewcapable.ai")
-  ;;  :cookie (slack--get-auth "crewcapable.slack.com" "ashton@crewcapable.ai^cookie")
-  ;;  :subscribed-channels '(general engineering)
-  ;;  :full-and-display-names t)
+  ;; Register crewcapable team (auth from ~/.authinfo)
+  ;; After running: ~/bin/slack-token-refresh.sh --team crewcapable --email ashton@crewcapable.ai
+  (when (slack--get-auth "crewcapable.slack.com" "ashton@crewcapable.ai")
+    (slack-register-team
+     :name "crewcapable"
+     :default t
+     :token (slack--get-auth "crewcapable.slack.com" "ashton@crewcapable.ai")
+     :cookie (slack--get-auth "crewcapable.slack.com" "ashton@crewcapable.ai^cookie")
+     :subscribed-channels '(general engineering)
+     :full-and-display-names t))
 
   ;; Message formatting
   (setq slack-message-notification-title-format-function
@@ -125,6 +128,19 @@
 ;;; Token Refresh Helper
 ;;; ════════════════════════════════════════════════════════════════════════════
 
+(defun slack-check-auth ()
+  "Check if Slack auth is configured and show status."
+  (interactive)
+  (let* ((host "crewcapable.slack.com")
+         (user "ashton@crewcapable.ai")
+         (token (slack--get-auth host user))
+         (cookie (slack--get-auth host (concat user "^cookie"))))
+    (if (and token cookie)
+        (message "Slack auth OK: token=%s... cookie=%s..."
+                 (substring token 0 (min 15 (length token)))
+                 (substring cookie 0 (min 15 (length cookie))))
+      (message "Slack auth MISSING. Run: ~/bin/slack-token-refresh.sh --team crewcapable --email %s" user))))
+
 (defun slack-refresh-token-help ()
   "Show instructions for refreshing Slack token."
   (interactive)
@@ -132,18 +148,15 @@
     (erase-buffer)
     (insert "SLACK TOKEN REFRESH\n")
     (insert "===================\n\n")
-    (insert "Option 1: Run the helper script\n")
-    (insert "  $ ~/bin/slack-token-refresh.sh\n\n")
-    (insert "Option 2: Manual extraction\n")
-    (insert "  1. Open Slack in browser (not desktop app)\n")
-    (insert "  2. Open DevTools (F12) → Application → Local Storage\n")
-    (insert "  3. Find 'localConfig_v2' → copy 'token' value (xoxc-...)\n")
-    (insert "  4. Go to Cookies → copy 'd' cookie value (xoxd-...)\n")
-    (insert "  5. Add to ~/.authinfo:\n")
-    (insert "     machine TEAM.slack.com login YOU@email.com password xoxc-TOKEN\n")
-    (insert "     machine TEAM.slack.com login YOU@email.com^cookie password xoxd-COOKIE\n\n")
-    (insert "Option 3: Use slack-refresh-token command\n")
-    (insert "  M-x slack-refresh-token (built-in guided flow)\n")
+    (insert "Run the helper script:\n")
+    (insert "  $ ~/bin/slack-token-refresh.sh --team crewcapable --email ashton@crewcapable.ai\n\n")
+    (insert "The script will:\n")
+    (insert "  1. Guide you to extract token from browser DevTools\n")
+    (insert "  2. Store credentials in ~/.authinfo\n")
+    (insert "  3. Config auto-enables when auth exists\n\n")
+    (insert "After setup:\n")
+    (insert "  1. doom sync && restart Emacs\n")
+    (insert "  2. M-x slack-start\n")
     (pop-to-buffer (current-buffer))
     (special-mode)))
 
@@ -182,6 +195,7 @@
 (define-key ashton-mode-map (kbd "C-c K @") #'slack-all-mentions)
 (define-key ashton-mode-map (kbd "C-c K l") #'slack-copy-link-at-point)
 (define-key ashton-mode-map (kbd "C-c K h") #'slack-refresh-token-help)
+(define-key ashton-mode-map (kbd "C-c K a") #'slack-check-auth)
 (define-key ashton-mode-map (kbd "C-c K ?") #'slack-transient)
 
 (provide 'config-slack)

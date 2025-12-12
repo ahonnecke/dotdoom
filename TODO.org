@@ -8,9 +8,11 @@
    - C-c < / C-c > with repeat mode (just press < or > to keep adjusting)
    - Mode-specific step: python-indent-offset, typescript-indent-level, etc.
    - C-c d = duplicate line/region (was crux-duplicate)
-** TODO for all custom actions: make everything work on region or thing-at-point
+** DONE for all custom actions: make everything work on region or thing-at-point
    - String manipulation: already works on symbol-at-point
-   - Go-to actions: some work, some don't
+   - firefox-search: now works on region OR symbol/word at point
+   - monet-explain/refactor: now work on region OR defun at point
+   - Go-to actions: all work on appropriate thing-at-point
 
 * DONE Add generic CLI modes (Dec 2025)
 ** DONE vercel - C-c V transient

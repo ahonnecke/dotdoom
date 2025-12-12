@@ -51,33 +51,45 @@
                           "Fix the diagnostics/errors I just shared")))))
     (message "monet-send-diagnostics not available")))
 
+(defun monet--select-defun-if-needed ()
+  "If no region, select the function at point."
+  (unless (use-region-p)
+    (when-let* ((bounds (bounds-of-thing-at-point 'defun)))
+      (goto-char (car bounds))
+      (push-mark (cdr bounds) t t)
+      t)))
+
 (defun monet-explain-selection ()
-  "Send selection to Claude via monet and ask for explanation."
+  "Send selection to Claude via monet and ask for explanation.
+Uses region if active, otherwise current function."
   (interactive)
-  (if (use-region-p)
-      (progn
-        (when (fboundp 'monet-send-selection)
-          (monet-send-selection))
-        (run-at-time 0.5 nil
-                     (lambda ()
-                       (when (fboundp 'claude-code-send-command)
-                         (claude-code-send-command
-                          "Explain the code I just shared")))))
-    (message "No region selected")))
+  (let ((selected-defun (monet--select-defun-if-needed)))
+    (if (or (use-region-p) selected-defun)
+        (progn
+          (when (fboundp 'monet-send-selection)
+            (monet-send-selection))
+          (run-at-time 0.5 nil
+                       (lambda ()
+                         (when (fboundp 'claude-code-send-command)
+                           (claude-code-send-command
+                            "Explain the code I just shared")))))
+      (message "No region or function at point"))))
 
 (defun monet-refactor-selection ()
-  "Send selection to Claude via monet and ask for refactoring suggestions."
+  "Send selection to Claude via monet and ask for refactoring suggestions.
+Uses region if active, otherwise current function."
   (interactive)
-  (if (use-region-p)
-      (progn
-        (when (fboundp 'monet-send-selection)
-          (monet-send-selection))
-        (run-at-time 0.5 nil
-                     (lambda ()
-                       (when (fboundp 'claude-code-send-command)
-                         (claude-code-send-command
-                          "Suggest refactoring improvements for the code I just shared")))))
-    (message "No region selected")))
+  (let ((selected-defun (monet--select-defun-if-needed)))
+    (if (or (use-region-p) selected-defun)
+        (progn
+          (when (fboundp 'monet-send-selection)
+            (monet-send-selection))
+          (run-at-time 0.5 nil
+                       (lambda ()
+                         (when (fboundp 'claude-code-send-command)
+                           (claude-code-send-command
+                            "Suggest refactoring improvements for the code I just shared")))))
+      (message "No region or function at point"))))
 
 (defun monet-status ()
   "Show monet connection status."
