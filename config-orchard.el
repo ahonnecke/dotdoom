@@ -500,17 +500,36 @@ Returns column index, possibly replacing an existing one."
     (cl-position left lefts)))
 
 (defun orchard--get-column-window (column)
-  "Get the window for COLUMN, or nil."
-  (let* ((windows (window-list nil 'no-mini))
-         (sorted (sort windows (lambda (a b)
-                                 (< (car (window-edges a))
-                                    (car (window-edges b)))))))
-    (nth column sorted)))
+  "Get the topmost window for COLUMN, or nil.
+Handles vertically split columns correctly by grouping windows by left edge."
+  (let* ((windows (cl-remove-if-not #'window-live-p (window-list nil 'no-mini)))
+         ;; Group windows by left edge (same column)
+         (columns-alist nil))
+    ;; Build alist of (left-edge . topmost-window)
+    (dolist (win windows)
+      (let* ((edges (window-edges win))
+             (left (car edges))
+             (top (cadr edges))
+             (existing (assoc left columns-alist)))
+        (if existing
+            ;; Keep the topmost window (smallest top value)
+            (when (< top (cadr (window-edges (cdr existing))))
+              (setcdr existing win))
+          ;; New column
+          (push (cons left win) columns-alist))))
+    ;; Sort by left edge and get the nth column
+    (let ((sorted (sort columns-alist (lambda (a b) (< (car a) (car b))))))
+      (cdr (nth column sorted)))))
+
+(defun orchard--count-columns ()
+  "Count the number of columns (unique left edges)."
+  (let ((windows (window-list nil 'no-mini)))
+    (length (delete-dups (mapcar (lambda (w) (car (window-edges w))) windows)))))
 
 (defun orchard--ensure-columns ()
   "Ensure we have the right number of columns.
 Creates columns if needed, up to orchard-max-columns."
-  (let ((current-count (length (window-list nil 'no-mini))))
+  (let ((current-count (orchard--count-columns)))
     (when (< current-count orchard-max-columns)
       ;; Need more columns - split from rightmost
       (let ((rightmost (car (last (sort (window-list nil 'no-mini)
@@ -776,6 +795,41 @@ Returns nil if worktree path doesn't exist (skip it)."
      (string-prefix-p "*claude:" (buffer-name buf)))
    (buffer-list)))
 
+(defun orchard--claude-waiting-p (buffer)
+  "Check if Claude BUFFER appears to be waiting for input.
+Looks for common prompt patterns at end of buffer."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (save-excursion
+        (goto-char (point-max))
+        (forward-line -3)
+        (let ((end-text (buffer-substring-no-properties (point) (point-max))))
+          ;; Look for prompt indicators
+          (or (string-match-p ">" end-text)
+              (string-match-p "\\?" end-text)
+              (string-match-p "Claude" end-text)))))))
+
+(defun orchard-list-claudes ()
+  "List all Claude sessions. Shows [WAITING] for those needing input."
+  (interactive)
+  (let ((claudes (orchard--get-claude-buffers)))
+    (if (null claudes)
+        (message "No Claude sessions running")
+      (let* ((choices (mapcar
+                       (lambda (buf)
+                         (let* ((name (buffer-name buf))
+                                (waiting (orchard--claude-waiting-p buf))
+                                (display (if waiting
+                                             (format "%s [WAITING]" name)
+                                           name)))
+                           (cons display buf)))
+                       claudes))
+             (selection (completing-read "Claude session: "
+                                         (mapcar #'car choices)
+                                         nil t)))
+        (when-let ((buf (cdr (assoc selection choices))))
+          (pop-to-buffer buf))))))
+
 (defun orchard--claude-process-running-p (buffer)
   "Check if the vterm process in BUFFER is still running."
   (when (buffer-live-p buffer)
@@ -842,143 +896,87 @@ Returns nil if worktree path doesn't exist (skip it)."
      (window-list))))
 
 (defun orchard-cycle-mode ()
-  "Cycle between magit and claude windows in the current column.
-If in magit → switch to claude window (or start claude if none).
-If in claude → switch to magit window.
-If in compile → close compile, go to magit.
-
-With split layout, this switches between windows in the same column."
+  "Simple toggle between magit ↔ claude for current project.
+No fancy window management - just switch buffers."
   (interactive)
-  (let* ((wt (orchard--current-worktree))
-         (path (or (when wt (alist-get 'path wt))
-                   (orchard--project-root))))
+  (let ((project-root (or (locate-dominating-file default-directory ".git")
+                          default-directory)))
     (cond
-     ;; In compilation buffer - close it, go to magit
-     ((derived-mode-p 'compilation-mode)
-      (quit-window)
-      (when-let ((magit-win (orchard--find-sibling-window
-                             (lambda () (derived-mode-p 'magit-mode)))))
-        (select-window magit-win)))
-
-     ;; In magit - find claude window in same column, or start claude
+     ;; In magit - go to claude (find existing or start new)
      ((derived-mode-p 'magit-mode)
-      (if-let ((claude-win (orchard--find-sibling-window
-                            (lambda () (derived-mode-p 'vterm-mode)))))
-          (select-window claude-win)
-        ;; No claude window - start one below
-        (when path
-          (let ((claude-win (split-window nil nil 'below)))
-            (select-window claude-win)
-            (orchard--ensure-claude-loaded)
-            ;; Start Claude and capture the buffer
-            (let ((default-directory path)
-                  (buffers-before (buffer-list)))
-              (claude-code)
-              ;; Find the new Claude buffer and force it into our window
-              (let ((new-claude (cl-find-if
-                                 (lambda (buf)
-                                   (and (string-prefix-p "*claude:" (buffer-name buf))
-                                        (not (memq buf buffers-before))))
-                                 (buffer-list))))
-                (when new-claude
-                  (set-window-buffer claude-win new-claude))))))))
+      (let ((claude-buf (orchard--claude-buffer-for-path project-root)))
+        (if (and claude-buf (buffer-live-p claude-buf))
+            (pop-to-buffer claude-buf)
+          ;; Start new Claude
+          (let ((default-directory project-root))
+            (claude-code)))))
 
-     ;; In vterm/claude - find magit window in same column
+     ;; In claude/vterm - go to magit
      ((derived-mode-p 'vterm-mode)
-      (if-let ((magit-win (orchard--find-sibling-window
-                           (lambda () (derived-mode-p 'magit-mode)))))
-          (select-window magit-win)
-        ;; No magit window - open magit in a split above
-        (when path
-          (let ((magit-win (split-window nil nil 'above)))
-            (select-window magit-win)
-            (let ((display-buffer-overriding-action '(display-buffer-same-window)))
-              (magit-status path))))))
+      (magit-status project-root))
 
      ;; Elsewhere - go to magit
      (t
-      (let ((display-buffer-overriding-action '(display-buffer-same-window)))
-        (magit-status path))))))
+      (magit-status project-root)))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Branch Opening - Column Assignment
 ;;; ════════════════════════════════════════════════════════════════════════════
 
 (defun orchard-open-branch (wt)
-  "Open worktree WT in its assigned column (or assign one).
-Opens magit on top, Claude below. Uses window locking."
+  "Open magit for worktree WT. Use M-m to toggle to Claude."
   (let* ((path (alist-get 'path wt))
-         (branch (alist-get 'branch wt))
-         (existing-col (orchard--column-for-branch branch)))
-    (if existing-col
-        ;; Already has a column - switch to it with locking
-        (let ((win (orchard--get-column-window existing-col)))
-          (when win
-            (orchard--open-magit-and-claude path win)))
-      ;; Need to assign a column
-      (let ((col (orchard--find-available-column)))
-        (orchard--assign-branch-to-column branch col)
-        ;; Ensure we have enough columns
-        (orchard--ensure-columns)
-        ;; Switch to that column with locking
-        (let ((win (orchard--get-column-window col)))
-          (when win
-            (orchard--open-magit-and-claude path win)))))))
+         (branch (alist-get 'branch wt)))
+    (message "Opening %s" branch)
+    (magit-status path)))
 
 (defun orchard--open-magit-and-claude (path window)
   "Open magit and Claude for PATH in WINDOW (split vertically).
 Magit on top, Claude below."
-  ;; First, undedicate and put magit in the window
-  (orchard--with-undedicated-window window
-    (lambda ()
-      (select-window window)
-      (let ((display-buffer-overriding-action '(display-buffer-same-window)))
-        (magit-status path))))
-  ;; Now split for Claude below
-  (let* ((magit-win window)
-         (claude-win (split-window magit-win nil 'below)))
-    ;; Resize - give magit 40%, claude 60%
-    (window-resize magit-win (- (floor (* 0.4 (window-height magit-win)))
-                                 (window-height magit-win)))
-    ;; Check for existing Claude buffer first
-    (orchard--ensure-claude-loaded)
-    (let ((existing-claude (orchard--claude-buffer-for-path path)))
-      (if (and existing-claude (buffer-live-p existing-claude))
-          ;; Existing Claude - just show it
-          (progn
-            (message "Orchard: reusing existing Claude buffer %s" (buffer-name existing-claude))
-            (set-window-buffer claude-win existing-claude))
-        ;; Need to start new Claude - do it in a way we can capture the buffer
-        (let ((default-directory path)
-              (buffers-before (buffer-list)))
-          (message "Orchard: starting new Claude for %s" path)
-          ;; Start Claude - let it go wherever
-          (condition-case err
-              (claude-code)
-            (error (message "Orchard: claude-code error: %s" err)))
-          ;; Find the new Claude buffer (wasn't in buffers-before)
-          (let ((new-claude (cl-find-if
-                             (lambda (buf)
-                               (and (string-prefix-p "*claude:" (buffer-name buf))
-                                    (not (memq buf buffers-before))))
-                             (buffer-list))))
-            (if new-claude
-                (progn
-                  (message "Orchard: found new Claude buffer %s" (buffer-name new-claude))
-                  (set-window-buffer claude-win new-claude))
-              ;; Fallback: look for ANY claude buffer for this path
-              (let ((any-claude (cl-find-if
+  ;; Undedicate window if needed
+  (set-window-dedicated-p window nil)
+  ;; Put magit in the window
+  (select-window window)
+  (magit-status path)
+  ;; After magit-status, selected window might have changed - get the magit window
+  (let ((magit-win (get-buffer-window (magit-get-mode-buffer 'magit-status-mode))))
+    (when magit-win
+      ;; Split for Claude below
+      (let ((claude-win (split-window magit-win nil 'below)))
+        ;; Resize - give magit 40%, claude 60%
+        (let ((target-height (floor (* 0.4 (+ (window-height magit-win)
+                                               (window-height claude-win))))))
+          (window-resize magit-win (- target-height (window-height magit-win))))
+        ;; Put Claude in the lower window
+        (select-window claude-win)
+        (orchard--ensure-claude-loaded)
+        (let ((existing-claude (orchard--claude-buffer-for-path path)))
+          (if (and existing-claude (buffer-live-p existing-claude))
+              (progn
+                (message "Orchard: reusing Claude %s" (buffer-name existing-claude))
+                (set-window-buffer claude-win existing-claude))
+            ;; Start new Claude
+            (let ((default-directory path)
+                  (buffers-before (buffer-list)))
+              (message "Orchard: starting Claude for %s" path)
+              (condition-case err
+                  (claude-code)
+                (error (message "Orchard: claude-code error: %s" err)))
+              ;; Find the new buffer
+              (let ((new-claude (cl-find-if
                                  (lambda (buf)
-                                   (string-prefix-p "*claude:" (buffer-name buf)))
+                                   (and (string-prefix-p "*claude:" (buffer-name buf))
+                                        (not (memq buf buffers-before))))
                                  (buffer-list))))
-                (if any-claude
+                (if new-claude
                     (progn
-                      (message "Orchard: using fallback Claude buffer %s" (buffer-name any-claude))
-                      (set-window-buffer claude-win any-claude))
-                  (message "Orchard: no Claude buffer found, deleting split")
-                  (delete-window claude-win))))))))
-    ;; Return focus to magit
-    (select-window magit-win)))
+                      (message "Orchard: found Claude %s" (buffer-name new-claude))
+                      (set-window-buffer claude-win new-claude))
+                  (message "Orchard: no Claude buffer, removing split")
+                  (delete-window claude-win))))))
+        ;; Return focus to magit
+        (when (window-live-p magit-win)
+          (select-window magit-win))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Dashboard Buffer
@@ -1005,6 +1003,7 @@ Magit on top, Claude below."
     (define-key map (kbd "m") #'orchard-magit-at-point)
     (define-key map (kbd "d") #'orchard-dired-at-point)
     (define-key map (kbd "t") #'orchard-test-at-point)
+    (define-key map (kbd "l") #'orchard-list-claudes)
     ;; Lifecycle actions
     (define-key map (kbd "N") #'orchard-next-step)
     (define-key map (kbd "u") #'orchard-push-at-point)   ; u for "upload"/push
@@ -1093,32 +1092,28 @@ Magit on top, Claude below."
          (current (orchard--current-worktree))
          (current-path (when current (alist-get 'path current)))
          (claude-bufs (orchard--get-claude-buffers))
-         (running-count (cl-count-if #'orchard--claude-process-running-p claude-bufs))
-         (stopped-count (- (length claude-bufs) running-count))
-         (dedicated-count (orchard--count-dedicated-windows)))
+         (waiting-count (cl-count-if #'orchard--claude-waiting-p claude-bufs))
+         (total-claudes (length claude-bufs)))
     (concat
      "\n"
      (propertize "  🌳 Orchard" 'face 'orchard-header)
      (propertize (format "  %d worktrees" (length worktrees)) 'face 'font-lock-comment-face)
-     (when (> running-count 0)
-       (propertize (format "  %d◉" running-count) 'face 'orchard-claude-running))
-     (when (> stopped-count 0)
-       (propertize (format "  %d○" stopped-count) 'face 'orchard-claude-stopped))
-     (when (> dedicated-count 0)
-       (propertize (format "  %d🔒" dedicated-count) 'face 'font-lock-keyword-face))
+     (when (> total-claudes 0)
+       (if (> waiting-count 0)
+           (propertize (format "  %d/%d Claude WAITING" waiting-count total-claudes)
+                       'face '(:foreground "#E5C07B" :weight bold))
+         (propertize (format "  %d Claude" total-claudes) 'face 'font-lock-comment-face)))
      "\n\n"
      ;; Quick actions
      (propertize "  " 'face 'default)
+     (propertize "[RET]" 'face 'orchard-key)
+     (propertize " Open  " 'face 'font-lock-comment-face)
+     (propertize "[l]" 'face 'orchard-key)
+     (propertize " List Claudes  " 'face 'font-lock-comment-face)
      (propertize "[f]" 'face 'orchard-key)
      (propertize " Feat  " 'face 'font-lock-comment-face)
-     (propertize "[m]" 'face 'orchard-key)
-     (propertize " Magit  " 'face 'font-lock-comment-face)
-     (propertize "[c]" 'face 'orchard-key)
-     (propertize " Claude  " 'face 'font-lock-comment-face)
-     (propertize "[-]" 'face 'orchard-key)
-     (propertize " Hide  " 'face 'font-lock-comment-face)
-     (propertize "[H]" 'face 'orchard-key)
-     (propertize " Unhide" 'face 'font-lock-comment-face)
+     (propertize "[M-m]" 'face 'orchard-key)
+     (propertize " Toggle magit/claude" 'face 'font-lock-comment-face)
      "\n\n"
      ;; Worktree list
      (propertize "  Branches\n" 'face 'orchard-subheader)
@@ -1908,6 +1903,8 @@ Based on current stage, performs the appropriate action:
 (define-key ashton-mode-map (kbd "C-c O n") #'orchard-new-feature)
 (define-key ashton-mode-map (kbd "C-c O x") #'orchard-new-bugfix)
 (define-key ashton-mode-map (kbd "C-c O h") #'orchard-new-chore)
+;; Claude management
+(define-key ashton-mode-map (kbd "C-c O l") #'orchard-list-claudes)
 
 ;; M-m cycles magit/claude everywhere
 ;; C-c M is now meetings prefix, so only M-m for orchard-cycle
