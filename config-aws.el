@@ -39,8 +39,9 @@
   :config
   ;; Default profile (instead of first from list)
   (setq aws-profile "crew.dev")
-  ;; Load Step Functions extension (integrates via advice)
+  ;; Load extensions (integrate via advice, no upstream mods)
   (require 'aws-stepfunctions)
+  (require 'aws-s3-ext)
 
   ;; Keybindings in aws buffers
   (with-eval-after-load 'aws
