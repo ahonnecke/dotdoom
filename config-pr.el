@@ -372,6 +372,28 @@ Rules:
         (string-trim
          (shell-command-to-string "git diff --cached --name-only 2>/dev/null")))))
 
+(defun pr--has-unstaged-changes-p ()
+  "Return t if there are unstaged changes (e.g., from pre-commit hooks)."
+  (not (string-empty-p
+        (string-trim
+         (shell-command-to-string "git diff --name-only 2>/dev/null")))))
+
+(defun pr--commit-linter-changes ()
+  "Stage and commit any changes made by pre-commit hooks/linters.
+Returns t if a commit was made, nil otherwise."
+  (when (pr--has-unstaged-changes-p)
+    (let ((changed-files (string-trim
+                          (shell-command-to-string "git diff --name-only 2>/dev/null"))))
+      (message "Pre-commit hooks modified files, committing: %s" changed-files)
+      (shell-command-to-string "git add -A")
+      (let* ((cmd "git commit -m 'style: apply pre-commit hook fixes' 2>&1")
+             (output (shell-command-to-string cmd)))
+        (if (string-match-p "\\[.*\\]" output)
+            (progn
+              (message "Committed linter fixes")
+              t)
+          (error "Linter commit failed: %s" output))))))
+
 (defun pr--commit-staged (message)
   "Commit staged changes with MESSAGE."
   (let* ((msg-with-trailer (format "%s\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>" message))
@@ -385,8 +407,10 @@ Rules:
 
 ;;;###autoload
 (defun pr-ship-it ()
-  "Ship it! Commit staged changes, push, and create PR - no questions asked.
-Uses AI to generate commit message and PR description."
+  "Ship it! Commit staged changes, push, and create PR - no prompts.
+Uses AI to generate commit message and PR description.
+If pre-commit hooks modify files, automatically commits those changes.
+URL is copied to clipboard (no browser prompt)."
   (interactive)
   (let ((branch (pr--current-branch)))
     ;; Sanity checks
@@ -407,15 +431,18 @@ Uses AI to generate commit message and PR description."
       ;; Commit
       (pr--commit-staged commit-msg)
 
+      ;; Handle any changes made by pre-commit hooks
+      (pr--commit-linter-changes)
+
       ;; Push
       (message "Pushing to %s..." pr-remote)
       (pr--push-branch branch)
 
-      ;; Create PR with AI description
+      ;; Create PR with AI description - no browser, URL to clipboard
       (message "Creating PR...")
       (let* ((title (pr--branch-title branch))
              (body (pr--ai-generate-description branch pr-default-base)))
-        (pr--create-pr title body pr-default-base)))))
+        (pr--create-pr-no-browser title body pr-default-base)))))
 
 ;;;###autoload
 (defun pr-ship-it-hierarchically ()

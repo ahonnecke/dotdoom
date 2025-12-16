@@ -291,6 +291,40 @@ First two %s are replaced with base branch, third with format template.")
            when (file-exists-p path)
            return path))
 
+(defun testicular--extract-plan-branch (file)
+  "Extract branch name from test plan FILE header.
+Looks for 'Branch: X' or 'Branch: `X`' in the first 10 lines."
+  (when (file-exists-p file)
+    (with-temp-buffer
+      (insert-file-contents file nil 0 500)  ; Only read first 500 bytes
+      (goto-char (point-min))
+      (when (re-search-forward "^Branch: `?\\([^`\n]+\\)`?" nil t)
+        (string-trim (match-string 1))))))
+
+(defun testicular--current-git-branch ()
+  "Get the current git branch name."
+  (let ((default-directory (testicular--project-root)))
+    (string-trim
+     (shell-command-to-string "git rev-parse --abbrev-ref HEAD 2>/dev/null"))))
+
+(defun testicular--branch-matches-p (plan-file)
+  "Check if PLAN-FILE's branch matches current git branch.
+Returns t if matches, nil if mismatch, 'unknown if can't determine."
+  (let ((plan-branch (testicular--extract-plan-branch plan-file))
+        (current-branch (testicular--current-git-branch)))
+    (cond
+     ((or (null plan-branch) (string-empty-p plan-branch)) 'unknown)
+     ((or (null current-branch) (string-empty-p current-branch)) 'unknown)
+     ;; Normalize: remove common prefixes for comparison
+     ((string-match-p (regexp-quote (replace-regexp-in-string "^\\(FEAT\\|FIX\\|BUGFIX\\|CHORE\\|HOTFIX\\)[/-]" "" plan-branch))
+                      current-branch) t)
+     ((string-match-p (regexp-quote plan-branch) current-branch) t)
+     ((string-match-p (regexp-quote current-branch) plan-branch) t)
+     (t nil))))
+
+(defvar testicular--plan-stale nil
+  "Non-nil if the current test plan is from a different branch.")
+
 (defun testicular-parse-plan (file)
   "Parse test plan FILE into list of test alists.
 Accepts multiple formats:
@@ -574,6 +608,22 @@ With optional ENVIRONMENT, start in that environment."
          (plan-file (testicular--find-plan-file root)))
     (unless plan-file
       (user-error "No test plan found. Run M-x testicular-init-project first"))
+    ;; Check if plan matches current branch
+    (let ((branch-match (testicular--branch-matches-p plan-file)))
+      (setq testicular--plan-stale nil)
+      (when (eq branch-match nil)
+        (let* ((plan-branch (testicular--extract-plan-branch plan-file))
+               (current-branch (testicular--current-git-branch))
+               (choice (read-char-choice
+                        (format "Plan is for '%s' but you're on '%s'.\n[d]elete plan, [v]iew anyway, [q]uit: "
+                                plan-branch current-branch)
+                        '(?d ?v ?q))))
+          (pcase choice
+            (?d (delete-file plan-file)
+                (user-error "Deleted stale plan. Generate a new one with Claude"))
+            (?v (setq testicular--plan-stale t)
+                (message "Loading stale plan for reference..."))
+            (?q (user-error "Aborted"))))))
     (let ((issues (testicular-validate-plan plan-file)))
       (when issues
         (unless (yes-or-no-p (format "Plan has issues:\n- %s\n\nStart anyway? "
@@ -671,6 +721,9 @@ With optional ENVIRONMENT, start in that environment."
     (insert "  ")
     (insert (propertize (format "[%s]" (upcase testicular-current-environment))
                         'face (testicular--env-face testicular-current-environment)))
+    (when testicular--plan-stale
+      (insert "  ")
+      (insert (propertize "⚠ STALE PLAN (wrong branch)" 'face '(:foreground "#E5C07B" :weight bold))))
     (insert "\n")
     (insert (format "Test %d of %d" (1+ testicular-current-index) total))
     (insert "  |  ")
@@ -752,7 +805,11 @@ With optional ENVIRONMENT, start in that environment."
 
 (defun testicular--set-status (status)
   "Set STATUS for current test and run hooks."
+  (unless testicular-results
+    (user-error "No tests loaded. Run C-c T to start testicular"))
   (let ((result (assoc testicular-current-index testicular-results)))
+    (unless result
+      (user-error "Test %d not found in results" testicular-current-index))
     (setcdr result (plist-put (cdr result) :status status)))
   (run-hook-with-args 'testicular-test-status-hook
                       testicular-project-root

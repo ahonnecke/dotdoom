@@ -5,21 +5,26 @@
 ;;
 ;; Features:
 ;; - Bedrock AI chat (Claude!)
-;; - Lambda, S3, CloudFormation, CloudWatch, IAM, CodeBuild
+;; - Lambda, S3, CloudFormation, CloudWatch, IAM, CodeBuild, Step Functions
 ;; - Profile switching, SSO login
 ;;
 ;; Usage:
 ;;   C-c A     - AWS transient menu
 ;;   C-c A a   - Main AWS view
 ;;   C-c A b   - Bedrock chat
+;;   C-c A f   - Step Functions
 
 (add-to-list 'load-path "~/src/aws.el")
 
-(use-package aws-mode
-  :commands (aws aws-login aws-bedrock-chat)
+;; Step Functions extension (local, not in upstream yet)
+(add-to-list 'load-path (expand-file-name "lisp" doom-user-dir))
+
+(use-package aws
+  :commands (aws aws-login aws-bedrock-chat aws-stepfunctions)
   :custom
   ;; Auth method: 'profile, 'vault, or 'sso
-  (aws-login-method 'sso)
+  ;; Use 'profile with native `aws sso login`, 'sso requires aws-sso tool
+  (aws-login-method 'profile)
 
   ;; Output format: yaml, json, text
   (aws-output "json")
@@ -32,8 +37,13 @@
   (aws-region "us-east-1")
 
   :config
+  ;; Default profile (instead of first from list)
+  (setq aws-profile "crew.dev")
+  ;; Load Step Functions extension (integrates via advice)
+  (require 'aws-stepfunctions)
+
   ;; Keybindings in aws buffers
-  (with-eval-after-load 'aws-mode
+  (with-eval-after-load 'aws
     ;; Press ? in any aws buffer for help
     t))
 
@@ -50,6 +60,7 @@
 (define-key ashton-mode-map (kbd "C-c A c") #'aws-cloudformation)
 (define-key ashton-mode-map (kbd "C-c A w") #'aws-cloudwatch)
 (define-key ashton-mode-map (kbd "C-c A i") #'aws-iam)
+(define-key ashton-mode-map (kbd "C-c A f") #'aws-stepfunctions)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Transient Menu
@@ -62,6 +73,7 @@
     ("a" "AWS (main)" aws)
     ("s" "S3" aws-s3)
     ("l" "Lambda" aws-lambda)
+    ("f" "Step Functions" aws-stepfunctions)
     ("c" "CloudFormation" aws-cloudformation)
     ("w" "CloudWatch" aws-cloudwatch)
     ("i" "IAM" aws-iam)]

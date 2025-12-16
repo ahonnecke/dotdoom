@@ -119,3 +119,94 @@ like `upstream/main` are available."
     ;; Step 3: commit
     (magit-run-git "commit" "-m" commit-message)
     (magit-refresh)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; AI Commit Message Generation
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defcustom magit-ai-commit-prompt
+  "Write a concise git commit message for this diff. Follow conventional commits format (feat:, fix:, chore:, etc). One line summary, then blank line, then bullet points if needed. No markdown fences. Just the commit message text."
+  "System prompt for AI commit message generation."
+  :type 'string
+  :group 'magit)
+
+(defvar magit-ai--pending-message nil
+  "Pending AI-generated commit message.")
+
+(defun magit-ai--get-staged-diff ()
+  "Get the staged diff as a string."
+  (magit-with-toplevel
+    (shell-command-to-string "git diff --cached")))
+
+(defcustom magit-ai-model "claude-sonnet-4-20250514"
+  "Model to use for AI commit message generation."
+  :type 'string
+  :group 'magit)
+
+(defun magit-ai--get-api-key ()
+  "Get Anthropic API key from environment."
+  (or (getenv "ANTHROPIC_API_KEY")
+      (user-error "ANTHROPIC_API_KEY not set in environment")))
+
+(defun magit-ai--generate-message (diff callback)
+  "Generate commit message using Anthropic API for DIFF, call CALLBACK with result."
+  (let* ((api-key (magit-ai--get-api-key))
+         (url "https://api.anthropic.com/v1/messages")
+         (json-data (json-encode
+                     `((model . ,magit-ai-model)
+                       (max_tokens . 1024)
+                       (messages . [((role . "user")
+                                     (content . ,(concat magit-ai-commit-prompt "\n\n" diff)))]))))
+         (url-request-method "POST")
+         (url-request-extra-headers
+          `(("Content-Type" . "application/json")
+            ("x-api-key" . ,api-key)
+            ("anthropic-version" . "2023-06-01")))
+         (url-request-data json-data))
+    (url-retrieve
+     url
+     (lambda (status callback-fn)
+       (if (plist-get status :error)
+           (message "AI commit error: %s" (plist-get status :error))
+         (goto-char (point-min))
+         (re-search-forward "\n\n" nil t)
+         (condition-case err
+             (let* ((json-object-type 'plist)
+                    (json-array-type 'list)
+                    (response (json-read))
+                    (content (plist-get response :content))
+                    (text (plist-get (car content) :text)))
+               (when (and text callback-fn)
+                 (funcall callback-fn (string-trim text))))
+           (error (message "Failed to parse AI response: %s" err)))))
+     (list callback)
+     t)))
+
+(defun magit-commit-ai ()
+  "Start a commit with AI-generated message pre-populated.
+Uses Anthropic API (Claude) to generate commit message from staged diff."
+  (interactive)
+  (let ((diff (magit-ai--get-staged-diff)))
+    (if (string-empty-p diff)
+        (user-error "No staged changes to commit")
+      (message "Generating AI commit message via Claude...")
+      (magit-ai--generate-message
+       diff
+       (lambda (msg)
+         (setq magit-ai--pending-message msg)
+         (message "AI message ready")
+         (magit-commit-create))))))
+
+(defun magit-ai--insert-pending-message ()
+  "Insert pending AI message into commit buffer if available."
+  (when magit-ai--pending-message
+    (insert magit-ai--pending-message)
+    (setq magit-ai--pending-message nil)))
+
+(add-hook 'git-commit-setup-hook #'magit-ai--insert-pending-message)
+
+;; Add to magit commit transient
+(with-eval-after-load 'magit-commit
+  (transient-append-suffix 'magit-commit
+    "c"  ; After regular commit
+    '("A" "AI message" magit-commit-ai)))

@@ -50,6 +50,9 @@ C-c c w f   fix-error           Fix error (region/prompt)
 C-c c w e   explain             Explain code
 C-c c w c   commit              Suggest commit message
 
+Magit AI (in commit menu 'c'):
+c A         magit-commit-ai     Generate commit msg from staged diff (Claude)
+
 In Claude buffer:
 C-c /       completion          Complete word (handles read-only)
 
@@ -109,6 +112,9 @@ C-c G w     ghq-worktree-create Create worktree + Claude
 C-c G j     ghq-worktree-jump   Jump between worktrees
 
 C-c C C     crewcapable-dashboard  Worktree dashboard
+
+Magit commit (c menu):
+c A         magit-commit-ai     AI-generated commit message (Claude)
 
 ")
         ;; Editing
@@ -187,14 +193,26 @@ C-c M ?     meeting-transient   Full menu
 
 Standup shortcuts (C-c M s prefix):
 C-c M s s   standup             Open today's standup
-C-c M s d   done                Add to Done
-C-c M s g   doing               Add to Doing
+C-c M s d   mark-done           Mark existing TODO as DONE (pick from list)
+C-c M s +   add-done            Add NEW item to Done section
+C-c M s g   doing               Add to Doing (as TODO)
 C-c M s b   blocker             Add to Blockers
 C-c M s q   question            Add to Questions
-C-c M s a   agenda              Add to Agenda (discussion topics)
-C-c M s c   carryover           Carry over Doing from yesterday
+C-c M s a   agenda              Add to Agenda
+C-c M s c   carryover           Carry over incomplete items
 C-c M s e   export              Export standup
 C-c M s p   post-slack          Post standup to Slack
+
+Standup integrations:
+C-c M s D   share-daly          Share Doing+Blockers with Daly (DM)
+C-c M s S   share-with-user     Share with any Slack user
+C-c M s F   create-feature      Create orchard branch from TODO at point
+C-c M s j   jump-to-branch      Jump to linked branch
+C-c M s m   toggle-magit        Toggle mark-done after commits
+
+In standup buffer:
+C-c x       org-todo            Toggle TODO/DONE at point
+C-c d       mark-done           Pick item to mark done
 
 Meeting types: standup, psc-it-sync, psc-pm-sync
 Files: ~/org/meetings/<type>/<date>.org
