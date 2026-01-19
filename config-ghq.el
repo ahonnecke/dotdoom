@@ -98,6 +98,33 @@
   (let ((registry (ghq--load-port-registry)))
     (cdr (assoc path registry))))
 
+(defun ghq--cleanup-stale-ports ()
+  "Remove port allocations for worktrees that no longer exist.
+Returns the number of stale entries removed."
+  (let* ((registry (ghq--load-port-registry))
+         (valid-entries (cl-remove-if-not
+                         (lambda (entry)
+                           (file-directory-p (car entry)))
+                         registry))
+         (removed-count (- (length registry) (length valid-entries))))
+    (when (> removed-count 0)
+      (ghq--save-port-registry valid-entries)
+      (message "Cleaned up %d stale port allocation(s)" removed-count))
+    removed-count))
+
+(defun ghq--allocate-port-for-path (path)
+  "Allocate a port for PATH and register it. Returns port number or nil."
+  (condition-case nil
+      (let ((port-num (ghq--allocate-port)))
+        (ghq--register-worktree path port-num)
+        port-num)
+    (error nil)))
+
+(defun ghq--port-slots-status ()
+  "Return (used . total) port slots."
+  (let ((registry (ghq--load-port-registry)))
+    (cons (length registry) ghq-max-worktrees)))
+
 ;;; GHQ Commands
 
 (defun ghq--list-repos ()

@@ -91,6 +91,7 @@ Each entry is (PREFIX . shortcut-key)."
   :type '(choice directory (const nil))
   :group 'orchard)
 
+
 (defcustom orchard-post-create-hook nil
   "Hook run after creating a new worktree.
 Called with the worktree path as argument."
@@ -130,6 +131,230 @@ Called with the worktree path as argument."
 (defvar orchard--dev-owner nil
   "Path of worktree currently owning dev mode, or nil.")
 
+(defcustom orchard-dev-mode-enforcement 'confirm
+  "How to handle dev mode conflicts.
+Possible values:
+  warn    - Just warn in minibuffer (original behavior)
+  confirm - Ask for confirmation before taking dev mode
+  block   - Block the command entirely"
+  :type '(choice (const :tag "Warn only" warn)
+                 (const :tag "Confirm takeover" confirm)
+                 (const :tag "Block command" block))
+  :group 'orchard)
+
+(defvar orchard--merged-branches-cache nil
+  "Cache of merged branch names from GitHub.
+Alist of (branch-name . merge-time) pairs.")
+
+(defvar orchard--merged-branches-cache-time nil
+  "Time when merged branches cache was last updated.")
+
+(defcustom orchard-merged-cache-ttl 300
+  "Time-to-live for merged branches cache in seconds."
+  :type 'integer
+  :group 'orchard)
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Merged Branch Detection (via GitHub PR)
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--refresh-merged-cache ()
+  "Refresh the merged branches cache from GitHub.
+Uses `gh pr list --state merged` to get recently merged PRs."
+  (let ((repo-root (orchard--get-repo-root)))
+    (when repo-root
+      (let ((default-directory repo-root))
+        (condition-case err
+            (let* ((output (shell-command-to-string
+                            "gh pr list --state merged --limit 100 --json headRefName,mergedAt 2>/dev/null"))
+                   (json (ignore-errors (json-read-from-string output))))
+              (when (vectorp json)
+                (setq orchard--merged-branches-cache
+                      (mapcar (lambda (pr)
+                                (cons (alist-get 'headRefName pr)
+                                      (alist-get 'mergedAt pr)))
+                              json))
+                (setq orchard--merged-branches-cache-time (current-time))
+                (message "Refreshed merged branches cache: %d entries"
+                         (length orchard--merged-branches-cache))))
+          (error
+           (message "Failed to refresh merged cache: %s" err)))))))
+
+(defun orchard--ensure-merged-cache ()
+  "Ensure merged branches cache is fresh, refresh if stale."
+  (when (or (null orchard--merged-branches-cache-time)
+            (> (float-time (time-subtract (current-time)
+                                          orchard--merged-branches-cache-time))
+               orchard-merged-cache-ttl))
+    (orchard--refresh-merged-cache)))
+
+(defun orchard--branch-merged-p (branch)
+  "Check if BRANCH has been merged to upstream via PR.
+Returns the merge timestamp if merged, nil otherwise."
+  (orchard--ensure-merged-cache)
+  (cdr (assoc branch orchard--merged-branches-cache)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; GitHub Issues Cache
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defvar orchard--issues-cache nil
+  "Cache of open GitHub issues.
+Vector of issue alists with keys: number, title, labels, assignees, url.")
+
+(defvar orchard--issues-cache-time nil
+  "Time when issues cache was last updated.")
+
+(defvar orchard--closed-issues-cache nil
+  "Cache of closed issue numbers for archival detection.
+Alist of (issue-number . closed-at) pairs.")
+
+(defvar orchard--closed-issues-cache-time nil
+  "Time when closed issues cache was last updated.")
+
+(defcustom orchard-issues-cache-ttl 120
+  "Time-to-live for issues cache in seconds."
+  :type 'integer
+  :group 'orchard)
+
+(defvar orchard--hide-staging-issues nil
+  "When non-nil, hide issues with 'staging' label from the dashboard.")
+
+(defun orchard--issue-has-label-p (issue label-pattern)
+  "Return t if ISSUE has a label matching LABEL-PATTERN (case-insensitive)."
+  (let ((labels (alist-get 'labels issue)))
+    (cl-some (lambda (l)
+               (string-match-p label-pattern (downcase (or (alist-get 'name l) ""))))
+             labels)))
+
+(defun orchard--issue-staging-p (issue)
+  "Return t if ISSUE has 'staging' label."
+  (orchard--issue-has-label-p issue "staging"))
+
+(defun orchard-toggle-staging-issues ()
+  "Toggle visibility of issues with 'staging' label."
+  (interactive)
+  (setq orchard--hide-staging-issues (not orchard--hide-staging-issues))
+  (message "Staging issues: %s" (if orchard--hide-staging-issues "hidden" "visible"))
+  (orchard--refresh-if-visible))
+
+(defun orchard--refresh-issues-cache ()
+  "Refresh the open issues cache from GitHub."
+  (let ((repo-root (orchard--get-repo-root)))
+    (when repo-root
+      (let ((default-directory repo-root))
+        (condition-case err
+            (let* ((output (shell-command-to-string
+                            "gh issue list --state open --limit 50 --json number,title,labels,assignees,url 2>/dev/null"))
+                   (json (ignore-errors (json-read-from-string output))))
+              (when (vectorp json)
+                (setq orchard--issues-cache json)
+                (setq orchard--issues-cache-time (current-time))
+                (message "Refreshed issues cache: %d open issues"
+                         (length orchard--issues-cache))))
+          (error
+           (message "Failed to refresh issues cache: %s" err)))))))
+
+(defun orchard--ensure-issues-cache ()
+  "Ensure issues cache is fresh, refresh if stale."
+  (when (or (null orchard--issues-cache-time)
+            (> (float-time (time-subtract (current-time)
+                                          orchard--issues-cache-time))
+               orchard-issues-cache-ttl))
+    (orchard--refresh-issues-cache)))
+
+(defun orchard--get-open-issues ()
+  "Get list of open GitHub issues."
+  (orchard--ensure-issues-cache)
+  (when (vectorp orchard--issues-cache)
+    (append orchard--issues-cache nil)))  ; Convert vector to list
+
+(defun orchard--refresh-closed-issues-cache ()
+  "Refresh the closed issues cache from GitHub.
+Only fetches recently closed issues for archival detection."
+  (let ((repo-root (orchard--get-repo-root)))
+    (when repo-root
+      (let ((default-directory repo-root))
+        (condition-case err
+            (let* ((output (shell-command-to-string
+                            "gh issue list --state closed --limit 100 --json number,closedAt 2>/dev/null"))
+                   (json (ignore-errors (json-read-from-string output))))
+              (when (vectorp json)
+                (setq orchard--closed-issues-cache
+                      (mapcar (lambda (issue)
+                                (cons (alist-get 'number issue)
+                                      (alist-get 'closedAt issue)))
+                              json))
+                (setq orchard--closed-issues-cache-time (current-time))))
+          (error
+           (message "Failed to refresh closed issues cache: %s" err)))))))
+
+(defun orchard--ensure-closed-issues-cache ()
+  "Ensure closed issues cache is fresh."
+  (when (or (null orchard--closed-issues-cache-time)
+            (> (float-time (time-subtract (current-time)
+                                          orchard--closed-issues-cache-time))
+               orchard-issues-cache-ttl))
+    (orchard--refresh-closed-issues-cache)))
+
+(defun orchard--issue-closed-p (issue-number)
+  "Check if ISSUE-NUMBER is closed by querying GitHub directly.
+Returns t if closed, nil otherwise."
+  (let ((default-directory (or (orchard--get-repo-root) default-directory)))
+    (let ((state (string-trim
+                  (shell-command-to-string
+                   (format "gh issue view %d --json state -q .state 2>/dev/null"
+                           issue-number)))))
+      (string= state "CLOSED"))))
+
+(defun orchard--get-issue-by-number (issue-number)
+  "Get issue alist by ISSUE-NUMBER from cache."
+  (orchard--ensure-issues-cache)
+  (when (vectorp orchard--issues-cache)
+    (cl-find-if (lambda (issue)
+                  (eq (alist-get 'number issue) issue-number))
+                orchard--issues-cache)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Worktree-Issue Linking
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--parse-issue-from-branch (branch)
+  "Extract issue number from BRANCH name, or nil.
+Parses patterns like:
+  FEATURE/42-description -> 42
+  FEATURE-42-description -> 42  (hyphen separator)
+  FIX/123-bug-fix -> 123
+  BUGFIX-123-bug-fix -> 123
+  CHORE/7-cleanup -> 7
+  feature/42-foo -> 42 (case-insensitive)"
+  (when (and branch (string-match "^[A-Za-z]+[/-]\\([0-9]+\\)-" branch))
+    (string-to-number (match-string 1 branch))))
+
+(defun orchard--get-worktree-issue (path &optional branch)
+  "Get linked GitHub issue number for worktree at PATH, or nil.
+First checks .github-issue file, then tries to parse from BRANCH name.
+If auto-detected from branch, saves to .github-issue for future lookups."
+  (let ((file (expand-file-name ".github-issue" path)))
+    (if (file-exists-p file)
+        ;; Read from explicit file
+        (with-temp-buffer
+          (insert-file-contents file)
+          (string-to-number (string-trim (buffer-string))))
+      ;; Try to auto-detect from branch name
+      (when-let ((detected (orchard--parse-issue-from-branch branch)))
+        ;; Auto-save for future lookups (only if path exists and is writable)
+        (when (and (file-directory-p path)
+                   (file-writable-p path))
+          (orchard--save-worktree-issue path detected))
+        detected))))
+
+(defun orchard--save-worktree-issue (path issue-number)
+  "Save ISSUE-NUMBER link for worktree at PATH."
+  (let ((file (expand-file-name ".github-issue" path)))
+    (with-temp-file file
+      (insert (number-to-string issue-number)))))
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; State Persistence
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -154,6 +379,30 @@ Called with the worktree path as argument."
   (setq orchard--dev-owner path)
   (orchard--save-state)
   (orchard--refresh-if-visible))
+
+(defun orchard-force-dev-takeover ()
+  "Force take over dev mode regardless of current owner.
+Use when `orchard-dev-mode-enforcement' is set to 'block."
+  (interactive)
+  (if-let ((wt (orchard--get-worktree-at-point)))
+      (let ((path (alist-get 'path wt)))
+        (when orchard--dev-owner
+          (message "Taking dev mode from %s"
+                   (file-name-nondirectory (directory-file-name orchard--dev-owner))))
+        (orchard--set-dev-owner path)
+        (message "Dev mode now owned by %s"
+                 (file-name-nondirectory (directory-file-name path))))
+    (user-error "No worktree at point")))
+
+(defun orchard-release-dev-mode ()
+  "Release dev mode from current owner."
+  (interactive)
+  (if orchard--dev-owner
+      (progn
+        (message "Released dev mode from %s"
+                 (file-name-nondirectory (directory-file-name orchard--dev-owner)))
+        (orchard--set-dev-owner nil))
+    (message "No worktree currently owns dev mode")))
 
 (defun orchard--get-stage-override (path)
   "Get manual stage override for worktree at PATH."
@@ -207,32 +456,21 @@ Called with the worktree path as argument."
 ;;; Stage Detection
 ;;; ════════════════════════════════════════════════════════════════════════════
 
-(defun orchard--detect-stage (path)
-  "Detect the current stage for worktree at PATH."
-  (let ((requirements-file (expand-file-name ".feature-requirements" path))
-        (test-plan-file (expand-file-name ".test-plan.md" path))
-        (pr-url-file (expand-file-name ".pr-url" path))
-        (test-results (orchard--get-test-results path)))
+(defun orchard--detect-stage (path &optional branch)
+  "Detect the current stage for worktree at PATH with BRANCH name.
+Simplified stages derived from GitHub state:
+  - merged: branch merged to upstream
+  - pr-open: has open PR
+  - in-progress: default working state"
+  (let ((pr-url-file (expand-file-name ".pr-url" path)))
     (cond
      ;; Check for manual override first
      ((orchard--get-stage-override path))
+     ;; Branch is merged to upstream (via squash PR)
+     ((and branch (orchard--branch-merged-p branch)) 'merged)
      ;; PR is open
      ((file-exists-p pr-url-file) 'pr-open)
-     ;; Tests complete and all passed
-     ((and test-results (plist-get test-results :complete)
-           (zerop (plist-get test-results :failed)))
-      'ready-to-pr)
-     ;; Testicular session active
-     ((and (boundp 'testicular-project-root)
-           testicular-project-root
-           (string= (file-name-as-directory path)
-                    (file-name-as-directory testicular-project-root)))
-      'testing)
-     ;; Has test plan
-     ((file-exists-p test-plan-file) 'ready-to-test)
-     ;; Has requirements
-     ((file-exists-p requirements-file) 'requirements)
-     ;; Default
+     ;; Default - in progress
      (t 'in-progress))))
 
 (defun orchard--get-test-results (path)
@@ -250,45 +488,76 @@ Called with the worktree path as argument."
     (setq orchard--state (plist-put orchard--state :test-results results))
     (orchard--save-state)))
 
+(defun orchard--clear-test-results (path)
+  "Clear test results for PATH."
+  (let ((results (plist-get orchard--state :test-results)))
+    (setq results (assoc-delete-all path results))
+    (setq orchard--state (plist-put orchard--state :test-results results))
+    (orchard--save-state)))
+
+(defun orchard-update-test-results ()
+  "Interactively update test results for worktree at point."
+  (interactive)
+  (if-let ((wt (orchard--get-worktree-at-point)))
+      (let* ((path (alist-get 'path wt))
+             (existing (orchard--get-test-results path))
+             (total (read-number "Total tests: " (or (plist-get existing :total) 0)))
+             (passed (read-number "Passed: " (or (plist-get existing :passed) 0)))
+             (failed (read-number "Failed: " (or (plist-get existing :failed) 0))))
+        (orchard--set-test-results path passed failed total)
+        (message "Test results: %d/%d passed, %d failed" passed total failed)
+        (orchard--refresh-if-visible))
+    (user-error "No worktree at point")))
+
 (defun orchard--stage-display-name (stage)
   "Get display name for STAGE."
   (pcase stage
-    ('requirements "Requirements")
     ('in-progress "In Progress")
-    ('ready-to-test "Ready to Test")
-    ('testing "Testing")
-    ('ready-to-pr "Ready for PR")
     ('pr-open "PR Open")
     ('merged "Merged")
-    (_ (symbol-name stage))))
+    (_ "")))
 
 (defun orchard--stage-icon (stage)
   "Get icon for STAGE."
   (pcase stage
-    ('requirements "📋")
     ('in-progress "🔧")
-    ('ready-to-test "📝")
-    ('testing "🧪")
-    ('ready-to-pr "✅")
     ('pr-open "🔀")
-    ('merged "🎉")
-    (_ "❓")))
+    ('merged "✓")
+    (_ "")))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Hook Handlers
 ;;; ════════════════════════════════════════════════════════════════════════════
 
 (defun orchard--on-commando-start (command path)
-  "Handle commando command start. Track dev mode ownership."
+  "Handle commando command start. Track dev mode ownership.
+Enforces dev mode based on `orchard-dev-mode-enforcement'."
   (when (and (boundp 'commando-dev-commands)
              (member command commando-dev-commands))
     ;; Check if another worktree owns dev
-    (when (and orchard--dev-owner
-               (not (string= path orchard--dev-owner)))
-      (message "Warning: %s already owns dev mode"
-               (file-name-nondirectory (directory-file-name orchard--dev-owner))))
-    (orchard--set-dev-owner path)
-    (message "Dev mode: %s" (file-name-nondirectory (directory-file-name path)))))
+    (if (and orchard--dev-owner
+             (not (string= path orchard--dev-owner)))
+        (let ((current-owner (file-name-nondirectory
+                              (directory-file-name orchard--dev-owner))))
+          (pcase orchard-dev-mode-enforcement
+            ('block
+             (user-error "Dev mode blocked: %s owns dev. Release it first or use M-x orchard-force-dev-takeover"
+                         current-owner))
+            ('confirm
+             (if (y-or-n-p (format "%s owns dev mode. Take over? " current-owner))
+                 (progn
+                   (orchard--set-dev-owner path)
+                   (message "Dev mode taken from %s → %s"
+                            current-owner
+                            (file-name-nondirectory (directory-file-name path))))
+               (user-error "Dev mode not taken over")))
+            (_  ; warn
+             (message "Warning: %s already owns dev mode" current-owner)
+             (orchard--set-dev-owner path)
+             (message "Dev mode: %s" (file-name-nondirectory (directory-file-name path))))))
+      ;; No conflict - just claim it
+      (orchard--set-dev-owner path)
+      (message "Dev mode: %s" (file-name-nondirectory (directory-file-name path))))))
 
 (defun orchard--on-commando-finish (command path _status)
   "Handle commando command finish. Release dev mode if needed."
@@ -326,6 +595,21 @@ Called with the worktree path as argument."
 (with-eval-after-load 'config-testicular
   (add-hook 'testicular-start-hook #'orchard--on-testicular-start)
   (add-hook 'testicular-complete-hook #'orchard--on-testicular-complete))
+
+;; Magit hooks - auto-refresh orchard after git operations
+(with-eval-after-load 'magit
+  (defun orchard--on-magit-post-refresh ()
+    "Refresh orchard after magit operations."
+    (orchard--refresh-if-visible))
+
+  ;; Refresh after common git operations
+  (add-hook 'magit-post-refresh-hook #'orchard--on-magit-post-refresh)
+
+  ;; Also refresh after push (which may not trigger post-refresh)
+  (advice-add 'magit-push-current-to-upstream :after
+              (lambda (&rest _) (run-at-time 2 nil #'orchard--refresh-if-visible)))
+  (advice-add 'magit-push-current-to-pushremote :after
+              (lambda (&rest _) (run-at-time 2 nil #'orchard--refresh-if-visible))))
 
 ;; Load state on init
 (orchard--load-state)
@@ -407,6 +691,11 @@ Called with the worktree path as argument."
 (defface orchard-claude-stopped
   '((t :foreground "#E06C75"))
   "Face for stopped Claude indicator (red)."
+  :group 'orchard)
+
+(defface orchard-branch-mismatch
+  '((t :foreground "#E06C75" :weight bold))
+  "Face for branch mismatch warning (red bold)."
   :group 'orchard)
 
 (defface orchard-key
@@ -702,6 +991,151 @@ If INCLUDE-HIDDEN is non-nil, include hidden worktrees."
     (when current (push current worktrees))
     (nreverse worktrees)))
 
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Orphan Directory & Prunable Worktree Detection
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--get-worktree-parent ()
+  "Get the parent directory where worktrees are created."
+  (if orchard-nested-worktrees
+      (expand-file-name (or orchard-worktree-prefix "crewcapableai")
+                        orchard-worktree-parent)
+    orchard-worktree-parent))
+
+(defun orchard--get-orphan-directories ()
+  "Find directories in worktree parent that aren't registered git worktrees.
+Returns list of paths."
+  (let* ((parent (orchard--get-worktree-parent))
+         (git-worktrees (mapcar (lambda (wt) (alist-get 'path wt))
+                                (orchard--get-worktrees t)))  ; include hidden
+         (orphans '()))
+    (when (file-directory-p parent)
+      (dolist (entry (directory-files parent t "^[A-Z]+" t))
+        (when (and (file-directory-p entry)
+                   (not (member (file-name-as-directory entry)
+                                (mapcar #'file-name-as-directory git-worktrees)))
+                   ;; Looks like a worktree dir (has .git or is a git repo)
+                   (or (file-exists-p (expand-file-name ".git" entry))
+                       (file-directory-p (expand-file-name ".git" entry))))
+          (push entry orphans))))
+    (nreverse orphans)))
+
+(defun orchard--get-prunable-worktrees ()
+  "Find worktrees marked as prunable by git.
+Returns list of paths."
+  (let ((repo-root (orchard--get-repo-root))
+        (prunable '()))
+    (when (and repo-root (file-directory-p repo-root))
+      (let* ((default-directory repo-root)
+             (output (shell-command-to-string "git worktree list --porcelain")))
+        (let ((current-path nil))
+          (dolist (line (split-string output "\n" t))
+            (cond
+             ((string-prefix-p "worktree " line)
+              (setq current-path (substring line 9)))
+             ((string= "prunable" line)
+              (when current-path
+                (push current-path prunable))))))))
+    (nreverse prunable)))
+
+(defun orchard-cleanup-orphans ()
+  "Interactively delete orphan directories."
+  (interactive)
+  (let ((orphans (orchard--get-orphan-directories)))
+    (if (null orphans)
+        (message "No orphan directories found")
+      (let ((to-delete (completing-read-multiple
+                        "Delete orphan directories (comma-separated): "
+                        orphans nil t)))
+        (dolist (dir to-delete)
+          (when (yes-or-no-p (format "Really delete %s? " dir))
+            (delete-directory dir t t)
+            (message "Deleted: %s" dir)))
+        (orchard-refresh)))))
+
+(defun orchard-prune-worktrees ()
+  "Prune stale worktree references."
+  (interactive)
+  (let ((repo-root (orchard--get-repo-root)))
+    (when repo-root
+      (let ((default-directory repo-root))
+        (if (yes-or-no-p "Run 'git worktree prune' to clean stale references? ")
+            (progn
+              (shell-command "git worktree prune")
+              (message "Pruned stale worktree references")
+              (orchard-refresh))
+          (message "Cancelled"))))))
+
+(defun orchard-sync ()
+  "Show sync status - orphans and prunable worktrees."
+  (interactive)
+  (let ((orphans (orchard--get-orphan-directories))
+        (prunable (orchard--get-prunable-worktrees)))
+    (with-current-buffer (get-buffer-create "*Orchard Sync*")
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (propertize "Orchard Sync Status\n" 'face 'orchard-header))
+        (insert (make-string 40 ?═) "\n\n")
+
+        (if orphans
+            (progn
+              (insert (propertize (format "Orphan Directories (%d):\n" (length orphans))
+                                  'face '(:foreground "#E06C75" :weight bold)))
+              (insert "These directories exist but aren't git worktrees:\n")
+              (dolist (o orphans)
+                (insert (format "  • %s\n" o)))
+              (insert "\nUse 'O' to delete orphans or delete manually.\n\n"))
+          (insert (propertize "✓ No orphan directories\n\n" 'face '(:foreground "#98C379"))))
+
+        (if prunable
+            (progn
+              (insert (propertize (format "Prunable Worktrees (%d):\n" (length prunable))
+                                  'face '(:foreground "#E5C07B" :weight bold)))
+              (insert "These worktrees reference deleted branches:\n")
+              (dolist (p prunable)
+                (insert (format "  • %s\n" p)))
+              (insert "\nUse 'P' to prune stale references.\n"))
+          (insert (propertize "✓ No prunable worktrees\n" 'face '(:foreground "#98C379"))))
+
+        (insert "\n")
+        (insert (propertize "[q] " 'face 'orchard-key))
+        (insert "close  ")
+        (insert (propertize "[O] " 'face 'orchard-key))
+        (insert "cleanup orphans  ")
+        (insert (propertize "[P] " 'face 'orchard-key))
+        (insert "prune worktrees")
+
+        (goto-char (point-min))
+        (special-mode)
+        (local-set-key (kbd "q") #'quit-window)
+        (local-set-key (kbd "O") #'orchard-cleanup-orphans)
+        (local-set-key (kbd "P") #'orchard-prune-worktrees)))
+    (pop-to-buffer "*Orchard Sync*")))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Branch Mismatch Detection
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--expected-branch-from-path (path)
+  "Extract expected branch name from worktree PATH.
+Converts path like ~/src/crewcapableai/FEAT-my-feature to FEAT/my-feature."
+  (let ((dir-name (file-name-nondirectory (directory-file-name path))))
+    ;; Convert FEAT-foo-bar to FEAT/foo-bar (first hyphen becomes slash)
+    (if (string-match "^\\([A-Z]+\\)-\\(.+\\)$" dir-name)
+        (concat (match-string 1 dir-name) "/" (match-string 2 dir-name))
+      dir-name)))
+
+(defun orchard--branch-mismatch-p (wt)
+  "Return mismatch info if worktree WT's actual branch differs from expected.
+Returns nil if branches match, or a cons of (expected . actual) if mismatched."
+  (let* ((path (alist-get 'path wt))
+         (git-branch (alist-get 'branch wt))  ; From git worktree list
+         (expected (orchard--expected-branch-from-path path)))
+    (unless (or (string= git-branch expected)
+                (alist-get 'bare wt)      ; Skip main worktree
+                (alist-get 'detached wt)) ; Skip detached HEAD
+      (cons expected git-branch))))
+
 (defun orchard--enrich-worktree (wt)
   "Add status info to worktree WT.
 Returns nil if worktree path doesn't exist (skip it)."
@@ -736,13 +1170,16 @@ Returns nil if worktree path doesn't exist (skip it)."
         ;; Feature description
         (when-let ((desc (orchard--load-feature-description path)))
           (push (cons 'description desc) wt))
-        ;; Stage tracking
-        (push (cons 'stage (orchard--detect-stage path)) wt)
+        ;; Stage tracking (pass branch for merged detection)
+        (push (cons 'stage (orchard--detect-stage path branch)) wt)
         ;; Dev mode ownership
         (when (and orchard--dev-owner
                    (string= (file-name-as-directory path)
                             (file-name-as-directory orchard--dev-owner)))
           (push (cons 'dev-owner t) wt))
+        ;; Branch mismatch detection
+        (when-let ((mismatch (orchard--branch-mismatch-p wt)))
+          (push (cons 'branch-mismatch mismatch) wt))
         wt))))
 
 (defun orchard--save-feature-description (path description)
@@ -863,6 +1300,47 @@ Looks for common prompt patterns at end of buffer."
             (when (file-exists-p target)
               (delete-file target))
             (make-symbolic-link cmd-file target)))))))
+
+(defun orchard--start-background-claude (path)
+  "Start Claude in PATH without displaying it.
+Returns the Claude buffer."
+  (orchard--ensure-claude-loaded)
+  (let ((default-directory path)
+        (buffers-before (buffer-list))
+        (original-window (selected-window))
+        (original-config (current-window-configuration))
+        new-claude-buf)
+    ;; Start Claude - it will try to display but we'll fix that
+    (save-window-excursion
+      (claude-code))
+    ;; Find the new Claude buffer
+    (setq new-claude-buf
+          (cl-find-if
+           (lambda (buf)
+             (and (string-prefix-p "*claude:" (buffer-name buf))
+                  (not (memq buf buffers-before))))
+           (buffer-list)))
+    ;; Restore window configuration and hide Claude from all windows
+    (set-window-configuration original-config)
+    (when new-claude-buf
+      ;; Make sure Claude isn't displayed anywhere
+      (dolist (win (get-buffer-window-list new-claude-buf nil t))
+        (delete-window win)))
+    new-claude-buf))
+
+(defun orchard--start-background-claude-with-command (path command)
+  "Start Claude in PATH and run COMMAND (e.g., '/refine-ticket 42').
+Keeps Claude in background - no window shown."
+  (let ((claude-buf (orchard--start-background-claude path)))
+    (when claude-buf
+      ;; Send command after startup delay (Claude needs time to initialize)
+      (run-at-time 3 nil
+                   (lambda ()
+                     (when (buffer-live-p claude-buf)
+                       (with-current-buffer claude-buf
+                         (vterm-send-string command)
+                         (vterm-send-return))))))
+    claude-buf))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Mode Cycling (M-m) - The Key Feature
@@ -1004,6 +1482,10 @@ Magit on top, Claude below."
     (define-key map (kbd "d") #'orchard-dired-at-point)
     (define-key map (kbd "t") #'orchard-test-at-point)
     (define-key map (kbd "l") #'orchard-list-claudes)
+    ;; GitHub Issues
+    (define-key map (kbd "I") #'orchard-issue-start)       ; start branch from issue
+    (define-key map (kbd "o") #'orchard-issue-browse)      ; open issue in browser
+    (define-key map (kbd "s") #'orchard-toggle-staging-issues) ; toggle staging visibility
     ;; Lifecycle actions
     (define-key map (kbd "N") #'orchard-next-step)
     (define-key map (kbd "u") #'orchard-push-at-point)   ; u for "upload"/push
@@ -1012,20 +1494,28 @@ Magit on top, Claude below."
     (define-key map (kbd "H") #'orchard-show-hidden)      ; show/unhide hidden
     (define-key map (kbd "a") #'orchard-archive-at-point) ; archive (remove worktree, keep branch)
     (define-key map (kbd "D") #'orchard-delete-at-point)  ; delete (remove worktree and branch)
-    ;; Navigation - branch to branch (all these do the same thing)
-    (define-key map (kbd "n") #'orchard-next-worktree)
-    (define-key map (kbd "p") #'orchard-prev-worktree)
-    (define-key map (kbd "j") #'orchard-next-worktree)
-    (define-key map (kbd "k") #'orchard-prev-worktree)
-    (define-key map (kbd "C-n") #'orchard-next-worktree)
-    (define-key map (kbd "C-p") #'orchard-prev-worktree)
-    (define-key map (kbd "<down>") #'orchard-next-worktree)
-    (define-key map (kbd "<up>") #'orchard-prev-worktree)
-    (define-key map (kbd "TAB") #'orchard-next-worktree)
-    (define-key map (kbd "<backtab>") #'orchard-prev-worktree)
+    ;; Port management (lazy allocation)
+    (define-key map (kbd "+") #'orchard-allocate-port)    ; allocate port for dev server
+    (define-key map (kbd "_") #'orchard-release-port)     ; release allocated port
+    ;; Navigation - moves between worktrees AND issues
+    (define-key map (kbd "n") #'orchard-next-item)
+    (define-key map (kbd "p") #'orchard-prev-item)
+    (define-key map (kbd "j") #'orchard-next-item)
+    (define-key map (kbd "k") #'orchard-prev-item)
+    (define-key map (kbd "C-n") #'orchard-next-item)
+    (define-key map (kbd "C-p") #'orchard-prev-item)
+    (define-key map (kbd "<down>") #'orchard-next-item)
+    (define-key map (kbd "<up>") #'orchard-prev-item)
+    (define-key map (kbd "TAB") #'orchard-next-item)
+    (define-key map (kbd "<backtab>") #'orchard-prev-item)
     ;; Cleanup
     (define-key map (kbd "C") #'orchard-cleanup)
     (define-key map (kbd "C-c C-c") #'orchard-cleanup-dry-run)
+    (define-key map (kbd "M") #'orchard-cleanup-merged)
+    (define-key map (kbd "C-c m") #'orchard-cleanup-merged-dry-run)
+    ;; Sync (orphans, prunable)
+    (define-key map (kbd "S") #'orchard-sync)
+    (define-key map (kbd "O") #'orchard-cleanup-orphans)
     ;; Refresh and quit
     (define-key map (kbd "g") #'orchard-refresh)
     (define-key map (kbd "r") #'orchard-refresh)
@@ -1086,6 +1576,75 @@ Magit on top, Claude below."
   "Count windows that are currently dedicated."
   (cl-count-if #'window-dedicated-p (window-list nil 'no-mini)))
 
+(defface orchard-issue
+  '((t :foreground "#61AFEF"))
+  "Face for GitHub issue numbers."
+  :group 'orchard)
+
+(defface orchard-issue-title
+  '((t :foreground "#ABB2BF"))
+  "Face for GitHub issue titles."
+  :group 'orchard)
+
+(defun orchard--issue-type-icon (labels)
+  "Return icon based on issue LABELS."
+  (let ((label-names (mapcar (lambda (l) (alist-get 'name l)) labels)))
+    (cond
+     ((cl-some (lambda (n) (string-match-p "bug\\|fix" n)) label-names) "🐛")
+     ((cl-some (lambda (n) (string-match-p "feature\\|enhancement" n)) label-names) "✨")
+     ((cl-some (lambda (n) (string-match-p "chore\\|maintenance" n)) label-names) "🧹")
+     ((cl-some (lambda (n) (string-match-p "doc" n)) label-names) "📖")
+     (t "📋"))))
+
+(defun orchard--issue-has-worktree-p (issue-number worktrees)
+  "Check if ISSUE-NUMBER already has a worktree in WORKTREES."
+  (cl-some (lambda (wt)
+             (let ((linked-issue (orchard--get-worktree-issue
+                                  (alist-get 'path wt)
+                                  (alist-get 'branch wt))))
+               (and linked-issue (= linked-issue issue-number))))
+           worktrees))
+
+(defun orchard--find-worktree-for-issue (issue-number)
+  "Find and return the worktree associated with ISSUE-NUMBER, or nil."
+  (cl-find-if (lambda (wt)
+                (let ((linked-issue (orchard--get-worktree-issue
+                                     (alist-get 'path wt)
+                                     (alist-get 'branch wt))))
+                  (and linked-issue (= linked-issue issue-number))))
+              (orchard--get-worktrees)))
+
+(defun orchard--format-issue (issue worktrees)
+  "Format ISSUE for dashboard display. WORKTREES used to check for existing work."
+  (let* ((number (alist-get 'number issue))
+         (title (alist-get 'title issue))
+         (labels (alist-get 'labels issue))
+         (assignees (alist-get 'assignees issue))
+         (icon (orchard--issue-type-icon labels))
+         (has-worktree (orchard--issue-has-worktree-p number worktrees))
+         (is-staging (orchard--issue-staging-p issue))
+         (assignee-str (when (and assignees (> (length assignees) 0))
+                         (mapconcat (lambda (a) (alist-get 'login a))
+                                    assignees ", "))))
+    (propertize
+     (concat
+      "  " icon " "
+      (propertize (format "#%d" number) 'face 'orchard-issue)
+      " "
+      (propertize (truncate-string-to-width title 45 nil nil "...")
+                  'face 'orchard-issue-title)
+      (if is-staging
+          (propertize " [STAGING]" 'face '(:foreground "#E5C07B" :weight bold))
+        "")
+      (if has-worktree
+          (propertize " [active]" 'face '(:foreground "#98C379"))
+        "")
+      (if assignee-str
+          (propertize (format " [%s]" assignee-str) 'face 'font-lock-comment-face)
+        "")
+      "\n")
+     'orchard-issue issue)))
+
 (defun orchard--format-dashboard ()
   "Format the Orchard dashboard."
   (let* ((worktrees (orchard--get-worktrees))
@@ -1093,27 +1652,50 @@ Magit on top, Claude below."
          (current-path (when current (alist-get 'path current)))
          (claude-bufs (orchard--get-claude-buffers))
          (waiting-count (cl-count-if #'orchard--claude-waiting-p claude-bufs))
-         (total-claudes (length claude-bufs)))
+         (total-claudes (length claude-bufs))
+         (orphans (orchard--get-orphan-directories))
+         (prunable (orchard--get-prunable-worktrees))
+         (merged-count (length (orchard--get-merged-worktrees)))
+         (sync-issues (+ (length orphans) (length prunable)))
+         (all-open-issues (orchard--get-open-issues))
+         (staging-count (cl-count-if #'orchard--issue-staging-p all-open-issues))
+         (open-issues (if orchard--hide-staging-issues
+                          (cl-remove-if #'orchard--issue-staging-p all-open-issues)
+                        all-open-issues))
+         (issues-without-worktree (cl-remove-if
+                                   (lambda (issue)
+                                     (orchard--issue-has-worktree-p
+                                      (alist-get 'number issue) worktrees))
+                                   open-issues)))
     (concat
      "\n"
      (propertize "  🌳 Orchard" 'face 'orchard-header)
      (propertize (format "  %d worktrees" (length worktrees)) 'face 'font-lock-comment-face)
+     (when (> (length open-issues) 0)
+       (propertize (format "  📋 %d issues" (length open-issues))
+                   'face 'font-lock-comment-face))
      (when (> total-claudes 0)
        (if (> waiting-count 0)
            (propertize (format "  %d/%d Claude WAITING" waiting-count total-claudes)
                        'face '(:foreground "#E5C07B" :weight bold))
          (propertize (format "  %d Claude" total-claudes) 'face 'font-lock-comment-face)))
+     (when (> merged-count 0)
+       (propertize (format "  🎉 %d merged" merged-count)
+                   'face '(:foreground "#98C379" :weight bold)))
+     (when (> sync-issues 0)
+       (propertize (format "  ⚠ %d sync issues" sync-issues)
+                   'face 'orchard-branch-mismatch))
      "\n\n"
      ;; Quick actions
      (propertize "  " 'face 'default)
      (propertize "[RET]" 'face 'orchard-key)
      (propertize " Open  " 'face 'font-lock-comment-face)
+     (propertize "[I]" 'face 'orchard-key)
+     (propertize " Start Issue  " 'face 'font-lock-comment-face)
      (propertize "[l]" 'face 'orchard-key)
-     (propertize " List Claudes  " 'face 'font-lock-comment-face)
-     (propertize "[f]" 'face 'orchard-key)
-     (propertize " Feat  " 'face 'font-lock-comment-face)
-     (propertize "[M-m]" 'face 'orchard-key)
-     (propertize " Toggle magit/claude" 'face 'font-lock-comment-face)
+     (propertize " Claudes  " 'face 'font-lock-comment-face)
+     (propertize "[S]" 'face 'orchard-key)
+     (propertize " Sync" 'face 'font-lock-comment-face)
      "\n\n"
      ;; Worktree list
      (propertize "  Branches\n" 'face 'orchard-subheader)
@@ -1123,6 +1705,24 @@ Magit on top, Claude below."
                       (orchard--format-worktree wt current-path))
                     worktrees "")
        (propertize "  No worktrees found.\n" 'face 'font-lock-comment-face))
+     ;; Issues section
+     "\n"
+     (propertize (format "  Issues (%d open%s, %d available)\n"
+                         (length open-issues)
+                         (if (and (> staging-count 0) orchard--hide-staging-issues)
+                             (format ", %d staging hidden" staging-count)
+                           (if (> staging-count 0)
+                               (format ", %d staging" staging-count)
+                             ""))
+                         (length issues-without-worktree))
+                 'face 'orchard-subheader)
+     (propertize (concat "  " (make-string 70 ?─) "\n") 'face 'font-lock-comment-face)
+     (if open-issues
+         (mapconcat (lambda (issue)
+                      (orchard--format-issue issue worktrees))
+                    open-issues "")
+       (propertize "  No open issues found. Use `gh issue list` to check GitHub.\n"
+                   'face 'font-lock-comment-face))
      "\n"
      ;; Footer
      (propertize "  " 'face 'default)
@@ -1130,10 +1730,10 @@ Magit on top, Claude below."
      (propertize " help  " 'face 'font-lock-comment-face)
      (propertize "M-m" 'face 'orchard-key)
      (propertize " cycle magit/claude  " 'face 'font-lock-comment-face)
-     (propertize "`" 'face 'orchard-key)
-     (propertize " commando  " 'face 'font-lock-comment-face)
      (propertize "C" 'face 'orchard-key)
-     (propertize " cleanup" 'face 'font-lock-comment-face))))
+     (propertize " cleanup  " 'face 'font-lock-comment-face)
+     (propertize "M" 'face 'orchard-key)
+     (propertize " archive merged" 'face 'font-lock-comment-face))))
 
 (defun orchard--column-dedicated-p (column)
   "Return t if COLUMN's window is dedicated."
@@ -1154,9 +1754,14 @@ Magit on top, Claude below."
          (description (alist-get 'description wt))
          (stage (alist-get 'stage wt))
          (dev-owner (alist-get 'dev-owner wt))
+         (branch-mismatch (alist-get 'branch-mismatch wt))
          (is-current (and current-path (string= path current-path)))
          (icon (orchard--branch-icon branch))
-         (branch-face (if is-current 'orchard-current (orchard--branch-face branch))))
+         (branch-face (if is-current 'orchard-current (orchard--branch-face branch)))
+         ;; Linked GitHub issue (auto-detects from branch name if not explicit)
+         (linked-issue-num (orchard--get-worktree-issue path branch))
+         (linked-issue (when linked-issue-num
+                         (orchard--get-issue-by-number linked-issue-num))))
     (let ((line (concat
                  "  "
                  icon " "
@@ -1180,11 +1785,20 @@ Magit on top, Claude below."
                          (propertize (format " [%d🔒]" column) 'face 'font-lock-keyword-face)
                        (format " [%d]" column))
                    "")
-                 (if port (format " :%d" (+ 3000 port)) "")
+                 ;; Port status - show port number or hint that none is allocated
+                 (if port
+                     (propertize (format " :%d" (+ 3000 port)) 'face '(:foreground "#98C379"))
+                   ;; Only show "no port" for feature branches, not main/dev
+                   (when (and branch (not (member branch '("dev" "main" "master"))))
+                     (propertize " [+port]" 'face 'font-lock-comment-face)))
                  (if is-current (propertize " ← here" 'face 'font-lock-comment-face) "")
+                 ;; Branch mismatch warning
+                 (if branch-mismatch
+                     (propertize " ⚠ MISMATCH" 'face 'orchard-branch-mismatch)
+                   "")
                  "\n"
-                 ;; Stage indicator line
-                 (when stage
+                 ;; Stage indicator line (simple: in-progress, pr-open, merged)
+                 (when (and stage (not (eq stage 'in-progress)))
                    (concat "     "
                            (propertize (orchard--stage-icon stage) 'face 'default)
                            " "
@@ -1195,6 +1809,29 @@ Magit on top, Claude below."
                      (concat "     "
                              (propertize (truncate-string-to-width description 60 nil nil "…")
                                          'face 'font-lock-comment-face)
+                             "\n")
+                   "")
+                 ;; Linked GitHub issue
+                 (if linked-issue-num
+                     (concat "     "
+                             (propertize "📎 " 'face 'default)
+                             (propertize (format "#%d" linked-issue-num) 'face 'orchard-issue)
+                             (when linked-issue
+                               (propertize (format ": %s"
+                                                   (truncate-string-to-width
+                                                    (alist-get 'title linked-issue) 45 nil nil "…"))
+                                           'face 'font-lock-comment-face))
+                             (when (orchard--issue-closed-p linked-issue-num)
+                               (propertize " [closed]" 'face '(:foreground "#98C379")))
+                             "\n")
+                   "")
+                 ;; Branch mismatch detail line
+                 (if branch-mismatch
+                     (concat "     "
+                             (propertize (format "⚠ Expected: %s, Actual: %s"
+                                                 (car branch-mismatch)
+                                                 (cdr branch-mismatch))
+                                         'face 'orchard-branch-mismatch)
                              "\n")
                    ""))))
       (propertize line 'orchard-worktree wt))))
@@ -1209,6 +1846,75 @@ Magit on top, Claude below."
             (setq result (get-text-property (point) 'orchard-worktree))
             (forward-char 1))
           result))))
+
+(defun orchard--get-issue-at-point ()
+  "Get GitHub issue at point."
+  (or (get-text-property (point) 'orchard-issue)
+      (save-excursion
+        (beginning-of-line)
+        (let ((end (line-end-position)) result)
+          (while (and (< (point) end) (not result))
+            (setq result (get-text-property (point) 'orchard-issue))
+            (forward-char 1))
+          result))))
+
+(defun orchard--find-next-issue-pos ()
+  "Find position of next issue after point, or nil if none."
+  (save-excursion
+    (let ((current-issue (orchard--get-issue-at-point)))
+      (forward-line 1)
+      (while (and (not (eobp))
+                  (let ((issue (get-text-property (point) 'orchard-issue)))
+                    (or (null issue)
+                        (and current-issue
+                             (equal (alist-get 'number issue)
+                                    (alist-get 'number current-issue))))))
+        (forward-line 1))
+      (if (and (not (eobp))
+               (get-text-property (point) 'orchard-issue))
+          (point)
+        nil))))
+
+(defun orchard--find-prev-issue-pos ()
+  "Find position of previous issue before point, or nil if none."
+  (save-excursion
+    (let ((current-issue (orchard--get-issue-at-point)))
+      (forward-line -1)
+      (while (and (not (bobp))
+                  (let ((issue (get-text-property (point) 'orchard-issue)))
+                    (or (null issue)
+                        (and current-issue
+                             (equal (alist-get 'number issue)
+                                    (alist-get 'number current-issue))))))
+        (forward-line -1))
+      (when (get-text-property (point) 'orchard-issue)
+        (point)))))
+
+(defun orchard-next-issue ()
+  "Move to next issue."
+  (interactive)
+  (if-let ((pos (orchard--find-next-issue-pos)))
+      (goto-char pos)
+    (message "No more issues")))
+
+(defun orchard-prev-issue ()
+  "Move to previous issue."
+  (interactive)
+  (if-let ((pos (orchard--find-prev-issue-pos)))
+      (goto-char pos)
+    (message "No previous issues")))
+
+(defun orchard-issue-browse ()
+  "Open issue at point in browser."
+  (interactive)
+  (if-let ((issue (orchard--get-issue-at-point)))
+      (let ((url (alist-get 'url issue)))
+        (if url
+            (progn
+              (browse-url url)
+              (message "Opened issue #%d in browser" (alist-get 'number issue)))
+          (user-error "No URL for issue")))
+    (user-error "No issue at point")))
 
 ;;;###autoload
 (defun orchard ()
@@ -1231,6 +1937,9 @@ Magit on top, Claude below."
 (defun orchard-refresh ()
   "Refresh the dashboard."
   (interactive)
+  ;; Cleanup stale port allocations (silent unless something was cleaned)
+  (when (fboundp 'ghq--cleanup-stale-ports)
+    (ghq--cleanup-stale-ports))
   (when (eq major-mode 'orchard-mode)
     (let ((inhibit-read-only t)
           (line (line-number-at-pos)))
@@ -1294,16 +2003,82 @@ Magit on top, Claude below."
       (goto-char pos)
     (message "No previous worktrees")))
 
+(defun orchard--find-next-item-pos ()
+  "Find position of next item (worktree or issue) after point."
+  (save-excursion
+    (let ((start-pos (point))
+          (current-wt (orchard--get-worktree-at-point))
+          (current-issue (orchard--get-issue-at-point)))
+      (forward-line 1)
+      (while (and (not (eobp))
+                  (let ((wt (get-text-property (point) 'orchard-worktree))
+                        (issue (get-text-property (point) 'orchard-issue)))
+                    (or (and (null wt) (null issue))
+                        ;; Still on same worktree
+                        (and wt current-wt
+                             (equal (alist-get 'path wt)
+                                    (alist-get 'path current-wt)))
+                        ;; Still on same issue
+                        (and issue current-issue
+                             (equal (alist-get 'number issue)
+                                    (alist-get 'number current-issue))))))
+        (forward-line 1))
+      (when (or (get-text-property (point) 'orchard-worktree)
+                (get-text-property (point) 'orchard-issue))
+        (point)))))
+
+(defun orchard--find-prev-item-pos ()
+  "Find position of previous item (worktree or issue) before point."
+  (save-excursion
+    (let ((current-wt (orchard--get-worktree-at-point))
+          (current-issue (orchard--get-issue-at-point)))
+      (forward-line -1)
+      (while (and (not (bobp))
+                  (let ((wt (get-text-property (point) 'orchard-worktree))
+                        (issue (get-text-property (point) 'orchard-issue)))
+                    (or (and (null wt) (null issue))
+                        (and wt current-wt
+                             (equal (alist-get 'path wt)
+                                    (alist-get 'path current-wt)))
+                        (and issue current-issue
+                             (equal (alist-get 'number issue)
+                                    (alist-get 'number current-issue))))))
+        (forward-line -1))
+      ;; Find the start of this item's block
+      (when (or (get-text-property (point) 'orchard-worktree)
+                (get-text-property (point) 'orchard-issue))
+        (point)))))
+
+(defun orchard-next-item ()
+  "Move to next item (worktree or issue)."
+  (interactive)
+  (if-let ((pos (orchard--find-next-item-pos)))
+      (goto-char pos)
+    (message "No more items")))
+
+(defun orchard-prev-item ()
+  "Move to previous item (worktree or issue)."
+  (interactive)
+  (if-let ((pos (orchard--find-prev-item-pos)))
+      (goto-char pos)
+    (message "No previous items")))
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Dashboard Actions
 ;;; ════════════════════════════════════════════════════════════════════════════
 
 (defun orchard-open-at-point ()
-  "Open worktree at point in its column."
+  "Open item at point.
+If on a worktree, open it in its column.
+If on an issue, start a branch from it."
   (interactive)
-  (if-let ((wt (orchard--get-worktree-at-point)))
-      (orchard-open-branch wt)
-    (user-error "No worktree at point")))
+  (cond
+   ((orchard--get-worktree-at-point)
+    (orchard-open-branch (orchard--get-worktree-at-point)))
+   ((orchard--get-issue-at-point)
+    (orchard-issue-start))
+   (t
+    (user-error "No worktree or issue at point"))))
 
 (defun orchard-magit-at-point ()
   "Open magit for worktree at point."
@@ -1312,26 +2087,37 @@ Magit on top, Claude below."
 
 (defun orchard-claude-at-point ()
   "Open Claude for worktree at point in its assigned column.
-Uses window locking to prevent Claude from escaping."
+If on an issue line, find the associated worktree.
+If Claude already exists, show it. If not, start in background.
+Press 'c' again to show a background Claude."
   (interactive)
-  (if-let ((wt (orchard--get-worktree-at-point)))
-      (let* ((path (alist-get 'path wt))
-             (branch (alist-get 'branch wt))
-             (existing-col (orchard--column-for-branch branch)))
-        ;; Ensure branch has a column
-        (unless existing-col
-          (setq existing-col (orchard--find-available-column))
-          (orchard--assign-branch-to-column branch existing-col)
-          (orchard--ensure-columns))
-        ;; Get the target window
-        (let ((win (orchard--get-column-window existing-col)))
-          (if win
-              (progn
-                (message "Opening Claude for %s in column %d" branch existing-col)
-                (orchard--claude-in-window path win)
-                (orchard--dedicate-branch-column existing-col))
-            (user-error "Could not get window for column %d" existing-col))))
-    (user-error "No worktree at point")))
+  (let ((wt (or (orchard--get-worktree-at-point)
+                ;; Fall back to finding worktree for issue at point
+                (when-let ((issue (orchard--get-issue-at-point)))
+                  (orchard--find-worktree-for-issue (alist-get 'number issue))))))
+    (if wt
+        (let* ((path (alist-get 'path wt))
+               (branch (alist-get 'branch wt))
+               (existing-claude (orchard--claude-buffer-for-path path)))
+          (if existing-claude
+              ;; Claude exists - show it in column
+              (let ((existing-col (or (orchard--column-for-branch branch)
+                                      (orchard--find-available-column))))
+                (orchard--assign-branch-to-column branch existing-col)
+                (orchard--ensure-columns)
+                (let ((win (orchard--get-column-window existing-col)))
+                  (if win
+                      (progn
+                        (message "Showing Claude for %s in column %d" branch existing-col)
+                        (set-window-buffer win existing-claude)
+                        (select-window win)
+                        (orchard--dedicate-branch-column existing-col))
+                    (user-error "Could not get window for column %d" existing-col))))
+            ;; No Claude - start in background
+            (message "Starting Claude for %s in background (press 'c' again to show)..." branch)
+            (orchard--start-background-claude path)
+            (orchard-refresh)))
+      (user-error "No worktree at point (or issue has no worktree)"))))
 
 (defun orchard-dired-at-point ()
   "Open dired for worktree at point."
@@ -1353,23 +2139,64 @@ Uses window locking to prevent Claude from escaping."
           (orchard-refresh)))
     (user-error "No worktree at point")))
 
+(defun orchard--generate-pr-title (branch description issue-num issue-title)
+  "Generate PR title from BRANCH, DESCRIPTION, ISSUE-NUM, and ISSUE-TITLE.
+Prefers: description > issue title > cleaned branch name."
+  (or description
+      (when issue-title (format "#%d: %s" issue-num issue-title))
+      (replace-regexp-in-string "^[A-Z]+/[0-9]*-?" "" branch)))
+
+(defun orchard--generate-pr-body (description issue-num issue-title)
+  "Generate PR body from DESCRIPTION, ISSUE-NUM, and ISSUE-TITLE."
+  (let ((summary (or description ""))
+        (closes (if issue-num (format "Closes #%d" issue-num) "")))
+    (string-trim
+     (format "## Summary\n%s\n\n%s\n\n## Test Plan\n- [ ] Tests pass\n- [ ] Manual verification\n"
+             summary closes))))
+
 (defun orchard-pr-at-point ()
-  "Create PR for branch at point."
+  "Create PR for branch at point.
+Auto-populates title and body from worktree description and linked issue."
   (interactive)
   (if-let ((wt (orchard--get-worktree-at-point)))
       (let* ((path (alist-get 'path wt))
              (branch (alist-get 'branch wt))
              (description (alist-get 'description wt))
+             (issue-num (orchard--get-worktree-issue path branch))
+             (issue (when issue-num (orchard--get-issue-by-number issue-num)))
+             (issue-title (when issue (alist-get 'title issue)))
              (default-directory path))
+        ;; Check if PR already exists
+        (let ((existing-pr (string-trim
+                            (shell-command-to-string
+                             (format "gh pr view %s --json url -q .url 2>/dev/null || true"
+                                     (shell-quote-argument branch))))))
+          (when (and existing-pr (not (string-empty-p existing-pr)))
+            (if (y-or-n-p (format "PR already exists at %s. Open in browser? " existing-pr))
+                (browse-url existing-pr))
+            (user-error "PR already exists")))
+        ;; Push first
         (message "Pushing %s..." branch)
         (shell-command (format "git push -u origin %s" (shell-quote-argument branch)))
-        (let ((title (read-string "PR Title: " (replace-regexp-in-string "^[A-Z]+/" "" branch)))
-              (body (read-string "PR Body: " (or description ""))))
-          (shell-command
-           (format "gh pr create --title %s --body %s --base dev"
-                   (shell-quote-argument title)
-                   (shell-quote-argument body)))
-          (message "Created PR for %s" branch)))
+        ;; Generate defaults
+        (let* ((default-title (orchard--generate-pr-title branch description issue-num issue-title))
+               (default-body (orchard--generate-pr-body description issue-num issue-title))
+               (title (read-string "PR Title: " default-title))
+               (body (read-string "PR Body (edit in browser for full): " "")))
+          (when (string-empty-p body)
+            (setq body default-body))
+          (let ((result (shell-command-to-string
+                         (format "gh pr create --title %s --body %s --base dev 2>&1"
+                                 (shell-quote-argument title)
+                                 (shell-quote-argument body)))))
+            (message "%s" (string-trim result))
+            ;; Extract PR URL from result and save to file for auto-detection
+            (when (string-match "https://github.com/[^\n]+" result)
+              (let ((pr-url (match-string 0 result)))
+                (with-temp-file (expand-file-name ".pr-url" path)
+                  (insert pr-url))
+                (message "PR created: %s" pr-url)))
+            (orchard-refresh))))
     (user-error "No worktree at point")))
 
 (defun orchard-hide-at-point ()
@@ -1482,6 +2309,54 @@ For main worktree, just hides it instead."
           (message "Deleted %s (worktree and branch)" branch)))
     (user-error "No worktree at point")))
 
+(defun orchard-allocate-port ()
+  "Allocate a port for the worktree at point.
+Needed for running dev server (make dev). Most work doesn't need a port."
+  (interactive)
+  (if-let ((wt (orchard--get-worktree-at-point)))
+      (let* ((path (alist-get 'path wt))
+             (branch (alist-get 'branch wt))
+             (existing-port (when (fboundp 'ghq--get-worktree-port)
+                              (ghq--get-worktree-port path))))
+        (if existing-port
+            (message "Already has port :%d" (+ 3000 existing-port))
+          ;; Try to allocate
+          (if (fboundp 'ghq--allocate-port-for-path)
+              (if-let ((port-num (ghq--allocate-port-for-path path)))
+                  (progn
+                    ;; Generate .env.workspace
+                    (when (fboundp 'ghq--generate-workspace-env)
+                      (ghq--generate-workspace-env path port-num))
+                    (orchard-refresh)
+                    (message "✓ Allocated port :%d for %s" (+ 3000 port-num) branch))
+                ;; Failed to allocate - suggest cleanup
+                (let ((status (ghq--port-slots-status)))
+                  (user-error "No available ports (%d/%d used). Use 'R' to release or clean up old worktrees"
+                              (car status) (cdr status))))
+            (user-error "Port allocation not available (ghq not configured)"))))
+    (user-error "No worktree at point")))
+
+(defun orchard-release-port ()
+  "Release the port allocated to the worktree at point."
+  (interactive)
+  (if-let ((wt (orchard--get-worktree-at-point)))
+      (let* ((path (alist-get 'path wt))
+             (branch (alist-get 'branch wt))
+             (existing-port (when (fboundp 'ghq--get-worktree-port)
+                              (ghq--get-worktree-port path))))
+        (if existing-port
+            (progn
+              (when (fboundp 'ghq--unregister-worktree)
+                (ghq--unregister-worktree path))
+              ;; Remove .env.workspace
+              (let ((env-file (expand-file-name ".env.workspace" path)))
+                (when (file-exists-p env-file)
+                  (delete-file env-file)))
+              (orchard-refresh)
+              (message "✓ Released port :%d from %s" (+ 3000 existing-port) branch))
+          (message "No port allocated for %s" branch)))
+    (user-error "No worktree at point")))
+
 (defun orchard--undedicate-all-columns ()
   "Remove dedication from all branch columns.
 Useful when exiting orchard workflow."
@@ -1544,25 +2419,6 @@ Returns output from git worktree prune."
     (when repo-root
       (let ((default-directory repo-root))
         (string-trim (shell-command-to-string "git worktree prune 2>&1"))))))
-
-(defun orchard--get-prunable-worktrees ()
-  "Get list of worktrees marked as prunable.
-These are worktrees whose directories no longer exist or have issues."
-  (let ((repo-root (orchard--get-repo-root)))
-    (when repo-root
-      (let* ((default-directory repo-root)
-             (output (shell-command-to-string "git worktree list --porcelain"))
-             (lines (split-string output "\n" t))
-             (prunable '())
-             (current-path nil))
-        (dolist (line lines)
-          (cond
-           ((string-prefix-p "worktree " line)
-            (setq current-path (substring line 9)))
-           ((string= "prunable" line)
-            (when current-path
-              (push current-path prunable)))))
-        (nreverse prunable)))))
 
 (defun orchard-cleanup (&optional silent)
   "Clean up stale worktree entries and port allocations.
@@ -1633,6 +2489,131 @@ With SILENT non-nil, performs cleanup without prompting."
           (princ "No stale port entries.\n"))
         (princ "\nRun `orchard-cleanup' (or press 'C' in Orchard) to clean these up.\n")))))
 
+(defun orchard--worktree-archivable-p (wt)
+  "Return t if worktree WT should be archived.
+A worktree is archivable if:
+  - Has linked issue AND issue is closed, OR
+  - Has no linked issue AND branch PR is merged
+Never archives main/dev branches."
+  (let* ((path (alist-get 'path wt))
+         (branch (alist-get 'branch wt))
+         (issue-num (orchard--get-worktree-issue path branch)))
+    (and branch
+         (not (member branch '("dev" "main" "master")))
+         (if issue-num
+             ;; Has linked issue - archivable when issue is closed
+             (orchard--issue-closed-p issue-num)
+           ;; No linked issue - archivable when PR is merged
+           (orchard--branch-merged-p branch)))))
+
+(defun orchard--get-archivable-worktrees ()
+  "Get list of worktrees ready to archive.
+Includes worktrees where:
+  - Linked issue is closed, OR
+  - PR is merged (for unlinked branches)"
+  (orchard--ensure-merged-cache)
+  (orchard--ensure-closed-issues-cache)
+  (let ((worktrees (orchard--get-worktrees)))
+    (cl-remove-if-not #'orchard--worktree-archivable-p worktrees)))
+
+(defun orchard--get-merged-worktrees ()
+  "Get list of worktrees whose branches have been merged.
+Returns list of worktree alists with 'merged stage.
+NOTE: Use `orchard--get-archivable-worktrees' for issue-aware cleanup."
+  (orchard--ensure-merged-cache)
+  (let ((worktrees (orchard--get-worktrees)))
+    (cl-remove-if-not
+     (lambda (wt)
+       (let ((branch (alist-get 'branch wt)))
+         (and branch
+              (not (string= branch "dev"))
+              (not (string= branch "main"))
+              (orchard--branch-merged-p branch))))
+     worktrees)))
+
+(defun orchard-cleanup-merged (&optional silent)
+  "Archive completed worktrees (merged PRs or closed issues).
+Uses issue-aware logic: worktrees with linked issues are archived
+when the issue is closed, not just when the PR is merged.
+With SILENT non-nil, archives without prompting."
+  (interactive)
+  ;; Force cache refresh for accurate results
+  (orchard--refresh-merged-cache)
+  (orchard--refresh-closed-issues-cache)
+  (let ((archivable (orchard--get-archivable-worktrees)))
+    (if (null archivable)
+        (unless silent
+          (message "No completed worktrees to archive"))
+      (let ((msg (format "Completed worktrees to archive (%d):\n  %s\n\nThis will:\n  - Remove the worktree directory\n  - Free the allocated port\n  - Keep the git branch (for reference)\n"
+                         (length archivable)
+                         (mapconcat (lambda (wt)
+                                      (let* ((path (alist-get 'path wt))
+                                             (branch (alist-get 'branch wt))
+                                             (issue-num (orchard--get-worktree-issue path branch)))
+                                        (if issue-num
+                                            (format "%s (%s) - issue #%d closed"
+                                                    (file-name-nondirectory
+                                                     (directory-file-name path))
+                                                    branch
+                                                    issue-num)
+                                          (format "%s (%s) - PR merged"
+                                                  (file-name-nondirectory
+                                                   (directory-file-name path))
+                                                  branch))))
+                                    archivable "\n  "))))
+        (when (or silent (yes-or-no-p (format "%s\nArchive these worktrees? " msg)))
+          (let ((archived 0)
+                (repo-root (orchard--get-repo-root)))
+            (dolist (wt archivable)
+              (let* ((path (alist-get 'path wt))
+                     (branch (alist-get 'branch wt)))
+                (message "Archiving %s..." branch)
+                ;; Free port
+                (when (fboundp 'ghq--free-worktree-port)
+                  (ghq--free-worktree-port path))
+                ;; Remove worktree
+                (when repo-root
+                  (let ((default-directory repo-root))
+                    (shell-command-to-string
+                     (format "git worktree remove --force %s 2>/dev/null"
+                             (shell-quote-argument path))))
+                  (cl-incf archived))))
+            ;; Prune stale references
+            (when repo-root
+              (let ((default-directory repo-root))
+                (shell-command-to-string "git worktree prune 2>/dev/null")))
+            (message "Archived %d completed worktree(s)" archived)
+            (orchard--refresh-if-visible)))))))
+
+(defun orchard-cleanup-merged-dry-run ()
+  "Show completed worktrees that would be archived.
+Uses issue-aware logic (closed issues or merged PRs)."
+  (interactive)
+  (orchard--refresh-merged-cache)
+  (orchard--refresh-closed-issues-cache)
+  (let ((archivable (orchard--get-archivable-worktrees)))
+    (if (null archivable)
+        (message "No completed worktrees found")
+      (with-output-to-temp-buffer "*Orchard Completed*"
+        (princ "=== Completed Worktrees (ready to archive) ===\n\n")
+        (dolist (wt archivable)
+          (let* ((branch (alist-get 'branch wt))
+                 (path (alist-get 'path wt))
+                 (issue-num (orchard--get-worktree-issue path branch))
+                 (merge-time (orchard--branch-merged-p branch))
+                 (close-time (when issue-num (orchard--issue-closed-p issue-num))))
+            (princ (format "  %s\n    Branch: %s\n"
+                           (file-name-nondirectory (directory-file-name path))
+                           branch))
+            (when issue-num
+              (princ (format "    Issue: #%d (closed: %s)\n"
+                             issue-num (or close-time "yes"))))
+            (when (and (not issue-num) merge-time)
+              (princ (format "    Merged: %s\n" merge-time)))
+            (princ (format "    Path: %s\n\n" path))))
+        (princ (format "\nTotal: %d worktree(s)\n" (length archivable)))
+        (princ "\nRun `orchard-cleanup-merged' (or press 'M' in Orchard) to archive.\n")))))
+
 (defun orchard-test-at-point ()
   "Start testicular (manual testing) for worktree at point."
   (interactive)
@@ -1657,7 +2638,7 @@ Based on current stage, performs the appropriate action:
   (if-let ((wt (orchard--get-worktree-at-point)))
       (let* ((path (alist-get 'path wt))
              (branch (alist-get 'branch wt))
-             (stage (orchard--detect-stage path)))
+             (stage (orchard--detect-stage path branch)))
         (pcase stage
           ('requirements
            ;; Move to in-progress: open Claude to start working
@@ -1727,8 +2708,9 @@ Based on current stage, performs the appropriate action:
     (setq normalized (replace-regexp-in-string "^-+\\|-+$" "" normalized))
     (downcase normalized)))
 
-(defun orchard--create-branch (type name description)
-  "Create new branch of TYPE with NAME and DESCRIPTION."
+(defun orchard--create-branch (type name description &optional issue-number)
+  "Create new branch of TYPE with NAME and DESCRIPTION.
+If ISSUE-NUMBER is provided, link the worktree to that GitHub issue."
   (let* ((repo-root (orchard--get-repo-root))
          (prefix (upcase type))
          (normalized-name (orchard--normalize-branch-name name))
@@ -1744,9 +2726,7 @@ Based on current stage, performs the appropriate action:
                              (expand-file-name wt-prefix orchard-worktree-parent))
                           (expand-file-name
                            (concat wt-prefix "--" safe-branch)
-                           orchard-worktree-parent)))
-         (port-num (when (fboundp 'ghq--allocate-port)
-                     (ghq--allocate-port))))
+                           orchard-worktree-parent))))
     (unless repo-root
       (user-error "No repository root configured"))
     (when (file-exists-p worktree-path)
@@ -1760,27 +2740,37 @@ Based on current stage, performs the appropriate action:
     (message "Fetching upstream...")
     (let ((default-directory repo-root))
       (shell-command "git fetch upstream 2>/dev/null"))
-    ;; Create worktree
-    (message "Creating worktree %s..." full-branch)
-    (let ((default-directory repo-root))
-      (shell-command (format "git worktree add -b %s %s %s"
-                             (shell-quote-argument full-branch)
-                             (shell-quote-argument worktree-path)
-                             orchard-upstream-branch)))
-    ;; Register port
-    (when port-num
-      (when (fboundp 'ghq--register-worktree)
-        (ghq--register-worktree worktree-path port-num))
-      (when (fboundp 'ghq--generate-workspace-env)
-        (ghq--generate-workspace-env worktree-path port-num)))
+    ;; Check if branch already exists
+    (let* ((default-directory repo-root)
+           (branch-exists (zerop (call-process "git" nil nil nil
+                                               "show-ref" "--verify" "--quiet"
+                                               (concat "refs/heads/" full-branch))))
+           (cmd (if branch-exists
+                    (format "git worktree add %s %s 2>&1"
+                            (shell-quote-argument worktree-path)
+                            (shell-quote-argument full-branch))
+                  (format "git worktree add -b %s %s %s 2>&1"
+                          (shell-quote-argument full-branch)
+                          (shell-quote-argument worktree-path)
+                          orchard-upstream-branch)))
+           (result (shell-command-to-string cmd)))
+      (message "Creating worktree %s...%s" full-branch
+               (if branch-exists " (using existing branch)" ""))
+      ;; Check if worktree was created successfully
+      (unless (file-directory-p worktree-path)
+        (user-error "Failed to create worktree: %s" (string-trim result))))
+    ;; Port allocation is now lazy - use P in dashboard to allocate when needed
     ;; Setup Claude settings
     (orchard--setup-claude-settings worktree-path)
     ;; Save description
     (when (and description (not (string-empty-p description)))
       (orchard--save-feature-description worktree-path description))
+    ;; Save issue link if provided
+    (when issue-number
+      (orchard--save-worktree-issue worktree-path issue-number))
     ;; Run post-create hook
     (run-hook-with-args 'orchard-post-create-hook worktree-path)
-    ;; Assign to column and open
+    ;; Assign to column and open magit FIRST (before Claude)
     (let ((col (orchard--find-available-column)))
       (orchard--assign-branch-to-column full-branch col)
       (orchard--ensure-columns)
@@ -1791,8 +2781,7 @@ Based on current stage, performs the appropriate action:
     ;; Refresh dashboard
     (when-let ((buf (get-buffer "*Orchard*")))
       (with-current-buffer buf (orchard-refresh)))
-    (message "✨ Created %s%s" full-branch
-             (if port-num (format " (port :%d)" (+ 3000 port-num)) ""))
+    (message "✨ Created %s" full-branch)
     worktree-path))
 
 (defun orchard-new-feature (name)
@@ -1835,13 +2824,83 @@ Based on current stage, performs the appropriate action:
 (defalias 'orchard-new-fix 'orchard-new-bugfix)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Start Branch from Issue
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--infer-branch-type-from-labels (labels)
+  "Infer branch type from issue LABELS.
+Returns branch type string like \"FEATURE\", \"BUGFIX\", etc."
+  (let ((label-names (mapcar (lambda (l) (downcase (alist-get 'name l))) labels)))
+    (cond
+     ((cl-some (lambda (n) (string-match-p "bug\\|fix" n)) label-names) "BUGFIX")
+     ((cl-some (lambda (n) (string-match-p "chore\\|maintenance" n)) label-names) "CHORE")
+     ((cl-some (lambda (n) (string-match-p "doc" n)) label-names) "DOCS")
+     ((cl-some (lambda (n) (string-match-p "refactor" n)) label-names) "REFACTOR")
+     ((cl-some (lambda (n) (string-match-p "test" n)) label-names) "TEST")
+     ((cl-some (lambda (n) (string-match-p "experiment\\|spike" n)) label-names) "EXPERIMENT")
+     (t "FEATURE"))))
+
+(defun orchard-issue-start ()
+  "Start a new branch from the GitHub issue at point.
+Auto-generates branch name from issue number and title.
+Branch type is inferred from labels or prompts for selection."
+  (interactive)
+  (if-let ((issue (orchard--get-issue-at-point)))
+      (let* ((number (alist-get 'number issue))
+             (title (alist-get 'title issue))
+             (labels (alist-get 'labels issue))
+             (worktrees (orchard--get-worktrees)))
+        ;; Check if already has worktree FIRST
+        (if (orchard--issue-has-worktree-p number worktrees)
+            ;; Already has worktree - offer to jump to it
+            (when-let ((wt (orchard--find-worktree-for-issue number)))
+              (if (y-or-n-p (format "Issue #%d already has worktree. Jump to it? " number))
+                  (orchard-open-branch wt)
+                (user-error "Issue #%d already has an active worktree" number)))
+          ;; No worktree - proceed with creation
+          (let* ((inferred-type (orchard--infer-branch-type-from-labels labels))
+                 (branch-type (completing-read
+                               (format "Branch type for #%d (default %s): " number inferred-type)
+                               '("FEATURE" "BUGFIX" "CHORE" "REFACTOR" "DOCS" "EXPERIMENT" "TEST")
+                               nil t nil nil inferred-type))
+                 (branch-name (format "%d-%s"
+                                      number
+                                      (orchard--normalize-branch-name title)))
+                 (description (format "#%d: %s" number title)))
+            (message "Starting branch for issue #%d: %s..." number title)
+            (orchard--create-branch branch-type branch-name description number)
+            (message "Created %s/%s linked to issue #%d" branch-type branch-name number))))
+    (user-error "No issue at point")))
+
+(defun orchard-issue-start-prompt ()
+  "Prompt for issue number and start a branch from it.
+Use this when not in the orchard dashboard."
+  (interactive)
+  (let* ((issues (orchard--get-open-issues))
+         (choices (mapcar (lambda (issue)
+                            (cons (format "#%d: %s"
+                                          (alist-get 'number issue)
+                                          (alist-get 'title issue))
+                                  issue))
+                          issues))
+         (selection (completing-read "Start branch from issue: " choices nil t))
+         (issue (cdr (assoc selection choices))))
+    (if issue
+        (let ((orchard--temp-issue issue))
+          ;; Temporarily bind issue for orchard-issue-start
+          (cl-letf (((symbol-function 'orchard--get-issue-at-point)
+                     (lambda () orchard--temp-issue)))
+            (orchard-issue-start)))
+      (user-error "No issue selected"))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Transient Menu
 ;;; ════════════════════════════════════════════════════════════════════════════
 
 (defun orchard-commando-at-point ()
   "Open commando in the worktree at point."
   (interactive)
-  (when-let* ((wt (orchard--worktree-at-point))
+  (when-let* ((wt (orchard--get-worktree-at-point))
               (path (alist-get 'path wt)))
     (let ((default-directory path))
       (if (fboundp 'commando)
@@ -1858,12 +2917,18 @@ Based on current stage, performs the appropriate action:
     ("R" "Refactor (REFACTOR/)" orchard-new-refactor)
     ("D" "Docs (DOCS/)" orchard-new-docs)
     ("E" "Experiment (EXPERIMENT/)" orchard-new-experiment)]
+   ["GitHub Issues"
+    ("I" "Start from issue" orchard-issue-start)
+    ("o" "Open issue in browser" orchard-issue-browse)
+    ("i" "Pick issue (prompt)" orchard-issue-start-prompt)
+    ("s" "Toggle staging issues" orchard-toggle-staging-issues)]
    ["At Point"
     ("RET" "Open in column" orchard-open-at-point)
     ("m" "Magit" orchard-magit-at-point)
     ("c" "Claude" orchard-claude-at-point)
     ("d" "Dired" orchard-dired-at-point)
     ("t" "Test (testicular)" orchard-test-at-point)
+    ("T" "Update test results" orchard-update-test-results)
     ("`" "Commands (commando)" orchard-commando-at-point)]
    ["Lifecycle"
     ("N" "Next step" orchard-next-step)
@@ -1879,6 +2944,7 @@ Based on current stage, performs the appropriate action:
     ("A" "AWS" aws-transient)]
    ["Maintenance"
     ("K" "Cleanup stale entries" orchard-cleanup)
+    ("M" "Cleanup completed (issues+PRs)" orchard-cleanup-merged)
     ("!" "Toggle window dedication" orchard-toggle-window-dedication)
     ("g" "Refresh" orchard-refresh)
     ("q" "Quit" transient-quit-one)
@@ -1905,6 +2971,8 @@ Based on current stage, performs the appropriate action:
 (define-key ashton-mode-map (kbd "C-c O h") #'orchard-new-chore)
 ;; Claude management
 (define-key ashton-mode-map (kbd "C-c O l") #'orchard-list-claudes)
+;; GitHub Issues
+(define-key ashton-mode-map (kbd "C-c O I") #'orchard-issue-start-prompt)
 
 ;; M-m cycles magit/claude everywhere
 ;; C-c M is now meetings prefix, so only M-m for orchard-cycle

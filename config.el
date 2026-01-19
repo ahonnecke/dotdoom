@@ -217,12 +217,14 @@
 (load "~/.doom.d/config-slack")     ; Slack client (C-c K)
 (load "~/.doom.d/config-workspace")
 (load "~/.doom.d/config-claude")
+(load "~/.doom.d/config-claude-modeline")  ; Global Claude status in modeline
 (load "~/.doom.d/config-monet")  ; Claude IDE integration (selection sharing, diagnostics)
 (load "~/.doom.d/config-casual")  ; Transient menus for built-in modes
 (load "~/.doom.d/config-ghq")
 (load "~/.doom.d/config-orchard")
 (load "~/.doom.d/config-crewcapable-project")  ; Project-specific orchard settings
 (load "~/.doom.d/config-commando")
+(load "~/.doom.d/config-tsar")        ; Deployment dashboard (C-c T)
 (load "~/.doom.d/config-pr")
 (load "~/.doom.d/config-caldav")
 (load "~/.doom.d/config-calendar")  ; Read-only calendar viewer (C-c @)

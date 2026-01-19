@@ -150,37 +150,34 @@ like `upstream/main` are available."
 
 (defun magit-ai--generate-message (diff callback)
   "Generate commit message using Anthropic API for DIFF, call CALLBACK with result."
+  (require 'request)
   (let* ((api-key (magit-ai--get-api-key))
          (url "https://api.anthropic.com/v1/messages")
          (json-data (json-encode
                      `((model . ,magit-ai-model)
                        (max_tokens . 1024)
                        (messages . [((role . "user")
-                                     (content . ,(concat magit-ai-commit-prompt "\n\n" diff)))]))))
-         (url-request-method "POST")
-         (url-request-extra-headers
-          `(("Content-Type" . "application/json")
-            ("x-api-key" . ,api-key)
-            ("anthropic-version" . "2023-06-01")))
-         (url-request-data json-data))
-    (url-retrieve
-     url
-     (lambda (status callback-fn)
-       (if (plist-get status :error)
-           (message "AI commit error: %s" (plist-get status :error))
-         (goto-char (point-min))
-         (re-search-forward "\n\n" nil t)
-         (condition-case err
-             (let* ((json-object-type 'plist)
-                    (json-array-type 'list)
-                    (response (json-read))
-                    (content (plist-get response :content))
-                    (text (plist-get (car content) :text)))
-               (when (and text callback-fn)
-                 (funcall callback-fn (string-trim text))))
-           (error (message "Failed to parse AI response: %s" err)))))
-     (list callback)
-     t)))
+                                     (content . ,(concat magit-ai-commit-prompt "\n\n" diff)))])))))
+    (request
+      url
+      :type "POST"
+      :headers `(("Content-Type" . "application/json")
+                 ("x-api-key" . ,api-key)
+                 ("anthropic-version" . "2023-06-01"))
+      :data json-data
+      :parser 'json-read
+      :success (cl-function
+                (lambda (&key data &allow-other-keys)
+                  (let* ((content (alist-get 'content data))
+                         (text (alist-get 'text (aref content 0))))
+                    (when (and text callback)
+                      (funcall callback (string-trim text))))))
+      :error (cl-function
+              (lambda (&key error-thrown response &allow-other-keys)
+                (let ((body (request-response-data response)))
+                  (message "AI commit error: %s - %s"
+                           error-thrown
+                           (if body (alist-get 'message (alist-get 'error body)) ""))))))))
 
 (defun magit-commit-ai ()
   "Start a commit with AI-generated message pre-populated.

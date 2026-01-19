@@ -42,3 +42,19 @@
 ** TODO Tree-sitter: ensure all grammars installed
    - M-x treesit-install-all-grammars
 ** TODO Combobulate: verify working in ts-modes
+
+
+* TODO fix s3 diredness
+* look for an s3 dired mode?  if not we should implement one?  the sorting sucks
+DELCAT_8501B_100003_20251212-191552.dat                      4.1 KB          2025-12-12 12:15:53
+DELCAT_8501B_100004_20251212-214212.dat                      4.1 KB          2025-12-12 14:42:13
+DELCAT_8501B_100005_20251212-225010.dat                      4.0 KB          2025-12-12 15:50:11
+DELCAT_8501B_100006_20251212-225344.dat                      4.0 KB          2025-12-12 15:53:45
+DELCAT_8501B_100007_20251212-230426.dat                      4.1 KB          2025-12-12 16:04:27
+DELCAT_8501B_100008_20251212-231146.dat                      4.1 KB          2025-12-12 16:11:47
+DELCAT_8501B_100009_20251212-231654.dat                      4.1 KB          2025-12-12 16:16:55
+DELCAT_8501B_100010_20251212-232850.dat                      4.3 KB          2025-12-12 16:28:52
+DELCAT_8501B_100011_20251215-204627.dat                      4.3 KB          2025-12-15 13:46:29
+DELCAT_8501B_100012_20251216-214801.dat                      4.3 KB          2025-12-16 14:48:02
+PO_DELCAT_100002_1765478370917.dat                           3.5 KB          2025-12-11 11:39:32
+PO_GHRCHO_100001_1765158550710.dat                           794 B           2025-12-07 18:49:12

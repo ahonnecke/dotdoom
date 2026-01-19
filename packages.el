@@ -119,3 +119,6 @@
 
 ;; Posframe: Pop up frames at point (used for ace-window centering)
 (package! posframe)
+
+;; Request: HTTP client library for API calls (used by magit AI commit)
+(package! request)

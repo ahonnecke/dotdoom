@@ -186,13 +186,14 @@ C-c K ?     slack-transient     Full menu
 Generic (works for any meeting type):
 C-c M o     meeting-open        Open a specific occurrence
 C-c M t     meeting-open-today  Open/create today's notes
+C-c M T     meeting-add-to-today Pre-fill today's agenda
 C-c M n     meeting-add-to-next Add item to next occurrence
 C-c M c     meeting-carryover   Copy items from previous
 C-c M e     meeting-export      Export to clipboard
 C-c M ?     meeting-transient   Full menu
 
 Standup shortcuts (C-c M s prefix):
-C-c M s s   standup             Open today's standup
+C-c M s s   standup             Open today's (auto-carryover TODOs if new)
 C-c M s d   mark-done           Mark existing TODO as DONE (pick from list)
 C-c M s +   add-done            Add NEW item to Done section
 C-c M s g   doing               Add to Doing (as TODO)
@@ -211,7 +212,7 @@ C-c M s j   jump-to-branch      Jump to linked branch
 C-c M s m   toggle-magit        Toggle mark-done after commits
 
 In standup buffer:
-C-c x       org-todo            Toggle TODO/DONE at point
+C-c X       org-todo            Toggle TODO/DONE at point
 C-c d       mark-done           Pick item to mark done
 
 Meeting types: standup, psc-it-sync, psc-pm-sync

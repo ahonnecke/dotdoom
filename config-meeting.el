@@ -322,6 +322,25 @@ If `meeting-use-org-todo' is non-nil and SECTION is in
   (let ((next-time (meeting--next-occurrence-time type)))
     (meeting--add-item type section item next-time)))
 
+(defun meeting--add-to-today (type section item)
+  "Add ITEM to SECTION of TYPE's today occurrence."
+  (meeting--add-item type section item (current-time)))
+
+;;;###autoload
+(defun meeting-add-to-today (type section item)
+  "Add ITEM to SECTION of TYPE's today occurrence.
+Use this to pre-fill agenda items for today's meeting."
+  (interactive
+   (let* ((type (meeting--completing-read "Meeting: "))
+          (sections (meeting-get type :sections))
+          (section (completing-read "Section: " sections nil t))
+          (item (if (use-region-p)
+                    (buffer-substring-no-properties (region-beginning) (region-end))
+                  (read-string (format "%s: " section)))))
+     (list type section item)))
+  (when (and item (not (string-empty-p item)))
+    (meeting--add-to-today type section item)))
+
 (defun meeting--add-org-item (type item &optional state tags time)
   "Add ITEM to TYPE's occurrence at TIME using pure org structure.
 STATE is TODO, DONE, or nil (plain item).
@@ -525,105 +544,224 @@ Returns (prefix . text) where prefix is the bullet/checkbox."
       (message "No occurrence file for %s today" (meeting-get type :name)))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
-;;; Standup-Specific Commands
+;;; Standup Helpers (Pure Org-Mode)
 ;;; ════════════════════════════════════════════════════════════════════════════
 
-;;;###autoload
+(defun meeting--get-standup-items ()
+  "Get all items from today's standup as list of plists.
+Each plist has :text :state :tags :line properties."
+  (let ((file (meeting--occurrence-file 'standup))
+        (items '()))
+    (when (file-exists-p file)
+      (with-temp-buffer
+        (insert-file-contents file)
+        (goto-char (point-min))
+        ;; Find all ** headings (items)
+        (while (re-search-forward "^\\*\\* \\(TODO\\|DONE\\)?\\s-*\\(.+?\\)\\(\\s-+:\\([^:]+:\\)+\\)?$" nil t)
+          (let* ((state (match-string 1))
+                 (text (string-trim (match-string 2)))
+                 (tag-str (match-string 3))
+                 (tags (when tag-str
+                         (split-string (string-trim tag-str ":") ":" t))))
+            (push (list :text text :state state :tags tags :line (line-number-at-pos))
+                  items)))))
+    (nreverse items)))
+
+(defun meeting--get-standup-todos ()
+  "Get TODO items from today's standup.
+Returns list of (line . text) for items with TODO state."
+  (let ((items (meeting--get-standup-items)))
+    (cl-loop for item in items
+             when (equal (plist-get item :state) "TODO")
+             collect (cons (plist-get item :line) (plist-get item :text)))))
+
+(defun meeting-standup-export-org ()
+  "Export today's standup grouped by state and tags.
+Format: DONE items first, then TODO, then by tag."
+  (let ((items (meeting--get-standup-items)))
+    (if (not items)
+        (message "No items in today's standup")
+      (let ((done '()) (todo '()) (blocked '()) (questions '()) (other '()))
+        ;; Group items
+        (dolist (item items)
+          (let ((state (plist-get item :state))
+                (tags (plist-get item :tags))
+                (text (plist-get item :text)))
+            (cond
+             ((equal state "DONE") (push text done))
+             ((member "blocked" tags) (push text blocked))
+             ((member "question" tags) (push text questions))
+             ((equal state "TODO") (push text todo))
+             (t (push text other)))))
+        ;; Build export
+        (let ((export ""))
+          (when done
+            (setq export (concat export "*Done*\n"
+                                (mapconcat (lambda (t) (format "- [x] %s" t))
+                                           (nreverse done) "\n") "\n\n")))
+          (when todo
+            (setq export (concat export "*Doing*\n"
+                                (mapconcat (lambda (t) (format "- [ ] %s" t))
+                                           (nreverse todo) "\n") "\n\n")))
+          (when blocked
+            (setq export (concat export "*Blocked*\n"
+                                (mapconcat (lambda (t) (format "- [ ] %s" t))
+                                           (nreverse blocked) "\n") "\n\n")))
+          (when questions
+            (setq export (concat export "*Questions*\n"
+                                (mapconcat (lambda (t) (format "- %s" t))
+                                           (nreverse questions) "\n") "\n\n")))
+          (when other
+            (setq export (concat export "*Notes*\n"
+                                (mapconcat (lambda (t) (format "- %s" t))
+                                           (nreverse other) "\n") "\n")))
+          (kill-new (string-trim export))
+          (message "Exported standup to clipboard"))))))
+
+(defun meeting-standup-carryover-todos ()
+  "Carry over incomplete TODO items from previous standup.
+Finds TODO items in the most recent standup and adds them to today's."
+  (let ((prev-file (meeting--previous-occurrence-file 'standup)))
+    (if (not prev-file)
+        (message "No previous standup found")
+      (let ((todos '()))
+        (with-temp-buffer
+          (insert-file-contents prev-file)
+          (goto-char (point-min))
+          ;; Find TODO items (not DONE)
+          (while (re-search-forward "^\\*\\* TODO\\s-+\\(.+?\\)\\(\\s-+:[^:]+:\\)?$" nil t)
+            (push (match-string 1) todos)))
+        (if (not todos)
+            (message "No TODO items to carry over")
+          (dolist (item (nreverse todos))
+            (meeting--add-org-item-next 'standup item "TODO"))
+          (message "Carried over %d TODO items" (length todos)))))))
+
 (defun meeting-standup-mark-done ()
   "Mark a TODO item from today's standup as DONE.
-Shows numbered list of Doing items, select by number or search."
+Shows numbered list, select by number or search."
   (interactive)
-  (let ((todos (meeting--get-today-todos)))
+  (let ((todos (meeting--get-standup-todos)))
     (if (not todos)
         (message "No TODO items in today's standup")
-      ;; Build numbered choices for completing-read
       (let* ((choices (cl-loop for (_line . text) in todos
                                for i from 1
                                collect (format "%d: %s" i text)))
              (selection (completing-read "Mark done: " choices nil t)))
         (when (and selection (string-match "^[0-9]+: \\(.+\\)" selection))
-          (let ((text (match-string 1 selection)))
-            (if (meeting--mark-item-done text)
-                (progn
+          (let ((text (match-string 1 selection))
+                (file (meeting--occurrence-file 'standup)))
+            (with-current-buffer (find-file-noselect file)
+              (save-excursion
+                (goto-char (point-min))
+                (when (re-search-forward
+                       (format "^\\(\\*\\*\\) TODO\\s-+%s" (regexp-quote text)) nil t)
+                  (replace-match (format "%s DONE %s" (match-string 1) text))
+                  (save-buffer)
                   (message "✓ %s" text)
-                  ;; Refresh buffer if we're in the standup file
-                  (when (and buffer-file-name
-                             (string-match-p "standup" buffer-file-name))
-                    (revert-buffer t t t)))
-              (message "Failed to mark done: %s" text))))))))
+                  (when (string= buffer-file-name file)
+                    (revert-buffer t t t)))))))))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Standup-Specific Commands (Pure Org-Mode)
+;;; ════════════════════════════════════════════════════════════════════════════
+;;
+;; Standup uses pure org-mode structure:
+;;   ** TODO item text               - task to do
+;;   ** DONE item text               - completed task
+;;   ** TODO blocked item   :blocked: - blocked task
+;;   ** Question about X   :question: - discussion item
+;;   ** Note about Y         :agenda: - meeting topic
+;;
+;; Mark done: use org-todo (C-c C-t) at point, or M-x meeting-standup-mark-done
+
+;;;###autoload
+(defun meeting-standup-add (item)
+  "Add a TODO item to today's standup."
+  (interactive
+   (list (if (use-region-p)
+             (buffer-substring-no-properties (region-beginning) (region-end))
+           (read-string "TODO: "))))
+  (when (and item (not (string-empty-p item)))
+    (meeting--add-org-item-next 'standup item "TODO")))
 
 ;;;###autoload
 (defun meeting-standup-add-done (item)
-  "Add a NEW item to standup Done section.
-For marking existing items done, use `meeting-standup-mark-done'."
+  "Add a DONE item to today's standup (for retroactive logging)."
   (interactive
    (list (if (use-region-p)
              (buffer-substring-no-properties (region-beginning) (region-end))
            (read-string "Done: "))))
   (when (and item (not (string-empty-p item)))
-    (meeting--add-to-next 'standup "Done" item)))
-
-;; Keep old name as alias for compatibility
-(defalias 'meeting-standup-done 'meeting-standup-add-done)
+    (meeting--add-org-item-next 'standup item "DONE")))
 
 ;;;###autoload
-(defun meeting-standup-doing (item)
-  "Add ITEM to standup Doing section."
+(defun meeting-standup-add-blocked (item)
+  "Add a blocked TODO item to today's standup."
   (interactive
    (list (if (use-region-p)
              (buffer-substring-no-properties (region-beginning) (region-end))
-           (read-string "Doing: "))))
+           (read-string "Blocked: "))))
   (when (and item (not (string-empty-p item)))
-    (meeting--add-to-next 'standup "Doing" item)))
+    (meeting--add-org-item-next 'standup item "TODO" '("blocked"))))
 
 ;;;###autoload
-(defun meeting-standup-blocker (item)
-  "Add ITEM to standup Blockers section."
-  (interactive
-   (list (if (use-region-p)
-             (buffer-substring-no-properties (region-beginning) (region-end))
-           (read-string "Blocker: "))))
-  (when (and item (not (string-empty-p item)))
-    (meeting--add-to-next 'standup "Blockers" item)))
-
-;;;###autoload
-(defun meeting-standup-question (item)
-  "Add ITEM to standup Questions section."
+(defun meeting-standup-add-question (item)
+  "Add a question/discussion item to today's standup."
   (interactive
    (list (if (use-region-p)
              (buffer-substring-no-properties (region-beginning) (region-end))
            (read-string "Question: "))))
   (when (and item (not (string-empty-p item)))
-    (meeting--add-to-next 'standup "Questions" item)))
+    (meeting--add-org-item-next 'standup item nil '("question"))))
 
 ;;;###autoload
-(defun meeting-standup-agenda (item)
-  "Add ITEM to standup Agenda section (discussion topics)."
+(defun meeting-standup-add-agenda (item)
+  "Add an agenda/discussion topic to today's standup."
   (interactive
    (list (if (use-region-p)
              (buffer-substring-no-properties (region-beginning) (region-end))
            (read-string "Agenda: "))))
   (when (and item (not (string-empty-p item)))
-    (meeting--add-to-next 'standup "Agenda" item)))
+    (meeting--add-org-item-next 'standup item nil '("agenda"))))
+
+;; Aliases for backward compatibility and discoverability
+(defalias 'meeting-standup-done 'meeting-standup-add-done)
+(defalias 'meeting-standup-doing 'meeting-standup-add)
+(defalias 'meeting-standup-blocker 'meeting-standup-add-blocked)
+(defalias 'meeting-standup-question 'meeting-standup-add-question)
+(defalias 'meeting-standup-agenda 'meeting-standup-add-agenda)
+
+(defcustom meeting-standup-auto-carryover t
+  "When non-nil, auto-carryover incomplete TODOs when opening a new standup."
+  :type 'boolean
+  :group 'meeting)
 
 ;;;###autoload
 (defun meeting-standup ()
-  "Open today's standup notes."
+  "Open today's standup notes.
+If `meeting-standup-auto-carryover' is non-nil and today's file
+is being created fresh, carry over incomplete TODOs from previous standup."
   (interactive)
-  (meeting-open-today 'standup))
+  (let ((file (meeting--occurrence-file 'standup))
+        (is-new (not (meeting--occurrence-exists-p 'standup))))
+    (meeting-open-today 'standup)
+    ;; Auto-carryover if this is a fresh file
+    (when (and is-new meeting-standup-auto-carryover)
+      (message "Auto-carrying over incomplete TODOs...")
+      (meeting-standup-carryover-todos))))
 
 ;;;###autoload
 (defun meeting-standup-export ()
-  "Export today's standup to clipboard."
+  "Export today's standup to clipboard (grouped by state/tag)."
   (interactive)
-  (meeting-export 'standup))
+  (meeting-standup-export-org))
 
 ;;;###autoload
 (defun meeting-standup-carryover ()
-  "Carry over incomplete Doing items from previous standup.
-Only items that are not marked DONE are carried over."
+  "Carry over incomplete TODO items from previous standup."
   (interactive)
-  (meeting-carryover 'standup "Doing" t))
+  (meeting-standup-carryover-todos))
 
 ;;;###autoload
 (defun meeting-standup-post-slack ()
@@ -849,40 +987,69 @@ Returns alist of (line-number . item-text) for items with TODO state."
               (push (cons (line-number-at-pos) (match-string 2)) todos))))))
     (nreverse todos)))
 
-(defun meeting--mark-item-done (item-text)
-  "Mark ITEM-TEXT as DONE in today's standup.
+(defun meeting--mark-standup-item-done (item-text)
+  "Mark ITEM-TEXT as DONE in today's standup (pure org structure).
 Finds the item and changes TODO to DONE."
   (let ((file (meeting--occurrence-file 'standup)))
     (when (file-exists-p file)
       (with-current-buffer (find-file-noselect file)
         (save-excursion
           (goto-char (point-min))
-          ;; Find the item - escape special regex chars in item-text
           (let ((escaped-text (regexp-quote item-text)))
             (when (re-search-forward
-                   (format "^\\(\\*\\*\\*\\*?\\) TODO:?\\s-*%s" escaped-text)
+                   (format "^\\(\\*\\*\\) TODO\\s-+%s" escaped-text)
                    nil t)
               (replace-match (format "%s DONE %s" (match-string 1) item-text))
               (save-buffer)
               t)))))))
+
+;; Keep old name for compatibility
+(defalias 'meeting--mark-item-done 'meeting--mark-standup-item-done)
 
 (defun meeting--magit-post-commit-hook ()
   "After commit, offer to mark standup items done.
 Only runs if `meeting-magit-mark-done-enabled' is non-nil."
   (when (and meeting-magit-mark-done-enabled
              (meeting--occurrence-exists-p 'standup))
-    (let ((todos (meeting--get-today-todos)))
+    (let ((todos (meeting--get-standup-todos)))
       (when todos
         (let* ((choices (mapcar #'cdr todos))
                (selected (completing-read-multiple
                           "Mark DONE (comma-sep, empty to skip): "
                           choices)))
           (dolist (item selected)
-            (when (meeting--mark-item-done item)
+            (when (meeting--mark-standup-item-done item)
               (message "Marked done: %s" item))))))))
 
 (with-eval-after-load 'magit
   (add-hook 'git-commit-post-finish-hook #'meeting--magit-post-commit-hook))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Org-Agenda Integration
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun meeting--standup-agenda-files ()
+  "Return list of recent standup files for org-agenda."
+  (let ((dir (meeting-get 'standup :directory)))
+    (when (file-directory-p dir)
+      ;; Get last 7 days of standups
+      (let ((files (directory-files dir t "\\.org$" t)))
+        (seq-take (sort files #'string>) 7)))))
+
+;;;###autoload
+(defun meeting-standup-agenda ()
+  "Show org-agenda view of standup TODOs."
+  (interactive)
+  (let ((org-agenda-files (meeting--standup-agenda-files)))
+    (if (not org-agenda-files)
+        (message "No standup files found")
+      (org-agenda nil "t"))))  ; "t" = TODO list
+
+;; Add standup directory to org-agenda-files when loaded
+(with-eval-after-load 'org-agenda
+  (let ((standup-dir (expand-file-name "standup" meeting-directory)))
+    (when (file-directory-p standup-dir)
+      (add-to-list 'org-agenda-files standup-dir t))))
 
 ;;;###autoload
 (defun meeting-toggle-magit-integration ()
@@ -906,27 +1073,29 @@ When enabled, you'll be prompted to mark standup items done after each commit."
       ("t" "Today's notes" meeting-open-today)]
      ["Add"
       ("n" "Add to next" meeting-add-to-next)
+      ("T" "Add to today" meeting-add-to-today)
       ("c" "Carryover" meeting-carryover)
       ("C" "Carryover (incomplete)" meeting-carryover-incomplete)]
      ["Export"
       ("e" "Export" meeting-export)]]
-    ["Standup"
+    ["Standup (pure org-mode)"
      [("s s" "Open standup" meeting-standup)
+      ("s t" "Add TODO" meeting-standup-add)
       ("s d" "Mark done" meeting-standup-mark-done)
-      ("s g" "Add Doing" meeting-standup-doing)
-      ("s b" "Add Blocker" meeting-standup-blocker)
-      ("s q" "Add Question" meeting-standup-question)]
-     [("s +" "Add Done (new)" meeting-standup-add-done)
-      ("s a" "Add Agenda" meeting-standup-agenda)
-      ("s c" "Carryover" meeting-standup-carryover)
+      ("s +" "Add DONE" meeting-standup-add-done)]
+     [("s b" "Add blocked" meeting-standup-add-blocked)
+      ("s q" "Add question" meeting-standup-add-question)
+      ("s a" "Add agenda" meeting-standup-add-agenda)]
+     [("s c" "Carryover TODOs" meeting-standup-carryover)
       ("s e" "Export" meeting-standup-export)
       ("s p" "Post to Slack" meeting-standup-post-slack)]]
     ["Standup - Integrations"
-     [("s D" "Share w/ Daly" meeting-standup-share-daly)
+     [("s A" "Org agenda" meeting-standup-agenda)
+      ("s D" "Share w/ Daly" meeting-standup-share-daly)
       ("s S" "Share w/ User" meeting-standup-share-with-user)]
      [("s F" "Create Feature" meeting-standup-create-feature)
-      ("s j" "Jump to Branch" meeting-standup-jump-to-branch)]
-     [("s m" "Toggle Magit" meeting-toggle-magit-integration)]])
+      ("s j" "Jump to Branch" meeting-standup-jump-to-branch)
+      ("s m" "Toggle Magit" meeting-toggle-magit-integration)]])
   ;; Set keybinding after transient is defined
   (global-set-key (kbd "C-c M ?") #'meeting-transient))
 
@@ -937,24 +1106,26 @@ When enabled, you'll be prompted to mark standup items done after each commit."
 ;; Main prefix: C-c M
 (global-set-key (kbd "C-c M o") #'meeting-open)
 (global-set-key (kbd "C-c M t") #'meeting-open-today)
+(global-set-key (kbd "C-c M T") #'meeting-add-to-today)  ; Pre-fill today's agenda
 (global-set-key (kbd "C-c M n") #'meeting-add-to-next)
 (global-set-key (kbd "C-c M c") #'meeting-carryover)
 (global-set-key (kbd "C-c M e") #'meeting-export)
 ;; C-c M ? binding set in with-eval-after-load transient block above
 
-;; Standup shortcuts: C-c M s
-(global-set-key (kbd "C-c M s s") #'meeting-standup)
-(global-set-key (kbd "C-c M s d") #'meeting-standup-mark-done)  ; Mark existing item done
-(global-set-key (kbd "C-c M s +") #'meeting-standup-add-done)   ; Add new done item
-(global-set-key (kbd "C-c M s g") #'meeting-standup-doing)
-(global-set-key (kbd "C-c M s b") #'meeting-standup-blocker)
-(global-set-key (kbd "C-c M s q") #'meeting-standup-question)
-(global-set-key (kbd "C-c M s a") #'meeting-standup-agenda)
-(global-set-key (kbd "C-c M s c") #'meeting-standup-carryover)
+;; Standup shortcuts: C-c M s (pure org-mode structure)
+(global-set-key (kbd "C-c M s s") #'meeting-standup)           ; Open today's standup
+(global-set-key (kbd "C-c M s t") #'meeting-standup-add)       ; Add TODO item
+(global-set-key (kbd "C-c M s d") #'meeting-standup-mark-done) ; Mark item done (picker)
+(global-set-key (kbd "C-c M s +") #'meeting-standup-add-done)  ; Add DONE item (retroactive)
+(global-set-key (kbd "C-c M s b") #'meeting-standup-add-blocked)
+(global-set-key (kbd "C-c M s q") #'meeting-standup-add-question)
+(global-set-key (kbd "C-c M s a") #'meeting-standup-add-agenda)
+(global-set-key (kbd "C-c M s c") #'meeting-standup-carryover) ; Carryover TODOs
 (global-set-key (kbd "C-c M s e") #'meeting-standup-export)
 (global-set-key (kbd "C-c M s p") #'meeting-standup-post-slack)
 
 ;; Standup integrations: C-c M s (continued)
+(global-set-key (kbd "C-c M s A") #'meeting-standup-agenda)  ; org-agenda view
 (global-set-key (kbd "C-c M s D") #'meeting-standup-share-daly)
 (global-set-key (kbd "C-c M s S") #'meeting-standup-share-with-user)
 (global-set-key (kbd "C-c M s F") #'meeting-standup-create-feature)

@@ -28,9 +28,10 @@
 ;;   C-c c w e - Explain code (region or file)
 ;;   C-c c w c - Suggest commit message
 
-(use-package! claude-code
-  :after vterm
-  :config
+;; Load claude-code after vterm is available
+(after! vterm
+  (require 'claude-code)
+
   ;; Use vterm as the terminal backend (already have it via Doom)
   (setq claude-code-terminal-backend 'vterm)
 
@@ -138,7 +139,6 @@ Use this instead of claude-code to ensure Claude opens HERE."
     (if (not buf)
         (message "No Claude buffer found")
       (let ((summary '())
-            (content (with-current-buffer buf (buffer-string)))
             (lines (with-current-buffer buf
                      (save-excursion
                        (goto-char (point-max))
@@ -170,8 +170,20 @@ Use this instead of claude-code to ensure Claude opens HERE."
           (message "No recent activity found"))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
-;;; Vterm Completion (handles read-only mode)
+;;; Claude Completion System - Corfu Integration
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;
+;; Full Corfu-style completion for Claude buffers with:
+;; - Slash commands with documentation
+;; - File path completion
+;; - Dabbrev from all buffers
+;; - Orderless fuzzy matching
+;; - Sexy inline popup via Corfu
+;;
+;; Keybindings:
+;;   TAB       - Trigger completion (auto-triggers after 2 chars)
+;;   C-c /     - Slash commands only
+;;   M-/       - Force completion popup
 
 (defun claude--ensure-writable ()
   "Ensure Claude buffer is not in read-only mode for insertion."
@@ -179,50 +191,246 @@ Use this instead of claude-code to ensure Claude opens HERE."
              (bound-and-true-p claude-code-read-only-mode))
     (claude-code-toggle-read-only-mode)))
 
-(defun vterm-dabbrev-expand ()
-  "Dabbrev expand in vterm by entering copy mode, completing, then returning."
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Slash Commands - with documentation for annotations
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defvar claude-slash-commands
+  '(("/help"           . "Show help and available commands")
+    ("/clear"          . "Clear conversation history")
+    ("/compact"        . "Compact conversation to save context")
+    ("/status"         . "Show Claude status and session info")
+    ("/doctor"         . "Run diagnostics on Claude setup")
+    ("/config"         . "Configure Claude settings")
+    ("/init"           . "Initialize project configuration")
+    ("/memory"         . "Manage conversation memory")
+    ("/add-dir"        . "Add directory to context")
+    ("/terminal-setup" . "Setup terminal integration")
+    ("/login"          . "Login to Anthropic account")
+    ("/logout"         . "Logout from Anthropic account")
+    ("/model"          . "Select AI model (opus/sonnet/haiku)")
+    ("/permissions"    . "Manage file/tool permissions")
+    ("/cost"           . "Show token usage and costs")
+    ("/review"         . "Review code changes")
+    ("/pr_comments"    . "Fetch and show PR comments")
+    ("/agents"         . "List and manage sub-agents")
+    ("/vim"            . "Toggle vim keybinding mode")
+    ("/mcp"            . "MCP server management")
+    ("/bug"            . "Report a bug to Anthropic")
+    ("/test-plan"      . "Generate test plan for changes")
+    ("/pr-description" . "Generate PR description")
+    ("/diff"           . "Show git diff context")
+    ("/context"        . "Show current context window usage"))
+  "Claude slash commands with descriptions for completion annotations.")
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Capf Functions - completion-at-point-functions for Corfu
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun claude-slash-capf ()
+  "Completion-at-point function for Claude slash commands.
+Returns completions with annotations showing command descriptions."
+  (when (derived-mode-p 'vterm-mode)
+    (let* ((line-start (save-excursion (vterm-beginning-of-line) (point)))
+           (before-point (buffer-substring-no-properties line-start (point))))
+      ;; Only complete if we're at beginning of input or after whitespace
+      (when (string-match-p "\\(?:^\\|\\s-\\)/[a-z-]*$" before-point)
+        (let* ((slash-pos (save-excursion
+                            (when (re-search-backward "/" line-start t)
+                              (point))))
+               (start (or slash-pos (point)))
+               (end (point))
+               (prefix (buffer-substring-no-properties start end)))
+          (when (string-prefix-p "/" prefix)
+            (list start end
+                  (mapcar #'car claude-slash-commands)
+                  :annotation-function
+                  (lambda (cmd)
+                    (when-let ((desc (cdr (assoc cmd claude-slash-commands))))
+                      (concat "  " (propertize desc 'face 'font-lock-comment-face))))
+                  :company-docsig
+                  (lambda (cmd)
+                    (cdr (assoc cmd claude-slash-commands)))
+                  :exclusive 'no)))))))
+
+(defun claude-file-capf ()
+  "Completion-at-point function for file paths in Claude buffers.
+Activates when typing paths starting with / ~ or ./"
+  (when (derived-mode-p 'vterm-mode)
+    (let* ((bounds (bounds-of-thing-at-point 'filename))
+           (start (car bounds))
+           (end (cdr bounds)))
+      (when (and start end)
+        (let ((prefix (buffer-substring-no-properties start end)))
+          (when (string-match-p "^[/~.]" prefix)
+            (let* ((dir (or (file-name-directory prefix) default-directory))
+                   (base (file-name-nondirectory prefix))
+                   (files (when (file-directory-p dir)
+                            (file-name-all-completions base dir))))
+              (when files
+                (list start end
+                      (mapcar (lambda (f) (concat dir f)) files)
+                      :annotation-function
+                      (lambda (path)
+                        (cond
+                         ((file-directory-p path) "  [dir]")
+                         ((file-executable-p path) "  [exe]")
+                         (t nil)))
+                      :exclusive 'no)))))))))
+
+(defun claude-dabbrev-capf ()
+  "Completion-at-point function for dabbrev in Claude buffers.
+Searches all buffers for word completions."
+  (when (derived-mode-p 'vterm-mode)
+    (let* ((bounds (bounds-of-thing-at-point 'symbol))
+           (start (car bounds))
+           (end (cdr bounds)))
+      (when (and start end (> (- end start) 1))
+        (let ((prefix (buffer-substring-no-properties start end))
+              (expansions nil))
+          ;; Configure dabbrev to search all buffers
+          (let ((dabbrev-check-all-buffers t)
+                (dabbrev-check-other-buffers t))
+            (setq expansions (ignore-errors
+                               (dabbrev--find-all-expansions prefix nil))))
+          (when expansions
+            (list start end
+                  (delete-dups expansions)
+                  :exclusive 'no)))))))
+
+(defun claude-env-capf ()
+  "Completion-at-point function for environment variables.
+Activates when typing $VAR patterns."
+  (when (derived-mode-p 'vterm-mode)
+    (save-excursion
+      (when (re-search-backward "\\$\\([A-Za-z_][A-Za-z0-9_]*\\)?\\=" nil t)
+        (let* ((start (match-beginning 0))
+               (end (point))
+               (prefix (buffer-substring-no-properties (1+ start) end))
+               (env-vars (mapcar (lambda (e)
+                                   (concat "$" (car (split-string e "="))))
+                                 process-environment)))
+          (list start end
+                (if (string-empty-p prefix)
+                    env-vars
+                  (cl-remove-if-not
+                   (lambda (v) (string-prefix-p (concat "$" prefix) v t))
+                   env-vars))
+                :exclusive 'no))))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Combined Capf - merges all sources
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun claude-combined-capf ()
+  "Combined completion-at-point function for Claude buffers.
+Tries slash commands, then env vars, then files, then dabbrev."
+  (or (claude-slash-capf)
+      (claude-env-capf)
+      (claude-file-capf)
+      (claude-dabbrev-capf)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Vterm Completion Wrapper - handles insertion correctly
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defvar claude--completing nil
+  "Non-nil when Claude completion is in progress.")
+
+(defun claude-complete ()
+  "Trigger completion in Claude buffer with Corfu integration.
+Handles vterm's special insertion requirements."
   (interactive)
   (claude--ensure-writable)
-  (if (derived-mode-p 'vterm-mode)
-      (let ((word (thing-at-point 'word t)))
-        (if word
-            ;; Use dabbrev to find expansion from other buffers
-            (let* ((dabbrev-check-all-buffers t)
-                   (expansion (dabbrev--find-expansion word 0 nil)))
-              (if expansion
-                  (progn
-                    ;; Delete the partial word and insert expansion
-                    (vterm-send-key "C-w")  ; Delete word backward
-                    (vterm-insert expansion))
-                (message "No expansion found for: %s" word)))
-          (message "No word at point")))
-    ;; Not in vterm, use regular dabbrev
-    (dabbrev-expand nil)))
+  (if (not (derived-mode-p 'vterm-mode))
+      (completion-at-point)
+    ;; Get completion data from our capf
+    (let* ((capf-result (claude-combined-capf)))
+      (if (not capf-result)
+          (message "No completions available")
+        (let* ((start (nth 0 capf-result))
+               (end (nth 1 capf-result))
+               (collection (nth 2 capf-result))
+               (props (nthcdr 3 capf-result))
+               (prefix (buffer-substring-no-properties start end))
+               (ann-fn (plist-get props :annotation-function))
+               ;; Build completion table with metadata
+               (table (lambda (string pred action)
+                        (if (eq action 'metadata)
+                            `(metadata
+                              (category . claude)
+                              (annotation-function . ,ann-fn))
+                          (complete-with-action action collection string pred))))
+               ;; Use completing-read (Vertico/Corfu will enhance this)
+               (completion-extra-properties props)
+               (choice (completing-read
+                        "› "
+                        table
+                        nil nil prefix)))
+          (when (and choice (not (string-equal choice prefix)))
+            ;; Delete prefix via backspaces
+            (dotimes (_ (length prefix))
+              (vterm-send-backspace))
+            ;; Insert completion
+            (vterm-insert choice)))))))
 
-(defun vterm-completion-at-point ()
-  "Show completion candidates for word at point in vterm."
+(defun claude-complete-slash ()
+  "Quick slash command completion.
+Shows only slash commands with documentation."
   (interactive)
   (claude--ensure-writable)
-  (if (derived-mode-p 'vterm-mode)
-      (let ((word (thing-at-point 'word t)))
-        (if word
-            (let* ((dabbrev-check-all-buffers t)
-                   (candidates (dabbrev--find-all-expansions word nil)))
-              (if candidates
-                  (let ((choice (completing-read
-                                 (format "Complete '%s': " word)
-                                 candidates nil nil)))
-                    (when choice
-                      (vterm-send-key "C-w")
-                      (vterm-insert choice)))
-                (message "No completions found")))
-          (message "No word at point")))
-    (completion-at-point)))
+  (when (derived-mode-p 'vterm-mode)
+    (let* ((table (lambda (string pred action)
+                    (if (eq action 'metadata)
+                        '(metadata
+                          (category . claude-slash)
+                          (annotation-function .
+                           (lambda (cmd)
+                             (when-let ((desc (cdr (assoc cmd claude-slash-commands))))
+                               (concat "  " (propertize desc 'face 'font-lock-comment-face))))))
+                      (complete-with-action action (mapcar #'car claude-slash-commands) string pred))))
+           (choice (completing-read "/ " table nil nil "/")))
+      (when choice
+        (vterm-insert choice)))))
 
-;; Bind in vterm-mode-map (C-c / for completion since M-/ is captured)
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Corfu Integration - auto-trigger in Claude buffers
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(defun claude-setup-completion ()
+  "Setup completion for Claude vterm buffers."
+  ;; Register our capf
+  (setq-local completion-at-point-functions '(claude-combined-capf))
+  ;; Corfu settings for Claude
+  (setq-local corfu-auto t
+              corfu-auto-prefix 2
+              corfu-auto-delay 0.15
+              corfu-quit-no-match 'separator
+              corfu-preselect 'prompt)
+  ;; Orderless for fuzzy matching
+  (setq-local completion-styles '(orderless basic)
+              completion-category-overrides nil))
+
+;; Hook into Claude buffers
+(defun claude-maybe-setup-completion ()
+  "Setup completion if this is a Claude buffer."
+  (when (claude-buffer-p)
+    (claude-setup-completion)))
+
+(add-hook 'vterm-mode-hook #'claude-maybe-setup-completion)
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Keybindings
+;;; ─────────────────────────────────────────────────────────────────────────────
+
 (with-eval-after-load 'vterm
-  (define-key vterm-mode-map (kbd "C-c /") #'vterm-completion-at-point)
-  (define-key vterm-mode-map (kbd "C-c TAB") #'vterm-completion-at-point))
+  (define-key vterm-mode-map (kbd "TAB") #'claude-complete)
+  (define-key vterm-mode-map (kbd "C-c /") #'claude-complete-slash)
+  (define-key vterm-mode-map (kbd "C-c TAB") #'claude-complete)
+  (define-key vterm-mode-map (kbd "M-/") #'claude-complete)
+  ;; s-z as quick shortcut for same function as C-c c z
+  ;; Bind in ashton-mode-map (global) so it works in vterm
+  (define-key ashton-mode-map (kbd "s-z") #'claude-code-toggle-read-only-mode))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Workflow Commands - Pre-built prompts with context
@@ -273,6 +481,58 @@ Use this instead of claude-code to ensure Claude opens HERE."
 (define-key ashton-mode-map (kbd "C-c c w f") #'claude-workflow-fix-error)
 (define-key ashton-mode-map (kbd "C-c c w e") #'claude-workflow-explain)
 (define-key ashton-mode-map (kbd "C-c c w c") #'claude-workflow-commit)
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Git Worktree Protection Hook
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defcustom orchard-protect-worktree-branches t
+  "When non-nil, warn/block git checkout commands that would switch branches."
+  :type 'boolean
+  :group 'orchard)
+
+(defun orchard--git-checkout-warning-hook (message)
+  "Intercept git checkout/switch commands and warn user.
+MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
+  (when (and orchard-protect-worktree-branches
+             (eq (plist-get message :type) 'pre-tool-use))
+    (let* ((json-data (plist-get message :json-data))
+           (parsed-data (when json-data
+                          (condition-case nil
+                              (json-read-from-string json-data)
+                            (error nil))))
+           (tool-name (when parsed-data (alist-get 'tool_name parsed-data)))
+           (tool-input (when parsed-data (alist-get 'tool_input parsed-data))))
+
+      ;; Check if this is a Bash command with git checkout/switch that changes branches
+      (when (and (equal tool-name "Bash")
+                 tool-input
+                 (let ((cmd (alist-get 'command tool-input)))
+                   (and (stringp cmd)
+                        ;; Match git checkout/switch but NOT file operations
+                        (string-match-p "git \\(checkout\\|switch\\)" cmd)
+                        (not (string-match-p "git checkout \\(--\\|HEAD\\)" cmd)))))
+
+        (let* ((command (alist-get 'command tool-input))
+               (response (read-char-choice
+                          (format "⚠️  WORKTREE WARNING: Claude wants to run:\n\n  %s\n\nThis may switch branches and break worktree integrity.\nAllow? (y)es / (n)o / (a)sk Claude Code: "
+                                  command)
+                          '(?y ?n ?a ?Y ?N ?A)))
+               (decision (cond
+                          ((memq response '(?y ?Y)) "allow")
+                          ((memq response '(?n ?N)) "deny")
+                          ((memq response '(?a ?A)) "ask")
+                          (t "deny"))))
+
+          (message "")  ; Clear minibuffer
+          (json-encode
+           `((hookSpecificOutput
+              . ((hookEventName . "PreToolUse")
+                 (permissionDecision . ,decision)
+                 (permissionDecisionReason . "Worktree branch protection"))))))))))
+
+;; Register the hook
+(add-hook 'claude-code-event-hook #'orchard--git-checkout-warning-hook)
 
 (provide 'config-claude)
 ;;; config-claude.el ends here
