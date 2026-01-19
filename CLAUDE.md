@@ -193,7 +193,51 @@ Located in `config-magit.el`:
 | `C-c c y` | `claude-code-yes` | Answer "yes" to prompt |
 | `C-c c n` | `claude-code-no` | Answer "no" to prompt |
 | `C-c c k` | `claude-code-kill` | Kill Claude instance |
-| `C-c c z` | `claude-code-toggle-read-only-mode` | Copy text from Claude |
+| `C-c c z` / `s-z` | `claude-code-toggle-read-only-mode` | Toggle copy mode |
+
+**Modeline indicator**: Shows Claude status globally: `[Claude: 2🟢]` (running) or `[Claude: 1⏳]` (waiting for input)
+
+---
+
+## Orchard - Git Worktree Manager (C-c O prefix)
+
+Located in `config-orchard.el`. Opens on startup.
+
+### Workflow
+
+```
+Issue → Branch → Claude → PR → Merge → Cleanup
+```
+
+### Dashboard Keybindings
+
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `I` | Start branch from issue | Creates worktree linked to GitHub issue |
+| `RET` | Open magit | For worktree at point |
+| `c` | Open Claude | For worktree at point |
+| `d` | Open dired | For worktree at point |
+| `P` | Create PR | With auto-populated title/body |
+| `u` | Push branch | To origin |
+| `M` | Cleanup merged | Archive worktrees with closed issues |
+| `+` | Allocate port | For dev server (lazy allocation) |
+| `_` | Release port | Free up port slot |
+| `s` | Toggle staging | Show/hide issues with staging label |
+| `g` | Refresh | Update dashboard |
+| `q` | Quit | Close dashboard |
+
+### Stages (auto-detected)
+
+- **In Progress**: Default working state
+- **PR Open**: Has open pull request
+- **Merged**: Branch merged to upstream
+
+### Port Allocation
+
+Ports are allocated lazily - only when needed for `make dev`:
+- Press `+` to allocate a port (max 10 worktrees)
+- Stale ports auto-cleaned on refresh
+- Deleting worktree frees the port
 
 ---
 
