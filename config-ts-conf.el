@@ -4,9 +4,18 @@
 (add-to-list 'auto-mode-alist '("\\.cnf\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.list\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.ini\\'" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\.env\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.env\\..*\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.config\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\Pipfile\\'" . conf-mode))
+
+;; Make expand-region stop at = and other delimiters
+(add-hook 'conf-mode-hook
+          (lambda ()
+            ;; Treat = as punctuation, not part of symbol
+            (modify-syntax-entry ?= "." conf-mode-syntax-table)
+            ;; Also treat : as punctuation (for URLs, ports)
+            (modify-syntax-entry ?: "." conf-mode-syntax-table)))
 
 ;; clear paredit bindings paredit mode
 ;; (eval-after-load "paredit"

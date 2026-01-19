@@ -95,7 +95,7 @@ Only applies when `meeting-use-org-todo' is non-nil."
   (when (and buffer-file-name
              (string-match-p "meetings/standup" buffer-file-name))
     ;; Make x and d work without prefix in standup files
-    (local-set-key (kbd "C-c x") #'org-todo)
+    (local-set-key (kbd "C-c X") #'org-todo)
     (local-set-key (kbd "C-c d") #'meeting-standup-mark-done)))
 
 (add-hook 'org-mode-hook #'meeting--setup-standup-keys)
@@ -399,7 +399,11 @@ TAGS is a list of tag strings (without colons)."
                                         (mapcar #'car file-alist) nil t))
                (file (cdr (assoc choice file-alist))))
           (find-file file))
-      (message "No occurrences found for %s" (meeting-get type :name)))))
+      ;; No occurrences exist - offer to create today's
+      (if (y-or-n-p (format "No occurrences for %s. Create today's? "
+                            (meeting-get type :name)))
+          (meeting-open-today type)
+        (message "No occurrences found for %s" (meeting-get type :name))))))
 
 ;;;###autoload
 (defun meeting-open-today (type)
