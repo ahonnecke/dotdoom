@@ -35,6 +35,15 @@
   ;; Use vterm as the terminal backend (already have it via Doom)
   (setq claude-code-terminal-backend 'vterm)
 
+  ;; Global display rule: Claude buffers reuse existing Claude window
+  ;; or display in same window - NEVER split to create tiny windows
+  (add-to-list 'display-buffer-alist
+               '("\\*claude:"
+                 (display-buffer-reuse-window
+                  display-buffer-same-window)
+                 (reusable-frames . visible)
+                 (inhibit-same-window . nil)))
+
   ;; Custom command that captures window first, then starts Claude
   (defun claude-code-here ()
     "Start Claude in the current window (replaces current buffer).
