@@ -1894,8 +1894,7 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-waiting."
     ""))
 
 (defun orchard--format-workflow-indicator (stage)
-  "Format workflow indicator showing current stage.
-Shows what's next: →analysis, →plan, →pr, or ✓pr if done."
+  "Format workflow indicator showing what's DONE."
   (if (null stage)
       ""
     (let ((a (alist-get 'has-analysis stage))
@@ -1905,10 +1904,10 @@ Shows what's next: →analysis, →plan, →pr, or ✓pr if done."
       (concat
        (when w (propertize "⏳" 'face '(:foreground "#E5C07B" :weight bold)))
        (cond
-        (r (propertize "✓pr" 'face '(:foreground "#61AFEF" :weight bold)))
-        (p (propertize "→pr" 'face '(:foreground "#E5C07B")))
-        (a (propertize "→plan" 'face '(:foreground "#E5C07B")))
-        (t (propertize "→analysis" 'face '(:foreground "#5C6370"))))))))
+        (r (propertize "PR" 'face '(:foreground "#61AFEF" :weight bold)))
+        (p (propertize "planned" 'face '(:foreground "#98C379")))
+        (a (propertize "analyzed" 'face '(:foreground "#98C379")))
+        (t (propertize "wip" 'face '(:foreground "#5C6370"))))))))
 
 (defun orchard--format-issue (issue worktrees)
   "Format ISSUE for dashboard display. WORKTREES used to check for existing work."
