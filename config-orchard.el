@@ -2094,7 +2094,16 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
   (let* ((worktrees (orchard--get-worktrees))
          (current (orchard--current-worktree))
          (current-path (when current (alist-get 'path current)))
-         (claude-bufs (orchard--get-claude-buffers))
+         ;; Only count Claude sessions that belong to displayed worktrees
+         (claude-bufs (cl-remove-if-not
+                       (lambda (buf)
+                         (let ((bufname (buffer-name buf)))
+                           (cl-some (lambda (wt)
+                                      (let ((name (file-name-nondirectory
+                                                   (directory-file-name (alist-get 'path wt)))))
+                                        (string-match-p (regexp-quote name) bufname)))
+                                    worktrees)))
+                       (orchard--get-claude-buffers)))
          (waiting-count (cl-count-if #'orchard--claude-waiting-p claude-bufs))
          (total-claudes (length claude-bufs))
          ;; Skip slow checks during quick refresh
