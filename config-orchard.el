@@ -2207,7 +2207,9 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
          (dirty (alist-get 'dirty wt))
          (ahead (or (alist-get 'ahead wt) 0))
          (behind (or (alist-get 'behind wt) 0))
-         (claude-status (alist-get 'claude-status wt))  ; nil, 'running, or 'stopped
+         (claude-buf (orchard--claude-buffer-for-path path))
+         (claude-status (when claude-buf (orchard--claude-status claude-buf)))  ; waiting, idle, active, or nil
+         (needs-attention (memq claude-status '(waiting idle)))
          (column (alist-get 'column wt))
          (column-locked nil)  ; Skip expensive window check during display
          (description (alist-get 'description wt))
@@ -2222,7 +2224,9 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
          (linked-issue (when linked-issue-num
                          (orchard--get-issue-by-number linked-issue-num))))
     (let ((line (concat
-                 "  "
+                 (if needs-attention
+                     (propertize ">>>" 'face '(:foreground "#E06C75" :weight bold))
+                   "   ")
                  icon " "
                  (propertize (truncate-string-to-width branch 32 nil nil "…")
                              'face branch-face)
@@ -2233,8 +2237,9 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
                  (if (> behind 0) (format " ↓%d" behind) "")
                  ;; Claude status indicator
                  (pcase claude-status
-                   ('running (propertize " ◉" 'face 'orchard-claude-running))
-                   ('stopped (propertize " ○" 'face 'orchard-claude-stopped))
+                   ('waiting (propertize " ⏳WAIT" 'face '(:foreground "#E06C75" :weight bold)))
+                   ('idle (propertize " ✓DONE" 'face '(:foreground "#E5C07B" :weight bold)))
+                   ('active (propertize " ⟳" 'face '(:foreground "#61AFEF")))
                    (_ ""))
                  ;; Dev mode indicator
                  (if dev-owner (propertize " [DEV]" 'face '(:foreground "#E5C07B" :weight bold)) "")
