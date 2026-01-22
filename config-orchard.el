@@ -1571,32 +1571,17 @@ Keeps Claude in background - no window shown."
     claude-buf))
 
 (defun orchard--start-claude-with-resume (path)
-  "Start Claude for PATH in best window and auto-resume most recent session.
-Opens Claude visibly, then sends /resume and Enter after initialization."
+  "Start Claude for PATH in best window. Does NOT auto-resume - user can /resume manually."
   (orchard--ensure-claude-loaded)
   (let* ((target-win (orchard--find-best-window))
          (existing-claude (orchard--claude-buffer-for-path path)))
     (select-window target-win)
     (if existing-claude
-        ;; Claude exists - switch to it and resume
-        (progn
-          (switch-to-buffer existing-claude)
-          (orchard--send-resume-to-claude existing-claude 0.5))
+        ;; Claude exists - just switch to it
+        (switch-to-buffer existing-claude)
       ;; Start new Claude
-      (let ((default-directory path)
-            (buffers-before (buffer-list)))
-        (claude-code)
-        ;; Find the new Claude buffer and send /resume after init
-        (run-at-time 3 nil
-                     (lambda ()
-                       (when-let ((new-claude
-                                   (cl-find-if
-                                    (lambda (buf)
-                                      (and (string-prefix-p "*claude:" (buffer-name buf))
-                                           (not (memq buf buffers-before))
-                                           (buffer-live-p buf)))
-                                    (buffer-list))))
-                         (orchard--send-resume-to-claude new-claude 0))))))))
+      (let ((default-directory path))
+        (claude-code)))))
 
 (defun orchard--send-resume-to-claude (claude-buf delay)
   "Send /resume and Enter to CLAUDE-BUF after DELAY seconds."
