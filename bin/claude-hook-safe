@@ -1,0 +1,25 @@
+#!/bin/bash
+# Safe Claude hook wrapper with timeout
+# Falls back gracefully if emacsclient is unavailable
+
+TIMEOUT_SECS=2
+hook_type="$1"
+shift
+
+json_input=$(cat)
+
+# Try emacsclient with timeout - fail silently if unavailable
+response=$(timeout "$TIMEOUT_SECS" emacsclient --eval "(claude-code-handle-hook '$hook_type \"$CLAUDE_BUFFER_NAME\")" "$json_input" "$@" 2>/dev/null)
+exit_code=$?
+
+# If timeout or error, just exit cleanly (don't block Claude)
+if [[ $exit_code -ne 0 ]]; then
+    exit 0
+fi
+
+# Process response
+if [[ "$response" =~ ^\".*\"$ ]]; then
+    echo "$response" | sed 's/^"//;s/"$//' | sed 's/\\"/"/g'
+elif [[ "$response" != "nil" && -n "$response" ]]; then
+    echo "$response"
+fi
