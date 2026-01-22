@@ -171,6 +171,74 @@ Quick refresh (g) uses cached data within TTL."
 Used by quick refresh to ensure instant response.")
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Claude Status Tracking (via hooks)
+;;; ════════════════════════════════════════════════════════════════════════════
+;;
+;; Uses Claude Code's Notification and Stop hooks for reliable status tracking.
+;; Much more reliable than text pattern matching in vterm buffers.
+
+(defvar orchard--claude-status-table (make-hash-table :test 'equal)
+  "Hash table mapping buffer names to Claude status.
+Values: `waiting' (needs input), `idle' (finished), or `active' (working).")
+
+(defun orchard--claude-status-hook (message)
+  "Handle Claude hook events to track status.
+MESSAGE is a plist with :type and :buffer-name."
+  (let ((hook-type (plist-get message :type))
+        (buffer-name (plist-get message :buffer-name)))
+    (when buffer-name
+      (cond
+       ((eq hook-type 'notification)
+        ;; Claude is waiting for user input
+        (puthash buffer-name 'waiting orchard--claude-status-table)
+        ;; Trigger orchard refresh if visible
+        (when (get-buffer "*orchard*")
+          (orchard--schedule-refresh)))
+       ((eq hook-type 'stop)
+        ;; Claude finished working, now idle
+        (puthash buffer-name 'idle orchard--claude-status-table)
+        (when (get-buffer "*orchard*")
+          (orchard--schedule-refresh)))
+       ((memq hook-type '(pre-tool-use post-tool-use))
+        ;; Claude is actively working (using tools)
+        (puthash buffer-name 'active orchard--claude-status-table))))))
+
+(defvar orchard--refresh-timer nil
+  "Timer for debounced orchard refresh.")
+
+(defun orchard--schedule-refresh ()
+  "Schedule an orchard refresh, debounced."
+  (when orchard--refresh-timer
+    (cancel-timer orchard--refresh-timer))
+  (setq orchard--refresh-timer
+        (run-with-timer 0.3 nil
+                        (lambda ()
+                          (when-let ((buf (get-buffer "*orchard*")))
+                            (with-current-buffer buf
+                              (let ((orchard--inhibit-cache-refresh t))
+                                (orchard-refresh))))))))
+
+(defun orchard--claude-status-cleanup ()
+  "Remove dead buffer entries from status table."
+  (let ((dead-keys '()))
+    (maphash (lambda (k _v)
+               (unless (get-buffer k)
+                 (push k dead-keys)))
+             orchard--claude-status-table)
+    (dolist (k dead-keys)
+      (remhash k orchard--claude-status-table))))
+
+(defun orchard--claude-mark-active (buffer-name)
+  "Mark BUFFER-NAME as active (user is typing)."
+  (puthash buffer-name 'active orchard--claude-status-table))
+
+;; Register the hook listener
+(with-eval-after-load 'claude-code
+  (add-hook 'claude-code-event-hook #'orchard--claude-status-hook)
+  ;; Clean up dead entries periodically
+  (run-with-idle-timer 60 t #'orchard--claude-status-cleanup))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Merged Branch Detection (via GitHub PR)
 ;;; ════════════════════════════════════════════════════════════════════════════
 
@@ -384,14 +452,9 @@ Does nothing if `orchard--inhibit-cache-refresh' is non-nil."
       (orchard--refresh-closed-issues-cache))))
 
 (defun orchard--issue-closed-p (issue-number)
-  "Check if ISSUE-NUMBER is closed by querying GitHub directly.
-Returns t if closed, nil otherwise."
-  (let ((default-directory (or (orchard--get-repo-root) default-directory)))
-    (let ((state (string-trim
-                  (shell-command-to-string
-                   (format "gh issue view %d --json state -q .state 2>/dev/null"
-                           issue-number)))))
-      (string= state "CLOSED"))))
+  "Check if ISSUE-NUMBER is closed (from cache, no API call).
+Returns t if not in open issues cache."
+  (not (orchard--get-issue-by-number issue-number)))
 
 (defun orchard--get-issue-by-number (issue-number)
   "Get issue alist by ISSUE-NUMBER from cache.
@@ -417,33 +480,10 @@ Parses patterns like:
   (when (and branch (string-match "^[A-Za-z]+[/-]\\([0-9]+\\)-" branch))
     (string-to-number (match-string 1 branch))))
 
-(defun orchard--get-worktree-issue (path &optional branch)
-  "Get linked GitHub issue number for worktree at PATH, or nil.
-First checks .github-issue file, then tries to parse from BRANCH name.
-If auto-detected from branch, saves to .github-issue for future lookups.
-Warns if file and branch have different issue numbers."
-  (let ((file (expand-file-name ".github-issue" path))
-        (branch-issue (orchard--parse-issue-from-branch branch)))
-    (if (file-exists-p file)
-        ;; Read from explicit file
-        (let ((file-issue (with-temp-buffer
-                            (insert-file-contents file)
-                            (string-to-number (string-trim (buffer-string))))))
-          ;; Warn on mismatch but prefer branch number (more likely correct)
-          (when (and branch-issue (not (eq file-issue branch-issue)))
-            (message "Warning: %s has issue file=%d but branch=%d (using branch)"
-                     (file-name-nondirectory (directory-file-name path))
-                     file-issue branch-issue)
-            ;; Fix the file automatically
-            (orchard--save-worktree-issue path branch-issue))
-          (or branch-issue file-issue))
-      ;; Try to auto-detect from branch name
-      (when branch-issue
-        ;; Auto-save for future lookups (only if path exists and is writable)
-        (when (and (file-directory-p path)
-                   (file-writable-p path))
-          (orchard--save-worktree-issue path branch-issue))
-        branch-issue))))
+(defun orchard--get-worktree-issue (_path &optional branch)
+  "Get linked GitHub issue number for worktree, parsed from BRANCH name.
+Fast: no file I/O, just parses branch name like FEATURE-123-description."
+  (orchard--parse-issue-from-branch branch))
 
 (defun orchard--save-worktree-issue (path issue-number)
   "Save ISSUE-NUMBER link for worktree at PATH."
@@ -1048,31 +1088,33 @@ For use in `display-buffer-alist'."
   "Get all worktrees with status info.
 If INCLUDE-HIDDEN is non-nil, include hidden worktrees.
 If FORCE-REFRESH is non-nil, bypass cache and fetch fresh data.
-Respects `orchard--inhibit-cache-refresh' - always uses cache when set."
-  (let ((use-cache (and orchard--worktrees-cache  ; Must have cache to use it
-                        (or orchard--inhibit-cache-refresh  ; Quick refresh mode
-                            (and (not force-refresh)
-                                 orchard--worktrees-cache-time
-                                 (< (float-time (time-subtract (current-time)
-                                                               orchard--worktrees-cache-time))
-                                    orchard-worktrees-cache-ttl))))))
-    (unless use-cache
-      ;; Refresh cache
-      (let ((repo-root (orchard--get-repo-root)))
-        (when (and repo-root (file-directory-p repo-root))
-          (let ((default-directory repo-root))
-            (let* ((output (shell-command-to-string "git worktree list --porcelain"))
-                   (worktrees (orchard--parse-worktrees output))
-                   (enriched (delq nil (mapcar #'orchard--enrich-worktree worktrees))))
-              (setq orchard--worktrees-cache enriched)
-              (setq orchard--worktrees-cache-time (current-time)))))))
-    ;; Return filtered results from cache
-    (when orchard--worktrees-cache
-      (if include-hidden
-          orchard--worktrees-cache
-        (cl-remove-if (lambda (wt)
-                        (orchard--worktree-hidden-p (alist-get 'path wt)))
-                      orchard--worktrees-cache)))))
+When `orchard--inhibit-cache-refresh' is t, ALWAYS uses cache (instant).
+Use G to populate/refresh cache."
+  ;; When inhibit is set, never refresh - just return cache (or nil)
+  (unless orchard--inhibit-cache-refresh
+    (let ((cache-valid (and orchard--worktrees-cache
+                            orchard--worktrees-cache-time
+                            (not force-refresh)
+                            (< (float-time (time-subtract (current-time)
+                                                          orchard--worktrees-cache-time))
+                               orchard-worktrees-cache-ttl))))
+      (unless cache-valid
+        ;; Refresh cache
+        (let ((repo-root (orchard--get-repo-root)))
+          (when (and repo-root (file-directory-p repo-root))
+            (let ((default-directory repo-root))
+              (let* ((output (shell-command-to-string "git worktree list --porcelain"))
+                     (worktrees (orchard--parse-worktrees output))
+                     (enriched (delq nil (mapcar #'orchard--enrich-worktree worktrees))))
+                (setq orchard--worktrees-cache enriched)
+                (setq orchard--worktrees-cache-time (current-time)))))))))
+  ;; Return filtered results from cache
+  (when orchard--worktrees-cache
+    (if include-hidden
+        orchard--worktrees-cache
+      (cl-remove-if (lambda (wt)
+                      (orchard--worktree-hidden-p (alist-get 'path wt)))
+                    orchard--worktrees-cache))))
 
 (defun orchard--parse-worktrees (output)
   "Parse OUTPUT from git worktree list --porcelain."
@@ -1336,23 +1378,101 @@ Returns nil if worktree path doesn't exist (skip it)."
      (string-prefix-p "*claude:" (buffer-name buf)))
    (buffer-list)))
 
-(defun orchard--claude-waiting-p (buffer)
-  "Check if Claude BUFFER appears to be waiting for input.
-Works with vterm buffers."
+(defun orchard--claude-status (buffer)
+  "Get Claude BUFFER status: 'waiting, 'idle, 'active, or nil.
+- waiting: needs approval (prompts, questions)
+- idle: finished work, at prompt
+- active: still processing
+
+Uses live pattern matching to detect actual terminal state."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (save-excursion
         (goto-char (point-max))
         (let ((end-text (buffer-substring-no-properties
-                         (max (point-min) (- (point) 500))
+                         (max (point-min) (- (point) 1000))
                          (point))))
           (when end-text
-            ;; Look for prompt indicators
-            (or (string-match-p "Do you want to proceed" end-text)
-                (string-match-p "1\\. Yes" end-text)
-                (string-match-p "yes/no" end-text)
-                (string-match-p "Y/n\\|y/N" end-text)
-                (string-match-p "Esc to cancel" end-text))))))))
+            (cond
+             ;; Waiting for approval - prompts (highest priority)
+             ((or (string-match-p "Do you want to proceed" end-text)
+                  (string-match-p "❯ 1\\. Yes" end-text)
+                  (string-match-p "yes/no" end-text)
+                  (string-match-p "Y/n\\|y/N" end-text)
+                  (string-match-p "Esc to cancel" end-text))
+              'waiting)
+             ;; Actively working - "esc to interrupt" is always shown
+             ((string-match-p "esc to interrupt" end-text)
+              'active)
+             ;; Idle/Done - at prompt, finished (past tense verbs)
+             ((or (string-match-p " for [0-9]+m?s\\b" end-text)  ; "Cooked for 5s", "Cogitated for 1m 30s"
+                  (string-match-p "accept edits on" end-text)
+                  (string-match-p "\n❯[[:space:]]*$" end-text)
+                  (string-match-p "───+\n❯" end-text))
+              'idle)
+             ;; Default: idle (at prompt, nothing happening)
+             (t 'active))))))))
+
+(defun orchard--claude-waiting-p (buffer)
+  "Check if Claude BUFFER needs attention (waiting or idle)."
+  (memq (orchard--claude-status buffer) '(waiting idle)))
+
+(defun orchard-debug-claude-status ()
+  "Show diagnostic info for all Claude buffers and issue mappings.
+Use this to debug why Claude status isn't showing in orchard."
+  (interactive)
+  (let* ((claude-bufs (orchard--get-claude-buffers))
+         (worktrees (orchard--get-worktrees))
+         (issues (orchard--get-open-issues)))
+    (with-output-to-temp-buffer "*orchard-claude-debug*"
+      (princ "=== HOOK STATUS TABLE ===\n\n")
+      (if (= 0 (hash-table-count orchard--claude-status-table))
+          (princ "  (empty - no hook events received yet)\n")
+        (maphash (lambda (k v)
+                   (princ (format "  %s -> %s\n" k v)))
+                 orchard--claude-status-table))
+      (princ "\n")
+
+      (princ "=== CLAUDE BUFFERS ===\n\n")
+      (if (null claude-bufs)
+          (princ "NO CLAUDE BUFFERS FOUND\n")
+        (dolist (buf claude-bufs)
+          (let* ((name (buffer-name buf))
+                 (hook-status (gethash name orchard--claude-status-table))
+                 (full-status (orchard--claude-status buf))
+                 (source (if hook-status "hook" "pattern"))
+                 (end-text (with-current-buffer buf
+                             (buffer-substring-no-properties
+                              (max (point-min) (- (point-max) 300))
+                              (point-max)))))
+            (princ (format "Buffer: %s\n" name))
+            (princ (format "Status: %s (via %s)\n" (or full-status "NIL") source))
+            (princ (format "Last 300 chars:\n---\n%s\n---\n\n" end-text)))))
+
+      (princ "\n=== WORKTREES WITH CLAUDE ===\n\n")
+      (dolist (wt worktrees)
+        (let* ((path (alist-get 'path wt))
+               (branch (alist-get 'branch wt))
+               (claude-buf (orchard--claude-buffer-for-path path)))
+          (when claude-buf
+            (princ (format "Worktree: %s\n" branch))
+            (princ (format "  Path: %s\n" path))
+            (princ (format "  Claude: %s\n" (buffer-name claude-buf)))
+            (princ (format "  Status: %s\n\n" (orchard--claude-status claude-buf))))))
+
+      (princ "\n=== ISSUES WITH WORKTREES ===\n\n")
+      (dolist (issue issues)
+        (let* ((num (alist-get 'number issue))
+               (title (alist-get 'title issue))
+               (wt (orchard--find-worktree-for-issue num worktrees)))
+          (when wt
+            (let* ((path (alist-get 'path wt))
+                   (stage (orchard--issue-workflow-stage num worktrees))
+                   (claude-status (alist-get 'claude-status stage)))
+              (princ (format "#%d: %s\n" num (truncate-string-to-width title 40)))
+              (princ (format "  Worktree: %s\n" path))
+              (princ (format "  Claude status: %s\n" (or claude-status "NO CLAUDE")))
+              (princ (format "  Stage: %s\n\n" stage)))))))))
 
 (defun orchard-list-claudes ()
   "List all Claude sessions. Shows [WAITING] for those needing input."
@@ -1753,6 +1873,7 @@ Magit on top, Claude below."
     (define-key map (kbd "Q") #'orchard-quit-all)
     ;; Debug
     (define-key map (kbd "!") #'orchard-toggle-window-dedication)
+    ;; M-x orchard-debug-claude-status for Claude status diagnostics
     map)
   "Keymap for orchard-mode.")
 
@@ -1864,7 +1985,7 @@ Returns t if waiting, nil otherwise."
 
 (defun orchard--issue-workflow-stage (issue-number worktrees)
   "Get workflow stage indicators for ISSUE-NUMBER.
-Returns alist with keys: has-analysis, has-plan, has-pr, claude-waiting."
+Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
   (when-let ((wt (orchard--find-worktree-for-issue issue-number worktrees)))
     (let ((path (alist-get 'path wt)))
       (list
@@ -1875,9 +1996,9 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-waiting."
                  (file-exists-p (expand-file-name ".plan.md" path))))
        (cons 'has-pr
              (file-exists-p (expand-file-name ".pr-url" path)))
-       (cons 'claude-waiting
+       (cons 'claude-status
              (when-let ((buf (orchard--claude-buffer-for-path path)))
-               (orchard--claude-waiting-p buf)))))))
+               (orchard--claude-status buf)))))))
 
 (defun orchard--format-label (label)
   "Format a single LABEL for display with color."
@@ -1894,15 +2015,21 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-waiting."
     ""))
 
 (defun orchard--format-workflow-indicator (stage)
-  "Format workflow indicator showing what's DONE."
+  "Format workflow indicator showing what's DONE and Claude status."
   (if (null stage)
       ""
     (let ((a (alist-get 'has-analysis stage))
           (p (alist-get 'has-plan stage))
           (r (alist-get 'has-pr stage))
-          (w (alist-get 'claude-waiting stage)))
+          (cs (alist-get 'claude-status stage)))
       (concat
-       (when w (propertize "⏳" 'face '(:foreground "#E5C07B" :weight bold)))
+       ;; Claude status indicator
+       (pcase cs
+         ('waiting (propertize "⏳WAIT " 'face '(:foreground "#E06C75" :weight bold)))
+         ('idle (propertize "✓DONE " 'face '(:foreground "#E5C07B" :weight bold)))
+         ('active (propertize "⟳ " 'face '(:foreground "#61AFEF")))
+         (_ ""))
+       ;; Workflow stage
        (cond
         (r (propertize "PR" 'face '(:foreground "#61AFEF" :weight bold)))
         (p (propertize "planned" 'face '(:foreground "#98C379")))
@@ -1917,20 +2044,50 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-waiting."
          (icon (orchard--issue-type-icon labels))
          (has-worktree (orchard--issue-has-worktree-p number worktrees))
          (stage (orchard--issue-workflow-stage number worktrees))
+         (claude-status (alist-get 'claude-status stage))
+         (needs-attention (memq claude-status '(waiting idle)))
          (workflow (if has-worktree
                        (concat (orchard--format-workflow-indicator stage) " ")
                      ""))
-         (label-str (orchard--format-labels labels)))
-    (propertize
-     (concat
-      "  " icon " "
-      (propertize (format "#%d" number) 'face 'orchard-issue)
-      " " workflow
-      (propertize (truncate-string-to-width title 25 nil nil "...")
-                  'face 'orchard-issue-title)
-      label-str
-      "\n")
-     'orchard-issue issue)))
+         (label-str (orchard--format-labels labels))
+         ;; Leading attention indicator
+         (attention-prefix (if needs-attention
+                               (propertize ">>>" 'face '(:foreground "#E06C75" :weight bold))
+                             "   "))
+         (line (concat
+                attention-prefix " " icon " "
+                (propertize (format "#%d" number) 'face 'orchard-issue)
+                " " workflow
+                (propertize (truncate-string-to-width title 25 nil nil "...")
+                            'face 'orchard-issue-title)
+                label-str
+                "\n")))
+    ;; Highlight entire line if Claude needs attention
+    (when needs-attention
+      (setq line (propertize line 'face
+                             (if (eq claude-status 'waiting)
+                                 '(:background "#3E2723")  ; dark red bg
+                               '(:background "#2E3B2E"))))) ; dark green bg
+    (propertize line 'orchard-issue issue)))
+
+(defun orchard-timing-test ()
+  "Test timing of dashboard components. Run M-x orchard-timing-test."
+  (interactive)
+  (let ((orchard--inhibit-cache-refresh t))  ; Simulate quick refresh
+    (message "Testing with inhibit=t (quick refresh mode)...")
+    (let* ((t0 (float-time))
+           (_ (orchard--get-worktrees))
+           (t1 (float-time))
+           (_ (orchard--get-open-issues))
+           (t2 (float-time))
+           (wts (orchard--get-worktrees))
+           (issues (orchard--get-open-issues))
+           (_ (dolist (wt wts) (orchard--format-worktree wt nil)))
+           (t3 (float-time))
+           (_ (dolist (i issues) (orchard--format-issue i wts)))
+           (t4 (float-time)))
+      (message "Timing: worktrees=%.2fs issues=%.2fs format-wt=%.2fs format-issues=%.2fs TOTAL=%.2fs"
+               (- t1 t0) (- t2 t1) (- t3 t2) (- t4 t3) (- t4 t0)))))
 
 (defun orchard--format-dashboard ()
   "Format the Orchard dashboard."
@@ -1945,7 +2102,8 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-waiting."
                     (orchard--get-orphan-directories)))
          (prunable (unless orchard--inhibit-cache-refresh
                      (orchard--get-prunable-worktrees)))
-         (merged-count (length (orchard--get-merged-worktrees)))
+         (merged-count (unless orchard--inhibit-cache-refresh
+                         (length (orchard--get-merged-worktrees))))
          (sync-issues (+ (length orphans) (length prunable)))
          (all-open-issues (orchard--get-open-issues))
          (staging-count (cl-count-if #'orchard--issue-staging-p all-open-issues))
@@ -1973,10 +2131,10 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-waiting."
                    'face 'font-lock-comment-face))
      (when (> total-claudes 0)
        (if (> waiting-count 0)
-           (propertize (format "  %d/%d Claude WAITING" waiting-count total-claudes)
-                       'face '(:foreground "#E5C07B" :weight bold))
+           (propertize (format "  🔔 %d/%d Claude NEED ATTENTION" waiting-count total-claudes)
+                       'face '(:foreground "#E06C75" :weight bold))
          (propertize (format "  %d Claude" total-claudes) 'face 'font-lock-comment-face)))
-     (when (> merged-count 0)
+     (when (and merged-count (> merged-count 0))
        (propertize (format "  🎉 %d merged" merged-count)
                    'face '(:foreground "#98C379" :weight bold)))
      (when (> sync-issues 0)
@@ -2051,7 +2209,7 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-waiting."
          (behind (or (alist-get 'behind wt) 0))
          (claude-status (alist-get 'claude-status wt))  ; nil, 'running, or 'stopped
          (column (alist-get 'column wt))
-         (column-locked (and column (orchard--column-dedicated-p column)))
+         (column-locked nil)  ; Skip expensive window check during display
          (description (alist-get 'description wt))
          (stage (alist-get 'stage wt))
          (dev-owner (alist-get 'dev-owner wt))
