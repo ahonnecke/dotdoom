@@ -218,6 +218,125 @@ MESSAGE is a plist with :type and :buffer-name."
                               (let ((orchard--inhibit-cache-refresh t))
                                 (orchard-refresh))))))))
 
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Claude Session Persistence (via ~/.claude/projects/)
+;;; ════════════════════════════════════════════════════════════════════════════
+;;
+;; Claude Code stores session history in ~/.claude/projects/<encoded-path>/
+;; We can use this to detect resumable sessions even after Emacs restart.
+
+(defvar orchard--claude-sessions-cache nil
+  "Cache of Claude session info per worktree path.
+Alist of (path . session-info) where session-info is a plist.")
+
+(defvar orchard--claude-sessions-cache-time nil
+  "Time when sessions cache was last updated.")
+
+(defcustom orchard-claude-sessions-cache-ttl 60
+  "Time-to-live for Claude sessions cache in seconds."
+  :type 'integer
+  :group 'orchard)
+
+(defun orchard--encode-path-for-claude (path)
+  "Encode PATH to Claude's project directory format.
+Replaces / with - and removes leading -."
+  (let ((encoded (replace-regexp-in-string "/" "-" (expand-file-name path))))
+    ;; Claude uses the path as-is with / replaced by -
+    encoded))
+
+(defun orchard--get-claude-project-dir (path)
+  "Get Claude project directory for worktree at PATH, or nil if none."
+  (let* ((encoded (orchard--encode-path-for-claude path))
+         (projects-dir (expand-file-name "~/.claude/projects/"))
+         (project-dir (expand-file-name encoded projects-dir)))
+    (when (file-directory-p project-dir)
+      project-dir)))
+
+(defun orchard--get-claude-session-info (path)
+  "Get Claude session info for worktree at PATH.
+Returns plist with :has-session, :message-count, :modified, :summary, :session-id
+or nil if no session exists."
+  (when-let ((project-dir (orchard--get-claude-project-dir path)))
+    (let ((index-file (expand-file-name "sessions-index.json" project-dir)))
+      (when (file-exists-p index-file)
+        (condition-case nil
+            (let* ((json-object-type 'alist)
+                   (json-array-type 'list)
+                   (data (json-read-file index-file))
+                   (entries (alist-get 'entries data))
+                   ;; Get most recent session (last in list, or sort by modified)
+                   (latest (car (last entries))))
+              (when latest
+                (list :has-session t
+                      :session-id (alist-get 'sessionId latest)
+                      :message-count (or (alist-get 'messageCount latest) 0)
+                      :modified (alist-get 'modified latest)
+                      :summary (alist-get 'summary latest)
+                      :first-prompt (alist-get 'firstPrompt latest))))
+          (error nil))))))
+
+(defun orchard--refresh-claude-sessions-cache ()
+  "Refresh the Claude sessions cache for all worktrees."
+  (let ((worktrees (orchard--get-worktrees t)))  ; include hidden
+    (setq orchard--claude-sessions-cache
+          (cl-loop for wt in worktrees
+                   for path = (alist-get 'path wt)
+                   for info = (orchard--get-claude-session-info path)
+                   when info
+                   collect (cons path info)))
+    (setq orchard--claude-sessions-cache-time (current-time))))
+
+(defun orchard--ensure-claude-sessions-cache ()
+  "Ensure Claude sessions cache is fresh."
+  (unless orchard--inhibit-cache-refresh
+    (when (or (null orchard--claude-sessions-cache-time)
+              (> (float-time (time-subtract (current-time)
+                                            orchard--claude-sessions-cache-time))
+                 orchard-claude-sessions-cache-ttl))
+      (orchard--refresh-claude-sessions-cache))))
+
+(defun orchard--worktree-has-claude-session-p (path)
+  "Check if worktree at PATH has a resumable Claude session."
+  (orchard--ensure-claude-sessions-cache)
+  (assoc path orchard--claude-sessions-cache))
+
+(defun orchard--get-worktree-session-info (path)
+  "Get cached Claude session info for worktree at PATH."
+  (orchard--ensure-claude-sessions-cache)
+  (cdr (assoc path orchard--claude-sessions-cache)))
+
+(defun orchard--format-relative-time (iso-time)
+  "Format ISO-TIME string as relative time (e.g., '2h ago', '3d ago')."
+  (when iso-time
+    (condition-case nil
+        (let* ((parsed (parse-iso8601-time-string iso-time))
+               (secs-ago (float-time (time-subtract (current-time) parsed)))
+               (mins (/ secs-ago 60))
+               (hours (/ mins 60))
+               (days (/ hours 24)))
+          (cond
+           ((< mins 1) "now")
+           ((< mins 60) (format "%dm" (truncate mins)))
+           ((< hours 24) (format "%dh" (truncate hours)))
+           ((< days 7) (format "%dd" (truncate days)))
+           (t (format "%dw" (truncate (/ days 7))))))
+      (error nil))))
+
+(defun orchard--format-session-indicator (path)
+  "Format session indicator for worktree at PATH.
+Returns indicator string or empty string."
+  (when-let ((info (orchard--get-worktree-session-info path)))
+    (let* ((msg-count (plist-get info :message-count))
+           (modified (plist-get info :modified))
+           (rel-time (orchard--format-relative-time modified)))
+      (propertize
+       (if rel-time
+           (format " 💾%d/%s" msg-count rel-time)
+         (format " 💾%d" msg-count))
+       'face '(:foreground "#61AFEF")
+       'help-echo (format "Claude session: %d messages, %s"
+                          msg-count (or rel-time "unknown"))))))
+
 (defun orchard--claude-status-cleanup ()
   "Remove dead buffer entries from status table."
   (let ((dead-keys '()))
@@ -391,10 +510,12 @@ Unlike `orchard-refresh', this ignores TTL and fetches fresh data."
   (setq orchard--closed-issues-cache-time nil)
   (setq orchard--merged-branches-cache-time nil)
   (setq orchard--worktrees-cache-time nil)
+  (setq orchard--claude-sessions-cache-time nil)
   ;; Force refresh all caches
   (orchard--refresh-issues-cache)
   (orchard--refresh-closed-issues-cache)
   (orchard--refresh-merged-cache)
+  (orchard--refresh-claude-sessions-cache)
   ;; Force refresh worktrees (runs git status for each)
   (orchard--get-worktrees nil t)
   ;; Refresh dashboard
@@ -1874,6 +1995,7 @@ Magit on top, Claude below."
     (define-key map (kbd "v n") #'orchard-view-next)        ; next only
     (define-key map (kbd "v p") #'orchard-view-progress)    ; in progress only
     (define-key map (kbd "v q") #'orchard-view-qa)          ; QA only
+    (define-key map (kbd "v r") #'orchard-view-recent)      ; recent sessions
     ;; Section collapsing
     (define-key map (kbd "TAB") #'orchard-toggle-section)   ; toggle section collapse
     (define-key map (kbd "<tab>") #'orchard-toggle-section)
@@ -2227,12 +2349,17 @@ SHOW-MERGED-BADGE adds ✓Merged indicator for QA section items."
          (closed (alist-get 'closed issue))
          (icon (orchard--issue-type-icon labels))
          ;; Get Claude/workflow status if worktree exists
+         (wt-path (when wt (alist-get 'path wt)))
          (stage (when wt (orchard--issue-workflow-stage number (list wt))))
          (claude-status (alist-get 'claude-status stage))
          (needs-attention (memq claude-status '(waiting idle)))
          (workflow (if wt
                        (orchard--format-workflow-indicator stage)
                      ""))
+         ;; Check for persisted Claude session
+         (session-indicator (if wt-path
+                                (orchard--format-session-indicator wt-path)
+                              ""))
          (label-str (orchard--format-labels labels))
          ;; Issue line
          (attention-prefix (if needs-attention
@@ -2254,6 +2381,7 @@ SHOW-MERGED-BADGE adds ✓Merged indicator for QA section items."
                                   'face 'orchard-issue-title)
                       merged-badge
                       closed-badge
+                      session-indicator
                       label-str
                       "\n")))
     ;; Apply attention highlighting to issue line
@@ -2287,6 +2415,7 @@ SHOW-MERGED-BADGE adds ✓Merged indicator for QA section items."
          (is-current (and current-path (string= path current-path)))
          (icon (orchard--branch-icon branch))
          (branch-face (if is-current 'orchard-current (orchard--branch-face branch)))
+         (session-indicator (orchard--format-session-indicator path))
          (attention-prefix (if needs-attention
                                (propertize ">>>" 'face '(:foreground "#E06C75" :weight bold))
                              "   "))
@@ -2309,6 +2438,7 @@ SHOW-MERGED-BADGE adds ✓Merged indicator for QA section items."
                   "")
                 (when (eq stage 'merged)
                   (propertize " ✓Merged" 'face '(:foreground "#98C379")))
+                session-indicator
                 (if is-current (propertize " ← here" 'face 'font-lock-comment-face) "")
                 "\n")))
     (propertize line 'orchard-worktree wt)))
@@ -2465,9 +2595,14 @@ SHOW-MERGED-BADGE adds ✓Merged indicator for QA section items."
                        (orchard--format-orphan-worktree wt current-path))
                      orphan-worktrees ""))))
 
+     ;; RECENT SESSIONS section (only in 'recent' view)
+     (when (orchard--section-visible-p 'recent-sessions)
+       (orchard--format-recent-sessions))
+
      ;; Empty state
      (when (and (null up-next) (null in-progress) (null qa-verify)
-                (null done) (null orphan-worktrees))
+                (null done) (null orphan-worktrees)
+                (not (eq orchard--current-view 'recent)))
        (propertize "\n  No issues or worktrees found. Press I to start from an issue.\n"
                    'face 'font-lock-comment-face))
 
@@ -2978,6 +3113,79 @@ Displays a list of hidden issues and worktrees with option to unhide."
   (interactive)
   (orchard-set-view 'progress))
 
+(defun orchard-view-recent ()
+  "Show items with recent Claude sessions, sorted by activity.
+Useful for finding what you were working on after restarting Emacs."
+  (interactive)
+  (orchard-set-view 'recent))
+
+(defun orchard--get-sessions-with-worktrees ()
+  "Get all worktrees with Claude sessions, sorted by recency.
+Returns list of (worktree . session-info) pairs."
+  (orchard--ensure-claude-sessions-cache)
+  (let ((worktrees (orchard--get-worktrees t)))  ; include hidden
+    (cl-loop for wt in worktrees
+             for path = (alist-get 'path wt)
+             for session = (cdr (assoc path orchard--claude-sessions-cache))
+             when session
+             collect (cons wt session) into result
+             finally return
+             (sort result
+                   (lambda (a b)
+                     (let ((time-a (plist-get (cdr a) :modified))
+                           (time-b (plist-get (cdr b) :modified)))
+                       (when (and time-a time-b)
+                         (string> time-a time-b))))))))
+
+(defun orchard--format-recent-sessions ()
+  "Format recent Claude sessions section for dashboard."
+  (let* ((session-items (orchard--get-sessions-with-worktrees))
+         (count (length session-items)))
+    (if (= count 0)
+        (propertize "  No Claude sessions found\n\n"
+                    'face 'font-lock-comment-face)
+      (concat
+       (orchard--format-section-header "RECENT SESSIONS" count "by activity" 'recent-sessions)
+       (unless (orchard--section-collapsed-p 'recent-sessions)
+         (let ((current (orchard--current-worktree))
+               (current-path (when current (alist-get 'path current))))
+           (mapconcat
+            (lambda (item)
+              (let* ((wt (car item))
+                     (session (cdr item))
+                     (path (alist-get 'path wt))
+                     (branch (or (alist-get 'branch wt) "(detached)"))
+                     (issue-num (orchard--get-worktree-issue nil branch))
+                     (msg-count (plist-get session :message-count))
+                     (modified (plist-get session :modified))
+                     (summary (plist-get session :summary))
+                     (rel-time (orchard--format-relative-time modified))
+                     (is-current (and current-path (string= path current-path)))
+                     (icon (orchard--branch-icon branch)))
+                (propertize
+                 (concat
+                  "   " icon " "
+                  (propertize (format "💾%d" msg-count) 'face '(:foreground "#61AFEF"))
+                  " "
+                  (propertize (or rel-time "?") 'face '(:foreground "#E5C07B"))
+                  " "
+                  (if issue-num
+                      (propertize (format "#%d" issue-num) 'face 'orchard-issue)
+                    "")
+                  " "
+                  (propertize (truncate-string-to-width branch 28 nil nil "…")
+                              'face (if is-current 'orchard-current
+                                      (orchard--branch-face branch)))
+                  (if is-current (propertize " ← here" 'face 'font-lock-comment-face) "")
+                  "\n"
+                  (when summary
+                    (concat "      "
+                            (propertize (truncate-string-to-width summary 60 nil nil "…")
+                                        'face 'font-lock-comment-face)
+                            "\n")))
+                 'orchard-worktree wt)))
+            session-items "")))))))
+
 (defun orchard--section-visible-p (section)
   "Return t if SECTION should be visible based on current view."
   (pcase orchard--current-view
@@ -2986,6 +3194,7 @@ Displays a list of hidden issues and worktrees with option to unhide."
     ('next (eq section 'up-next))
     ('qa (eq section 'qa-verify))
     ('progress (eq section 'in-progress))
+    ('recent (eq section 'recent-sessions))
     (_ t)))
 
 ;;; ────────────────────────────────────────────────────────────────────────────
@@ -3029,7 +3238,8 @@ Displays a list of hidden issues and worktrees with option to unhide."
    ("a" "All sections" orchard-view-all)
    ("n" "Next only" orchard-view-next)
    ("p" "In Progress only" orchard-view-progress)
-   ("q" "QA/Verify only" orchard-view-qa)]
+   ("q" "QA/Verify only" orchard-view-qa)
+   ("r" "Recent sessions" orchard-view-recent)]
   ["Filters"
    ("/" "Search by label" orchard-filter-by-label)
    ("\\" "Clear label filter" orchard-clear-label-filter)
