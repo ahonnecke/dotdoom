@@ -199,38 +199,94 @@ Located in `config-magit.el`:
 
 ---
 
-## Orchard - Git Worktree Manager (C-c O prefix)
+## Orchard - Issue-Centric Worktree Manager (C-c O prefix)
 
 Located in `config-orchard.el`. Opens on startup.
 
 ### Workflow
 
 ```
-Issue → Branch → Claude → PR → Merge → Cleanup
+Issue → Branch → Claude → PR → Merge → QA/Verify → Close Issue → Archive
 ```
+
+### Dashboard Layout
+
+Issue-centric layout with lifecycle sections:
+
+```
+🌳 Orchard  📋 43 issues  🔔 2 Claude NEED ATTENTION  [1 hidden]
+View: working (f for filter menu)
+
+▼ UP NEXT (14 available) ──────────────────────────────
+  📋 #633 Reference: Last Order Date    [enhancement] [P3]
+
+▼ IN PROGRESS (12) ────────────────────────────────────
+  📋 #640 Make a "ship to" catalog...   ⏳WAIT PR
+     ↳ FEATURE/640-make-a-ship-to   ○ ↓2 :3007
+
+▼ QA/VERIFY (8 merged, issue open) ────────────────────
+  📋 #372 staging label not applied     ✓Merged
+
+▼ DONE (ready to archive) ─────────────────────────────
+  📋 #596 Commit date didn't push       ✓Merged ✓Closed
+
+▼ UNLINKED BRANCHES (2) ───────────────────────────────
+  ✨ FEATURE/export-triage-1 ● ↓19
+```
+
+### Lifecycle Sections
+
+| Section | Description |
+|---------|-------------|
+| **UP NEXT** | Open issues without worktrees (available to start) |
+| **IN PROGRESS** | Issues with active worktrees |
+| **QA/VERIFY** | PR merged but issue still open (awaiting verification) |
+| **DONE** | Closed issues ready to archive with `M` |
+| **UNLINKED** | Worktrees without linked issues |
+
+### View Presets
+
+| Binding | View | Shows |
+|---------|------|-------|
+| `v w` | Working (default) | UP NEXT + IN PROGRESS |
+| `v a` | All | All sections |
+| `v n` | Next | UP NEXT only |
+| `v p` | Progress | IN PROGRESS only |
+| `v q` | QA | QA/VERIFY only |
 
 ### Dashboard Keybindings
 
 | Binding | Function | Description |
 |---------|----------|-------------|
-| `I` | Start branch from issue | Creates worktree linked to GitHub issue |
-| `RET` | Open magit | For worktree at point |
-| `c` | Open Claude | For worktree at point |
+| `RET` | Open Claude | For issue/worktree at point |
+| `I` | Start from issue | Creates worktree linked to GitHub issue |
+| `m` | Open magit | For worktree at point |
+| `c` | Open Claude | Same as RET |
 | `d` | Open dired | For worktree at point |
 | `P` | Create PR | With auto-populated title/body |
 | `u` | Push branch | To origin |
-| `M` | Cleanup merged | Archive worktrees with closed issues |
-| `+` | Allocate port | For dev server (lazy allocation) |
-| `_` | Release port | Free up port slot |
-| `s` | Toggle staging | Show/hide issues with staging label |
-| `g` | Refresh | Update dashboard |
-| `q` | Quit | Close dashboard |
 
-### Stages (auto-detected)
+### Filtering & Views
 
-- **In Progress**: Default working state
-- **PR Open**: Has open pull request
-- **Merged**: Branch merged to upstream
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `f` | Filter menu | Open transient with all options |
+| `v w/a/n/p/q` | View presets | Quick view switching |
+| `/` | Filter by label | Select label to filter |
+| `\\` | Clear filter | Remove label filter |
+| `s` | Toggle staging | Show/hide staging-labeled issues |
+| `-` | Hide at point | Hide issue/branch from view |
+| `H` | Show hidden | Unhide previously hidden items |
+| `TAB` | Toggle section | Collapse/expand section |
+
+### Cleanup & Refresh
+
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `g` | Refresh | Quick refresh (cached data) |
+| `G` | Force refresh | Fetch fresh from GitHub |
+| `M` | Archive done | Archive DONE section items |
+| `K` | Cleanup stale | Remove orphan worktrees |
 
 ### Port Allocation
 
