@@ -232,11 +232,11 @@ MESSAGE is a plist with :type and :buffer-name."
   "Mark BUFFER-NAME as active (user is typing)."
   (puthash buffer-name 'active orchard--claude-status-table))
 
-;; Register the hook listener
-(with-eval-after-load 'claude-code
-  (add-hook 'claude-code-event-hook #'orchard--claude-status-hook)
-  ;; Clean up dead entries periodically
-  (run-with-idle-timer 60 t #'orchard--claude-status-cleanup))
+;; DISABLED: Hook was causing Emacs hangs - see CLAUDE-HANG-DEBUG.md
+;; (with-eval-after-load 'claude-code
+;;   (add-hook 'claude-code-event-hook #'orchard--claude-status-hook)
+;;   ;; Clean up dead entries periodically
+;;   (run-with-idle-timer 60 t #'orchard--claude-status-cleanup))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Merged Branch Detection (via GitHub PR)
@@ -308,6 +308,19 @@ Alist of (issue-number . closed-at) pairs.")
 
 (defvar orchard--label-filter nil
   "When non-nil, only show issues with this label (exact match).")
+
+(defvar orchard--current-view 'working
+  "Current dashboard view preset.
+Possible values:
+  'working  - Hide QA/VERIFY and DONE sections (default)
+  'all      - Show all sections
+  'next     - Show only UP NEXT section
+  'qa       - Show only QA/VERIFY section
+  'progress - Show only IN PROGRESS section")
+
+(defvar orchard--collapsed-sections nil
+  "List of section names that are collapsed.
+Possible values: 'up-next, 'in-progress, 'qa-verify, 'done, 'unlinked.")
 
 (defun orchard--issue-has-label-p (issue label-pattern)
   "Return t if ISSUE has a label matching LABEL-PATTERN (case-insensitive)."
@@ -562,12 +575,24 @@ Use when `orchard-dev-mode-enforcement' is set to 'block."
   "Get list of hidden worktree paths."
   (plist-get orchard--state :hidden))
 
+(defun orchard--get-hidden-issues ()
+  "Get list of hidden issue numbers."
+  (plist-get orchard--state :hidden-issues))
+
 (defun orchard--hide-worktree (path)
   "Hide worktree at PATH from orchard display."
   (let ((hidden (plist-get orchard--state :hidden)))
     (unless (member path hidden)
       (push path hidden)
       (setq orchard--state (plist-put orchard--state :hidden hidden))
+      (orchard--save-state))))
+
+(defun orchard--hide-issue (issue-number)
+  "Hide issue ISSUE-NUMBER from orchard display."
+  (let ((hidden (plist-get orchard--state :hidden-issues)))
+    (unless (member issue-number hidden)
+      (push issue-number hidden)
+      (setq orchard--state (plist-put orchard--state :hidden-issues hidden))
       (orchard--save-state))))
 
 (defun orchard--unhide-worktree (path)
@@ -577,9 +602,20 @@ Use when `orchard-dev-mode-enforcement' is set to 'block."
     (setq orchard--state (plist-put orchard--state :hidden hidden))
     (orchard--save-state)))
 
+(defun orchard--unhide-issue (issue-number)
+  "Unhide issue ISSUE-NUMBER."
+  (let ((hidden (plist-get orchard--state :hidden-issues)))
+    (setq hidden (delete issue-number hidden))
+    (setq orchard--state (plist-put orchard--state :hidden-issues hidden))
+    (orchard--save-state)))
+
 (defun orchard--worktree-hidden-p (path)
   "Return t if worktree at PATH is hidden."
   (member path (orchard--get-hidden)))
+
+(defun orchard--issue-hidden-p (issue-number)
+  "Return t if issue ISSUE-NUMBER is hidden."
+  (member issue-number (orchard--get-hidden-issues)))
 
 (defun orchard--is-main-worktree-p (path)
   "Return t if PATH is the main (bare) worktree."
@@ -1831,6 +1867,16 @@ Magit on top, Claude below."
     ;; Port management (lazy allocation)
     (define-key map (kbd "+") #'orchard-allocate-port)    ; allocate port for dev server
     (define-key map (kbd "_") #'orchard-release-port)     ; release allocated port
+    ;; Filtering and views
+    (define-key map (kbd "f") #'orchard-filter-menu)        ; filter transient menu
+    (define-key map (kbd "v w") #'orchard-view-working)     ; working view (default)
+    (define-key map (kbd "v a") #'orchard-view-all)         ; all sections
+    (define-key map (kbd "v n") #'orchard-view-next)        ; next only
+    (define-key map (kbd "v p") #'orchard-view-progress)    ; in progress only
+    (define-key map (kbd "v q") #'orchard-view-qa)          ; QA only
+    ;; Section collapsing
+    (define-key map (kbd "TAB") #'orchard-toggle-section)   ; toggle section collapse
+    (define-key map (kbd "<tab>") #'orchard-toggle-section)
     ;; Navigation - moves between worktrees AND issues
     (define-key map (kbd "n") #'orchard-next-item)
     (define-key map (kbd "p") #'orchard-prev-item)
@@ -1840,7 +1886,6 @@ Magit on top, Claude below."
     (define-key map (kbd "C-p") #'orchard-prev-item)
     (define-key map (kbd "<down>") #'orchard-next-item)
     (define-key map (kbd "<up>") #'orchard-prev-item)
-    (define-key map (kbd "TAB") #'orchard-next-item)
     (define-key map (kbd "<backtab>") #'orchard-prev-item)
     ;; Cleanup
     (define-key map (kbd "K") #'orchard-cleanup)           ; K for "kill stale"
@@ -2074,8 +2119,202 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
       (message "Timing: worktrees=%.2fs issues=%.2fs format-wt=%.2fs format-issues=%.2fs TOTAL=%.2fs"
                (- t1 t0) (- t2 t1) (- t3 t2) (- t4 t3) (- t4 t0)))))
 
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Issue-Centric Dashboard Formatting
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--categorize-issues (issues worktrees)
+  "Categorize ISSUES into lifecycle groups based on WORKTREES state.
+Returns alist: ((up-next . list) (in-progress . list)
+                (qa-verify . list) (done . list))
+Each list item is a cons of (issue . worktree-or-nil)."
+  (let (up-next in-progress qa-verify done)
+    ;; Categorize open issues
+    (dolist (issue issues)
+      (let* ((issue-num (alist-get 'number issue))
+             (wt (orchard--find-worktree-for-issue issue-num worktrees)))
+        (if (not wt)
+            ;; No worktree = available to start
+            (push (cons issue nil) up-next)
+          ;; Has worktree - check stage
+          (let ((stage (alist-get 'stage wt)))
+            (if (eq stage 'merged)
+                ;; PR merged but issue still open = QA/verify
+                (push (cons issue wt) qa-verify)
+              ;; In progress (including pr-open)
+              (push (cons issue wt) in-progress))))))
+    ;; Get archivable worktrees for DONE section (closed issues or merged orphans)
+    (unless orchard--inhibit-cache-refresh
+      (dolist (wt (orchard--get-archivable-worktrees))
+        (let* ((branch (alist-get 'branch wt))
+               (issue-num (orchard--get-worktree-issue nil branch)))
+          (when issue-num
+            ;; Create pseudo-issue for display
+            (push (cons `((number . ,issue-num)
+                          (title . ,(format "Issue #%d" issue-num))
+                          (labels . nil)
+                          (closed . t))
+                        wt)
+                  done)))))
+    ;; Return in display order (reverse because we pushed)
+    `((up-next . ,(nreverse up-next))
+      (in-progress . ,(nreverse in-progress))
+      (qa-verify . ,(nreverse qa-verify))
+      (done . ,(nreverse done)))))
+
+(defun orchard--get-orphan-worktrees (worktrees)
+  "Get WORKTREES that don't have linked issues (excluding main/dev/master)."
+  (cl-remove-if
+   (lambda (wt)
+     (let ((branch (alist-get 'branch wt)))
+       (or (member branch '("dev" "main" "master"))
+           (orchard--get-worktree-issue nil branch))))
+   worktrees))
+
+(defun orchard--format-section-header (title count &optional extra section-id)
+  "Format a section header with TITLE, COUNT, optional EXTRA text, and SECTION-ID.
+SECTION-ID is used for collapse/expand functionality."
+  (let* ((collapsed (and section-id (orchard--section-collapsed-p section-id)))
+         (indicator (if collapsed "▶" "▼"))
+         (header-text (format "  %s %s (%d%s) " indicator title count
+                              (if extra (format " %s" extra) "")))
+         (line-length (max 0 (- 60 (length title) (length (number-to-string count))
+                                (if extra (+ 1 (length extra)) 0)))))
+    (propertize
+     (concat
+      "\n"
+      (propertize header-text 'face 'orchard-subheader)
+      (propertize (make-string line-length ?─) 'face 'font-lock-comment-face)
+      "\n")
+     'orchard-section section-id)))
+
+(defun orchard--format-branch-inline (wt current-path)
+  "Format worktree WT as an inline branch line (indented under issue).
+CURRENT-PATH used to highlight if this is the current worktree."
+  (let* ((path (alist-get 'path wt))
+         (branch (or (alist-get 'branch wt) "(detached)"))
+         (port (alist-get 'port wt))
+         (dirty (alist-get 'dirty wt))
+         (ahead (or (alist-get 'ahead wt) 0))
+         (behind (or (alist-get 'behind wt) 0))
+         (is-current (and current-path (string= path current-path)))
+         (branch-face (if is-current 'orchard-current 'font-lock-comment-face)))
+    (concat
+     "       ↳ "
+     (propertize (truncate-string-to-width branch 28 nil nil "…")
+                 'face branch-face)
+     " "
+     (propertize (if dirty "●" "○")
+                 'face (if dirty 'orchard-dirty 'orchard-clean))
+     (if (> ahead 0) (format " ↑%d" ahead) "")
+     (if (> behind 0) (format " ↓%d" behind) "")
+     (if port
+         (propertize (format " :%d" (+ 3000 port)) 'face '(:foreground "#98C379"))
+       "")
+     (if is-current (propertize " ← here" 'face 'font-lock-comment-face) "")
+     "\n")))
+
+(defun orchard--format-issue-with-branch (issue-wt-pair current-path &optional show-merged-badge)
+  "Format ISSUE-WT-PAIR as issue line with optional branch underneath.
+ISSUE-WT-PAIR is (issue . worktree-or-nil).
+CURRENT-PATH used to highlight current worktree.
+SHOW-MERGED-BADGE adds ✓Merged indicator for QA section items."
+  (let* ((issue (car issue-wt-pair))
+         (wt (cdr issue-wt-pair))
+         (number (alist-get 'number issue))
+         (title (alist-get 'title issue))
+         (labels (alist-get 'labels issue))
+         (closed (alist-get 'closed issue))
+         (icon (orchard--issue-type-icon labels))
+         ;; Get Claude/workflow status if worktree exists
+         (stage (when wt (orchard--issue-workflow-stage number (list wt))))
+         (claude-status (alist-get 'claude-status stage))
+         (needs-attention (memq claude-status '(waiting idle)))
+         (workflow (if wt
+                       (orchard--format-workflow-indicator stage)
+                     ""))
+         (label-str (orchard--format-labels labels))
+         ;; Issue line
+         (attention-prefix (if needs-attention
+                               (propertize ">>>" 'face '(:foreground "#E06C75" :weight bold))
+                             "   "))
+         (merged-badge (if show-merged-badge
+                           (propertize " ✓Merged" 'face '(:foreground "#98C379"))
+                         ""))
+         (closed-badge (if closed
+                           (propertize " ✓Closed" 'face '(:foreground "#98C379"))
+                         ""))
+         (issue-line (concat
+                      attention-prefix " " icon " "
+                      (propertize (format "#%d" number) 'face 'orchard-issue)
+                      " "
+                      (when (not (string-empty-p workflow))
+                        (concat workflow " "))
+                      (propertize (truncate-string-to-width (or title "") 30 nil nil "...")
+                                  'face 'orchard-issue-title)
+                      merged-badge
+                      closed-badge
+                      label-str
+                      "\n")))
+    ;; Apply attention highlighting to issue line
+    (when needs-attention
+      (setq issue-line (propertize issue-line 'face
+                                   (if (eq claude-status 'waiting)
+                                       '(:background "#3E2723")
+                                     '(:background "#2E3B2E")))))
+    ;; Set text properties and combine with branch line
+    (concat
+     (propertize issue-line
+                 'orchard-issue issue
+                 'orchard-worktree wt)
+     (when wt
+       (propertize (orchard--format-branch-inline wt current-path)
+                   'orchard-issue issue
+                   'orchard-worktree wt)))))
+
+(defun orchard--format-orphan-worktree (wt current-path)
+  "Format orphan worktree WT (no linked issue) for display."
+  (let* ((path (alist-get 'path wt))
+         (branch (or (alist-get 'branch wt) "(detached)"))
+         (port (alist-get 'port wt))
+         (dirty (alist-get 'dirty wt))
+         (ahead (or (alist-get 'ahead wt) 0))
+         (behind (or (alist-get 'behind wt) 0))
+         (stage (alist-get 'stage wt))
+         (claude-buf (orchard--claude-buffer-for-path path))
+         (claude-status (when claude-buf (orchard--claude-status claude-buf)))
+         (needs-attention (memq claude-status '(waiting idle)))
+         (is-current (and current-path (string= path current-path)))
+         (icon (orchard--branch-icon branch))
+         (branch-face (if is-current 'orchard-current (orchard--branch-face branch)))
+         (attention-prefix (if needs-attention
+                               (propertize ">>>" 'face '(:foreground "#E06C75" :weight bold))
+                             "   "))
+         (line (concat
+                attention-prefix icon " "
+                (propertize (truncate-string-to-width branch 32 nil nil "…")
+                            'face branch-face)
+                " "
+                (propertize (if dirty "●" "○")
+                            'face (if dirty 'orchard-dirty 'orchard-clean))
+                (if (> ahead 0) (format " ↑%d" ahead) "")
+                (if (> behind 0) (format " ↓%d" behind) "")
+                (pcase claude-status
+                  ('waiting (propertize " ⏳WAIT" 'face '(:foreground "#E06C75" :weight bold)))
+                  ('idle (propertize " ✓DONE" 'face '(:foreground "#E5C07B" :weight bold)))
+                  ('active (propertize " ⟳" 'face '(:foreground "#61AFEF")))
+                  (_ ""))
+                (if port
+                    (propertize (format " :%d" (+ 3000 port)) 'face '(:foreground "#98C379"))
+                  "")
+                (when (eq stage 'merged)
+                  (propertize " ✓Merged" 'face '(:foreground "#98C379")))
+                (if is-current (propertize " ← here" 'face 'font-lock-comment-face) "")
+                "\n")))
+    (propertize line 'orchard-worktree wt)))
+
 (defun orchard--format-dashboard ()
-  "Format the Orchard dashboard."
+  "Format the Orchard dashboard with issue-centric layout."
   (let* ((worktrees (orchard--get-worktrees))
          (current (orchard--current-worktree))
          (current-path (when current (alist-get 'path current)))
@@ -2096,12 +2335,11 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
                     (orchard--get-orphan-directories)))
          (prunable (unless orchard--inhibit-cache-refresh
                      (orchard--get-prunable-worktrees)))
-         (merged-count (unless orchard--inhibit-cache-refresh
-                         (length (orchard--get-merged-worktrees))))
          (sync-issues (+ (length orphans) (length prunable)))
+         ;; Get and filter issues
          (all-open-issues (orchard--get-open-issues))
          (staging-count (cl-count-if #'orchard--issue-staging-p all-open-issues))
-         ;; Apply filters: staging, then label
+         ;; Apply filters: staging, label, AND hidden
          (filtered-issues (let ((issues all-open-issues))
                             (when orchard--hide-staging-issues
                               (setq issues (cl-remove-if #'orchard--issue-staging-p issues)))
@@ -2109,84 +2347,141 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
                               (setq issues (cl-remove-if-not
                                             (lambda (i) (orchard--issue-has-exact-label-p i orchard--label-filter))
                                             issues)))
+                            ;; Remove hidden issues
+                            (setq issues (cl-remove-if
+                                          (lambda (i) (orchard--issue-hidden-p (alist-get 'number i)))
+                                          issues))
                             issues))
-         (open-issues filtered-issues)
-         (issues-without-worktree (cl-remove-if
-                                   (lambda (issue)
-                                     (orchard--issue-has-worktree-p
-                                      (alist-get 'number issue) worktrees))
-                                   open-issues)))
+         ;; Filter out hidden worktrees
+         (visible-worktrees (cl-remove-if
+                             (lambda (wt) (orchard--worktree-hidden-p (alist-get 'path wt)))
+                             worktrees))
+         ;; Categorize issues into lifecycle groups
+         (categories (orchard--categorize-issues filtered-issues visible-worktrees))
+         (up-next (alist-get 'up-next categories))
+         (in-progress (alist-get 'in-progress categories))
+         (qa-verify (alist-get 'qa-verify categories))
+         (done (alist-get 'done categories))
+         ;; Orphan worktrees (no linked issue), excluding hidden
+         (orphan-worktrees (cl-remove-if
+                            (lambda (wt) (orchard--worktree-hidden-p (alist-get 'path wt)))
+                            (orchard--get-orphan-worktrees visible-worktrees)))
+         ;; Count hidden items
+         (hidden-count (+ (length (orchard--get-hidden-issues))
+                          (length (orchard--get-hidden))))
+         ;; View name for display
+         (view-name (pcase orchard--current-view
+                      ('working "working")
+                      ('all "all")
+                      ('next "next")
+                      ('qa "qa")
+                      ('progress "progress")
+                      (_ "working"))))
     (concat
      "\n"
+     ;; Header
      (propertize "  🌳 Orchard" 'face 'orchard-header)
-     (propertize (format "  %d worktrees" (length worktrees)) 'face 'font-lock-comment-face)
-     (when (> (length open-issues) 0)
-       (propertize (format "  📋 %d issues" (length open-issues))
-                   'face 'font-lock-comment-face))
+     (propertize (format "  📋 %d issues" (length filtered-issues))
+                 'face 'font-lock-comment-face)
      (when (> total-claudes 0)
        (if (> waiting-count 0)
            (propertize (format "  🔔 %d/%d Claude NEED ATTENTION" waiting-count total-claudes)
                        'face '(:foreground "#E06C75" :weight bold))
          (propertize (format "  %d Claude" total-claudes) 'face 'font-lock-comment-face)))
-     (when (and merged-count (> merged-count 0))
-       (propertize (format "  🎉 %d merged" merged-count)
-                   'face '(:foreground "#98C379" :weight bold)))
      (when (> sync-issues 0)
        (propertize (format "  ⚠ %d sync issues" sync-issues)
                    'face 'orchard-branch-mismatch))
-     ;; Show active label filter
      (when orchard--label-filter
        (propertize (format "  🏷 %s" orchard--label-filter)
                    'face '(:foreground "#61AFEF" :weight bold)))
-     "\n\n"
+     (when (and (> staging-count 0) orchard--hide-staging-issues)
+       (propertize (format "  (%d staging hidden)" staging-count)
+                   'face 'font-lock-comment-face))
+     (when (> hidden-count 0)
+       (propertize (format "  [%d hidden]" hidden-count)
+                   'face 'font-lock-comment-face))
+     "\n"
+     ;; View indicator
+     (unless (eq orchard--current-view 'all)
+       (propertize (format "  View: %s (f for filter menu)\n" view-name)
+                   'face 'font-lock-comment-face))
+     "\n"
      ;; Quick actions
      (propertize "  " 'face 'default)
      (propertize "[RET]" 'face 'orchard-key)
      (propertize " Open  " 'face 'font-lock-comment-face)
      (propertize "[I]" 'face 'orchard-key)
-     (propertize " Start Issue  " 'face 'font-lock-comment-face)
-     (propertize "[/]" 'face 'orchard-key)
+     (propertize " New  " 'face 'font-lock-comment-face)
+     (propertize "[f]" 'face 'orchard-key)
      (propertize " Filter  " 'face 'font-lock-comment-face)
-     (propertize "[l]" 'face 'orchard-key)
-     (propertize " Claudes" 'face 'font-lock-comment-face)
-     "\n\n"
-     ;; Worktree list
-     (propertize "  Branches\n" 'face 'orchard-subheader)
-     (propertize (concat "  " (make-string 70 ?─) "\n") 'face 'font-lock-comment-face)
-     (if worktrees
-         (mapconcat (lambda (wt)
-                      (orchard--format-worktree wt current-path))
-                    worktrees "")
-       (propertize "  No worktrees found.\n" 'face 'font-lock-comment-face))
-     ;; Issues section
+     (propertize "[m]" 'face 'orchard-key)
+     (propertize " Magit  " 'face 'font-lock-comment-face)
+     (propertize "[?]" 'face 'orchard-key)
+     (propertize " Help" 'face 'font-lock-comment-face)
      "\n"
-     (propertize (format "  Issues (%d open%s, %d available)\n"
-                         (length open-issues)
-                         (if (and (> staging-count 0) orchard--hide-staging-issues)
-                             (format ", %d staging hidden" staging-count)
-                           (if (> staging-count 0)
-                               (format ", %d staging" staging-count)
-                             ""))
-                         (length issues-without-worktree))
-                 'face 'orchard-subheader)
-     (propertize (concat "  " (make-string 70 ?─) "\n") 'face 'font-lock-comment-face)
-     (if open-issues
-         (mapconcat (lambda (issue)
-                      (orchard--format-issue issue worktrees))
-                    open-issues "")
-       (propertize "  No open issues found. Use `gh issue list` to check GitHub.\n"
+
+     ;; UP NEXT section (issues without worktrees)
+     (when (and up-next (orchard--section-visible-p 'up-next))
+       (concat
+        (orchard--format-section-header "UP NEXT" (length up-next) "available" 'up-next)
+        (unless (orchard--section-collapsed-p 'up-next)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     up-next ""))))
+
+     ;; IN PROGRESS section (issues with active worktrees)
+     (when (and in-progress (orchard--section-visible-p 'in-progress))
+       (concat
+        (orchard--format-section-header "IN PROGRESS" (length in-progress) nil 'in-progress)
+        (unless (orchard--section-collapsed-p 'in-progress)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     in-progress ""))))
+
+     ;; QA/VERIFY section (merged PRs, issue still open)
+     (when (and qa-verify (orchard--section-visible-p 'qa-verify))
+       (concat
+        (orchard--format-section-header "QA/VERIFY" (length qa-verify) "merged, issue open" 'qa-verify)
+        (unless (orchard--section-collapsed-p 'qa-verify)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path t))
+                     qa-verify ""))))
+
+     ;; DONE section (closed issues, ready to archive)
+     (when (and done (orchard--section-visible-p 'done))
+       (concat
+        (orchard--format-section-header "DONE" (length done) "ready to archive" 'done)
+        (unless (orchard--section-collapsed-p 'done)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path t))
+                     done ""))))
+
+     ;; UNLINKED BRANCHES section (worktrees without issues)
+     (when (and orphan-worktrees (orchard--section-visible-p 'unlinked))
+       (concat
+        (orchard--format-section-header "UNLINKED BRANCHES" (length orphan-worktrees) nil 'unlinked)
+        (unless (orchard--section-collapsed-p 'unlinked)
+          (mapconcat (lambda (wt)
+                       (orchard--format-orphan-worktree wt current-path))
+                     orphan-worktrees ""))))
+
+     ;; Empty state
+     (when (and (null up-next) (null in-progress) (null qa-verify)
+                (null done) (null orphan-worktrees))
+       (propertize "\n  No issues or worktrees found. Press I to start from an issue.\n"
                    'face 'font-lock-comment-face))
-     "\n"
+
      ;; Footer
+     "\n"
      (propertize "  " 'face 'default)
-     (propertize "?" 'face 'orchard-key)
-     (propertize " help  " 'face 'font-lock-comment-face)
-     (propertize "M-m" 'face 'orchard-key)
-     (propertize " cycle magit/claude  " 'face 'font-lock-comment-face)
-     (propertize "C" 'face 'orchard-key)
-     (propertize " cleanup  " 'face 'font-lock-comment-face)
+     (propertize "g" 'face 'orchard-key)
+     (propertize " refresh  " 'face 'font-lock-comment-face)
+     (propertize "G" 'face 'orchard-key)
+     (propertize " force-refresh  " 'face 'font-lock-comment-face)
      (propertize "M" 'face 'orchard-key)
-     (propertize " archive merged" 'face 'font-lock-comment-face))))
+     (propertize " archive done  " 'face 'font-lock-comment-face)
+     (propertize "s" 'face 'orchard-key)
+     (propertize " toggle staging" 'face 'font-lock-comment-face))))
 
 (defun orchard--column-dedicated-p (column)
   "Return t if COLUMN's window is dedicated."
@@ -2580,6 +2875,171 @@ Preserves existing Claude buffers, keeps Orchard on far left."
   (if-let ((wt (orchard--get-worktree-at-point)))
       (dired (alist-get 'path wt))
     (user-error "No worktree at point")))
+
+;;; ────────────────────────────────────────────────────────────────────────────
+;;; Hide/Show Functions
+;;; ────────────────────────────────────────────────────────────────────────────
+
+(defun orchard-hide-at-point ()
+  "Hide the item at point from the dashboard.
+Hides the issue (by number) or orphan worktree (by path).
+Hidden items are persisted and can be shown with `orchard-show-hidden'."
+  (interactive)
+  (cond
+   ;; If on an issue, hide by issue number
+   ((orchard--get-issue-at-point)
+    (let* ((issue (orchard--get-issue-at-point))
+           (number (alist-get 'number issue))
+           (title (alist-get 'title issue)))
+      (when (y-or-n-p (format "Hide issue #%d: %s? " number
+                              (truncate-string-to-width (or title "") 40 nil nil "...")))
+        (orchard--hide-issue number)
+        (message "Hidden issue #%d (press H to show hidden)" number)
+        (orchard-refresh))))
+   ;; If on an orphan worktree (no issue), hide by path
+   ((orchard--get-worktree-at-point)
+    (let* ((wt (orchard--get-worktree-at-point))
+           (path (alist-get 'path wt))
+           (branch (alist-get 'branch wt)))
+      (when (y-or-n-p (format "Hide branch %s? " branch))
+        (orchard--hide-worktree path)
+        (message "Hidden %s (press H to show hidden)" branch)
+        (orchard-refresh))))
+   (t
+    (user-error "No item at point to hide"))))
+
+(defun orchard-show-hidden ()
+  "Show and manage hidden items.
+Displays a list of hidden issues and worktrees with option to unhide."
+  (interactive)
+  (let* ((hidden-issues (orchard--get-hidden-issues))
+         (hidden-worktrees (orchard--get-hidden))
+         (all-hidden (append
+                      (mapcar (lambda (n) (cons 'issue n)) hidden-issues)
+                      (mapcar (lambda (p) (cons 'worktree p)) hidden-worktrees))))
+    (if (null all-hidden)
+        (message "No hidden items")
+      (let* ((choices (mapcar
+                       (lambda (item)
+                         (if (eq (car item) 'issue)
+                             (format "Issue #%d" (cdr item))
+                           (format "Branch: %s"
+                                   (file-name-nondirectory
+                                    (directory-file-name (cdr item))))))
+                       all-hidden))
+             (selected (completing-read-multiple
+                        "Unhide (comma-separated, or C-g to cancel): "
+                        choices nil t)))
+        (dolist (sel selected)
+          (let ((idx (cl-position sel choices :test #'string=)))
+            (when idx
+              (let ((item (nth idx all-hidden)))
+                (if (eq (car item) 'issue)
+                    (progn
+                      (orchard--unhide-issue (cdr item))
+                      (message "Unhid issue #%d" (cdr item)))
+                  (orchard--unhide-worktree (cdr item))
+                  (message "Unhid %s" (file-name-nondirectory
+                                       (directory-file-name (cdr item)))))))))
+        (orchard-refresh)))))
+
+;;; ────────────────────────────────────────────────────────────────────────────
+;;; View Presets
+;;; ────────────────────────────────────────────────────────────────────────────
+
+(defun orchard-set-view (view)
+  "Set the dashboard VIEW preset."
+  (setq orchard--current-view view)
+  (message "View: %s" (symbol-name view))
+  (orchard-refresh))
+
+(defun orchard-view-working ()
+  "Show working view: UP NEXT and IN PROGRESS only."
+  (interactive)
+  (orchard-set-view 'working))
+
+(defun orchard-view-all ()
+  "Show all sections."
+  (interactive)
+  (orchard-set-view 'all))
+
+(defun orchard-view-next ()
+  "Show only UP NEXT section."
+  (interactive)
+  (orchard-set-view 'next))
+
+(defun orchard-view-qa ()
+  "Show only QA/VERIFY section."
+  (interactive)
+  (orchard-set-view 'qa))
+
+(defun orchard-view-progress ()
+  "Show only IN PROGRESS section."
+  (interactive)
+  (orchard-set-view 'progress))
+
+(defun orchard--section-visible-p (section)
+  "Return t if SECTION should be visible based on current view."
+  (pcase orchard--current-view
+    ('all t)
+    ('working (memq section '(up-next in-progress unlinked)))
+    ('next (eq section 'up-next))
+    ('qa (eq section 'qa-verify))
+    ('progress (eq section 'in-progress))
+    (_ t)))
+
+;;; ────────────────────────────────────────────────────────────────────────────
+;;; Section Collapsing
+;;; ────────────────────────────────────────────────────────────────────────────
+
+(defun orchard--section-collapsed-p (section)
+  "Return t if SECTION is collapsed."
+  (member section orchard--collapsed-sections))
+
+(defun orchard--toggle-section-collapsed (section)
+  "Toggle collapsed state of SECTION."
+  (if (orchard--section-collapsed-p section)
+      (setq orchard--collapsed-sections (delete section orchard--collapsed-sections))
+    (push section orchard--collapsed-sections)))
+
+(defun orchard-toggle-section ()
+  "Toggle collapse state of section at point."
+  (interactive)
+  (let ((section (get-text-property (point) 'orchard-section)))
+    (if section
+        (progn
+          (orchard--toggle-section-collapsed section)
+          (orchard-refresh))
+      (user-error "Not on a section header"))))
+
+(defun orchard-expand-all-sections ()
+  "Expand all collapsed sections."
+  (interactive)
+  (setq orchard--collapsed-sections nil)
+  (orchard-refresh))
+
+;;; ────────────────────────────────────────────────────────────────────────────
+;;; Filter Transient Menu
+;;; ────────────────────────────────────────────────────────────────────────────
+
+(transient-define-prefix orchard-filter-menu ()
+  "Filter and view options for Orchard dashboard."
+  ["View Presets"
+   ("w" "Working (next + progress)" orchard-view-working)
+   ("a" "All sections" orchard-view-all)
+   ("n" "Next only" orchard-view-next)
+   ("p" "In Progress only" orchard-view-progress)
+   ("q" "QA/Verify only" orchard-view-qa)]
+  ["Filters"
+   ("/" "Search by label" orchard-filter-by-label)
+   ("\\" "Clear label filter" orchard-clear-label-filter)
+   ("s" "Toggle staging" orchard-toggle-staging-issues)]
+  ["Hidden"
+   ("-" "Hide at point" orchard-hide-at-point)
+   ("H" "Show/unhide items" orchard-show-hidden)]
+  ["Sections"
+   ("TAB" "Toggle section" orchard-toggle-section)
+   ("E" "Expand all" orchard-expand-all-sections)])
 
 (defun orchard-push-at-point ()
   "Push branch at point to origin."
