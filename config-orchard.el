@@ -1858,17 +1858,48 @@ Keeps Claude in background - no window shown."
     claude-buf))
 
 (defun orchard--start-claude-with-resume (path)
-  "Start Claude for PATH in best window. Does NOT auto-resume - user can /resume manually."
+  "Start Claude for PATH in best window with background resume if session exists.
+If PATH has a persisted session, starts Claude hidden, sends /resume,
+and only shows the window after resume completes."
   (orchard--ensure-claude-loaded)
   (let* ((target-win (orchard--find-best-window))
-         (existing-claude (orchard--claude-buffer-for-path path)))
-    (select-window target-win)
-    (if existing-claude
-        ;; Claude exists - just switch to it
-        (switch-to-buffer existing-claude)
-      ;; Start new Claude
+         (existing-claude (orchard--claude-buffer-for-path path))
+         (has-session (orchard--worktree-has-claude-session-p path))
+         (resuming (orchard--claude-resuming-p path)))
+    (cond
+     ;; Already resuming - just wait
+     (resuming
+      (message "Claude is resuming, please wait..."))
+     ;; Existing buffer - just switch to it
+     (existing-claude
+      (select-window target-win)
+      (switch-to-buffer existing-claude))
+     ;; No buffer but has session - background resume
+     (has-session
+      (message "Starting Claude with session resume...")
+      (let* ((default-directory path)
+             (buffers-before (buffer-list)))
+        ;; Start Claude but don't show window yet
+        (save-window-excursion
+          (claude-code))
+        ;; Find the new buffer
+        (when-let ((new-claude (cl-find-if
+                                (lambda (buf)
+                                  (and (string-prefix-p "*claude:" (buffer-name buf))
+                                       (not (memq buf buffers-before))))
+                                (buffer-list))))
+          ;; Start background resume, show window when complete
+          (orchard--start-background-resume
+           new-claude path
+           (lambda (buf _path)
+             (when (window-live-p target-win)
+               (select-window target-win)
+               (switch-to-buffer buf)))))))
+     ;; No buffer, no session - start fresh
+     (t
+      (select-window target-win)
       (let ((default-directory path))
-        (claude-code)))))
+        (claude-code))))))
 
 (defun orchard--send-resume-to-claude (claude-buf delay)
   "Send /resume and Enter to CLAUDE-BUF after DELAY seconds."
