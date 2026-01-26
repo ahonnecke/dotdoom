@@ -301,7 +301,8 @@ Does nothing if `orchard--inhibit-cache-refresh' is non-nil."
 
 (defun orchard--get-open-issues ()
   "Get list of open GitHub issues from cache.
-Does NOT auto-refresh - use `orchard-force-refresh' (G) to fetch from GitHub."
+Auto-refreshes cache if stale or empty (unless inhibited)."
+  (orchard--ensure-issues-cache)
   (when (vectorp orchard--issues-cache)
     (append orchard--issues-cache nil)))  ; Convert vector to list
 
