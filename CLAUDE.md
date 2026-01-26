@@ -678,3 +678,17 @@ These files attempted clever completion features that never fully worked:
 | `config-string-inflection.el` | Replaced by config-inflection.el (Dec 2025) |
 | `config-aws-mode.el` | Not loaded, config-aws.el used instead |
 | `config-gitlab-upload.el` | Not loaded, GitLab screenshot upload |
+
+---
+
+## Development Rules (Added after broken session 2026-01-26)
+
+**CRITICAL: When editing config-orchard.el or any large elisp file:**
+
+1. **Commit after each working change** - Never accumulate 800+ lines of uncommitted changes
+2. **Test after EVERY edit**: `emacs --batch -l ~/.doom.d/config-orchard.el 2>&1 | tail -5`
+3. **Small incremental changes** - One function at a time, test, commit
+4. **To fully revert**: `git checkout HEAD -- file` (not just `git checkout -- file`)
+5. **If it breaks, STOP** - Revert immediately, don't pile on more changes
+6. **Verify parens**: `emacs --batch --eval "(progn (find-file \"file.el\") (check-parens))"`
+
