@@ -315,6 +315,42 @@ Returns list of (worktree . session-info) pairs."
   (orchard-refresh))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Filter Commands
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard-filter-by-label ()
+  "Filter issues by label.
+Prompts for a label from the available labels in cached issues."
+  (interactive)
+  (let ((labels (orchard--get-all-labels)))
+    (if (null labels)
+        (message "No labels found in cached issues")
+      (let ((label (completing-read "Filter by label: " labels nil t)))
+        (setq orchard--label-filter label)
+        (message "Filtering by label: %s" label)
+        (orchard-refresh)))))
+
+(defun orchard-clear-label-filter ()
+  "Clear the label filter."
+  (interactive)
+  (setq orchard--label-filter nil)
+  (message "Label filter cleared")
+  (orchard-refresh))
+
+(defun orchard-toggle-staging-issues ()
+  "Toggle visibility of issues with 'staging' label."
+  (interactive)
+  (setq orchard--hide-staging-issues (not orchard--hide-staging-issues))
+  (message "Staging issues: %s" (if orchard--hide-staging-issues "hidden" "visible"))
+  (orchard-refresh))
+
+(defun orchard-expand-all-sections ()
+  "Expand all collapsed sections."
+  (interactive)
+  (setq orchard--collapsed-sections nil)
+  (orchard-refresh))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Filter Transient Menu
 ;;; ════════════════════════════════════════════════════════════════════════════
 
