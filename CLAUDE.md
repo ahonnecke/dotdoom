@@ -201,7 +201,24 @@ Located in `config-magit.el`:
 
 ## Orchard - Issue-Centric Worktree Manager (C-c O prefix)
 
-Located in `config-orchard.el`. Opens on startup.
+Opens on startup. Entry point: `config-orchard.el` (thin shim that loads modular system).
+
+### Module Architecture (Jan 2025 refactor)
+
+The orchard system was split from a 4375-line monolith into 8 focused modules:
+
+| Module | Lines | Purpose |
+|--------|-------|---------|
+| `orchard-vars.el` | 187 | Variables, customization (`defcustom`), faces |
+| `orchard-cache.el` | 501 | Claude sessions, merged branches, GitHub issues, state |
+| `orchard-worktree.el` | 338 | Worktree data, orphan detection, stage detection |
+| `orchard-window.el` | 247 | Column management, window locking |
+| `orchard-claude.el` | 383 | Claude status tracking, buffer/session management |
+| `orchard-dashboard.el` | 892 | Major mode, formatting, navigation, views |
+| `orchard-actions.el` | 1102 | Commands: push/PR/archive/delete, branch creation |
+| `orchard.el` | 702 | Main entry point, transient menu, keybindings |
+
+Load order: `config-orchard.el` → `orchard.el` → all sub-modules via `require`.
 
 ### Workflow
 
