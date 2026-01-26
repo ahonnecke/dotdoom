@@ -430,6 +430,29 @@ Looks for the prompt character or completion indicators."
            (message "Resuming Claude session... (%ds)" elapsed)
            (orchard--wait-for-resume buffer path callback))))))))
 
+(defun orchard--start-background-resume (buffer path callback)
+  "Send /resume to BUFFER and wait for completion, then call CALLBACK."
+  (orchard--mark-resuming path)
+  (message "Resuming previous Claude session...")
+  ;; Send /resume after vterm settles
+  (run-with-timer
+   1.5 nil
+   (lambda ()
+     (when (buffer-live-p buffer)
+       (with-current-buffer buffer
+         (when (derived-mode-p 'vterm-mode)
+           (vterm-send-string "/resume")
+           (vterm-send-return)
+           ;; Auto-select most recent session after list appears
+           (run-with-timer
+            1.5 nil
+            (lambda ()
+              (when (buffer-live-p buffer)
+                (with-current-buffer buffer
+                  (vterm-send-return)))
+              ;; Start polling for completion
+              (orchard--wait-for-resume buffer path callback)))))))))
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Merged Branch Detection (via GitHub PR)
 ;;; ════════════════════════════════════════════════════════════════════════════
