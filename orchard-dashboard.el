@@ -853,6 +853,33 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
             session-items "")))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Main Entry Point
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard ()
+  "Open the Orchard dashboard.
+This is the main entry point for the worktree manager."
+  (interactive)
+  (let ((buf (get-buffer-create "*Orchard*")))
+    (with-current-buffer buf
+      (unless (eq major-mode 'orchard-mode)
+        (orchard-mode))
+      (orchard-refresh))
+    (pop-to-buffer buf)))
+
+(defun orchard-force-refresh ()
+  "Force refresh with fresh data from GitHub (bypasses cache)."
+  (interactive)
+  (setq orchard--worktrees-cache nil
+        orchard--worktrees-cache-time nil
+        orchard--issues-cache nil
+        orchard--issues-cache-time nil)
+  (orchard--refresh-merged-cache)
+  (orchard--refresh-closed-issues-cache)
+  (orchard-refresh)
+  (message "Orchard refreshed with fresh data"))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Refresh
 ;;; ════════════════════════════════════════════════════════════════════════════
 

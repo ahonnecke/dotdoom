@@ -698,6 +698,169 @@ These files attempted clever completion features that never fully worked:
 
 ---
 
+## Elisp Development Guidelines
+
+**CRITICAL: Follow these rules when editing ANY .el file in this codebase.**
+
+### Mandatory Practices
+
+1. **ALWAYS test after edits**:
+   ```bash
+   emacs --batch -l ~/.doom.d/<file>.el 2>&1 | tail -10
+   ```
+
+2. **Verify parentheses before committing**:
+   ```bash
+   emacs --batch --eval "(progn (find-file \"~/.doom.d/<file>.el\") (check-parens))"
+   ```
+
+3. **ALWAYS use lexical binding** - First line of every file:
+   ```elisp
+   ;;; ~/.doom.d/config-<feature>.el -*- lexical-binding: t; -*-
+   ```
+
+### Syntax Rules
+
+| Do | Don't |
+|----|-------|
+| `(when condition body)` | `(if condition body nil)` |
+| `(unless condition body)` | `(if (not condition) body)` |
+| `(let* ((a 1) (b (+ a 1))))` | `(let ((a 1)) (let ((b ...))))` when b depends on a |
+| `(with-current-buffer buf ...)` | `(set-buffer buf) ...` |
+| `(save-excursion ...)` | Moving point without restoring |
+| `(pcase x ...)` | Nested `cond` with `equal` tests |
+| `(-map #'fn list)` | `(mapcar #'fn list)` (dash.el available) |
+| `(-filter #'pred list)` | `(cl-remove-if-not #'pred list)` |
+| `(s-trim str)` | `(string-trim str)` (s.el available) |
+
+### Variable Binding
+
+```elisp
+;; CORRECT - use let for local variables
+(let ((x 1)
+      (y 2))
+  (+ x y))
+
+;; WRONG - setq creates/modifies global state
+(setq x 1)  ; Don't do this for local vars
+
+;; CORRECT - let* when bindings depend on each other
+(let* ((dir (project-root))
+       (file (expand-file-name "foo" dir)))
+  ...)
+
+;; WRONG - let when second binding needs first
+(let ((dir (project-root))
+      (file (expand-file-name "foo" dir)))  ; dir not bound yet!
+  ...)
+```
+
+### Interactive Commands
+
+```elisp
+;; Commands users call need (interactive)
+(defun my-command ()
+  "Docstring explaining what this does."
+  (interactive)
+  ...)
+
+;; With prefix arg
+(defun my-command (arg)
+  "With ARG, do alternate behavior."
+  (interactive "P")
+  ...)
+
+;; Functions called by code don't need interactive
+(defun my-helper (x y)
+  "Internal helper."
+  (+ x y))
+```
+
+### Error Handling
+
+```elisp
+;; CORRECT - condition-case for expected errors
+(condition-case err
+    (risky-operation)
+  (error (message "Failed: %s" (error-message-string err))))
+
+;; CORRECT - condition-case-unless-debug for debugging
+(condition-case-unless-debug err
+    (risky-operation)
+  (error (message "Failed: %s" err)))
+
+;; CORRECT - ignore-errors when you don't care
+(ignore-errors (delete-file temp-file))
+```
+
+### Doom Emacs Patterns
+
+```elisp
+;; Package config (in config.el or config-*.el)
+(after! magit
+  (setq magit-save-repository-buffers 'dontask))
+
+;; Keybindings via map!
+(map! :leader
+      :desc "Find file" "f f" #'find-file)
+
+;; Or via ashton-mode-map (preferred in this config)
+(define-key ashton-mode-map (kbd "C-c x") #'my-command)
+
+;; Hooks
+(add-hook! 'python-mode-hook #'my-setup)
+
+;; use-package! for packages
+(use-package! some-package
+  :commands (some-command)
+  :config
+  (setq some-var t))
+```
+
+### Common Mistakes to Avoid
+
+1. **Unbalanced parens** - Use `check-parens` or rainbow-delimiters
+2. **Missing `#'` before function names** - `(mapcar #'fn list)` not `(mapcar 'fn list)`
+3. **Wrong quote type** - `'symbol` for symbols, `#'function` for functions, `` `(,var) `` for quasiquote
+4. **Forgetting `interactive`** - Commands won't appear in M-x
+5. **Using `setq` in let body** - Just use the let binding
+6. **Not requiring dependencies** - Add `(require 'dash)` if using dash functions
+7. **Assuming buffer context** - Use `with-current-buffer` explicitly
+8. **String vs symbol confusion** - `"string"` vs `'symbol` vs `:keyword`
+
+### Quoting Reference
+
+```elisp
+'foo           ; Symbol foo (not evaluated)
+#'foo          ; Function foo (for passing functions)
+`(a ,b c)      ; Quasiquote: a and c literal, b evaluated
+'(a b c)       ; List of symbols (nothing evaluated)
+(list a b c)   ; List with a, b, c evaluated
+```
+
+### Transient Menus (used heavily in this config)
+
+```elisp
+(transient-define-prefix my-transient ()
+  "My command menu."
+  ["Actions"
+   ("a" "Action A" my-action-a)
+   ("b" "Action B" my-action-b)]
+  ["Navigation"
+   ("n" "Next" my-next)
+   ("p" "Previous" my-prev)])
+```
+
+### Testing Elisp Interactively
+
+- `M-:` (eval-expression) - Evaluate single expression
+- `C-x C-e` - Evaluate sexp before point
+- `C-M-x` - Evaluate defun at point
+- `M-x ielm` - Interactive elisp REPL
+- `*Messages*` buffer - See errors and output
+
+---
+
 ## Development Rules (Added after broken session 2026-01-26)
 
 **CRITICAL: When editing config-orchard.el or any large elisp file:**
