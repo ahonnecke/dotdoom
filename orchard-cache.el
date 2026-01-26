@@ -12,10 +12,10 @@
 (require 'orchard-vars)
 
 ;;; Forward declarations for functions defined in other orchard files
-(declare-function orchard--get-repo-root "config-orchard")
-(declare-function orchard--get-worktrees "config-orchard")
-(declare-function orchard-refresh "config-orchard")
-(declare-function orchard--refresh-if-visible "config-orchard")
+(declare-function orchard--get-repo-root "orchard-worktree")
+(declare-function orchard--get-worktrees "orchard-worktree")
+(declare-function orchard-refresh "orchard-dashboard")
+(declare-function orchard--refresh-if-visible "orchard-actions")
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Stage Tracking Variables

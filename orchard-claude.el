@@ -12,12 +12,12 @@
 (require 'orchard-cache)
 
 ;;; Forward declarations for functions defined in other orchard files
-(declare-function orchard-refresh "config-orchard")
+(declare-function orchard-refresh "orchard-dashboard")
 (declare-function orchard--get-worktrees "orchard-worktree")
-(declare-function orchard--find-worktree-for-issue "config-orchard")
-(declare-function orchard--issue-workflow-stage "config-orchard")
+(declare-function orchard--find-worktree-for-issue "orchard")
+(declare-function orchard--issue-workflow-stage "orchard")
 (declare-function orchard--get-open-issues "orchard-cache")
-(declare-function orchard--find-best-window "config-orchard")
+(declare-function orchard--find-best-window "orchard")
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Status Tracking (via hooks)

@@ -43,13 +43,16 @@
   (setq claude-code-terminal-backend 'vterm)
 
   ;; Global display rule: Claude buffers reuse existing Claude window
-  ;; or display in same window - NEVER split to create tiny windows
+  ;; or display in same window - NEVER split or take over other windows
   (add-to-list 'display-buffer-alist
                '("\\*claude:"
                  (display-buffer-reuse-window
                   display-buffer-same-window)
                  (reusable-frames . visible)
-                 (inhibit-same-window . nil)))
+                 (inhibit-same-window . nil)
+                 ;; Prevent Claude from deleting other windows
+                 (inhibit-switch-frame . t)
+                 (preserve-size . (t . nil))))
 
   ;; Custom command that captures window first, then starts Claude
   (defun claude-code-here ()
@@ -89,6 +92,138 @@ Use this instead of claude-code to ensure Claude opens HERE."
   (define-key ashton-mode-map (kbd "C-c c ?") #'claude-jump-to-last-question)
   (define-key ashton-mode-map (kbd "C-c c a") #'claude-jump-to-last-action)
   (define-key ashton-mode-map (kbd "C-c c S") #'claude-summary))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Claude Window Resize Handling
+;;; ════════════════════════════════════════════════════════════════════════════
+;;
+;; Claude Code's rich output (progress bars, task lists) doesn't handle
+;; terminal width changes gracefully. This causes garbled display when
+;; windows are resized smaller.
+;;
+;; Solution:
+;; 1. Set minimum/maximum window width to prevent tiny or overly wide windows
+;; 2. When window width changes significantly, force vterm to resize properly
+;; 3. Lock windows to prevent accidental resize during output
+
+(defcustom claude-min-window-width 80
+  "Minimum width for Claude windows.
+Windows showing Claude buffers will resist shrinking below this width."
+  :type 'integer
+  :group 'claude-code)
+
+(defcustom claude-max-window-width 140
+  "Maximum width for Claude windows.
+New Claude windows will be constrained to this width."
+  :type 'integer
+  :group 'claude-code)
+
+(defvar claude--window-widths (make-hash-table :test 'eq)
+  "Hash table tracking initial width of windows showing Claude buffers.")
+
+(defun claude--window-showing-claude-p (window)
+  "Return t if WINDOW is showing a Claude buffer."
+  (and (window-live-p window)
+       (string-prefix-p "*claude:" (buffer-name (window-buffer window)))))
+
+(defun claude--reset-vterm-size (buffer)
+  "Force BUFFER's vterm to recalculate its size.
+This helps fix garbled output after resize."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (derived-mode-p 'vterm-mode)
+        ;; Force vterm to recalculate its terminal size
+        (when (fboundp 'vterm--set-size)
+          (let* ((win (get-buffer-window buffer))
+                 (width (when win (window-width win)))
+                 (height (when win (window-height win))))
+            (when (and width height)
+              ;; Set size slightly smaller then back to force refresh
+              (ignore-errors
+                (vterm--set-size height (1- width))
+                (run-at-time 0.1 nil
+                             (lambda ()
+                               (when (buffer-live-p buffer)
+                                 (with-current-buffer buffer
+                                   (when (and (fboundp 'vterm--set-size) win (window-live-p win))
+                                     (vterm--set-size
+                                      (window-height win)
+                                      (window-width win)))))))))))))))
+
+(defun claude--constrain-window-width (window)
+  "Ensure WINDOW showing Claude is within width constraints.
+Returns t if window was resized."
+  (when (and (window-live-p window)
+             (claude--window-showing-claude-p window))
+    (let* ((width (window-width window))
+           (frame-width (frame-width))
+           (target-width nil))
+      (cond
+       ;; Too narrow - try to expand
+       ((and (< width claude-min-window-width)
+             (> frame-width claude-min-window-width))
+        (setq target-width claude-min-window-width))
+       ;; Too wide - try to shrink
+       ((and (> width claude-max-window-width)
+             ;; Only constrain if there's room for other content
+             (> (length (window-list)) 1))
+        (setq target-width claude-max-window-width)))
+      (when target-width
+        (let ((delta (- target-width width)))
+          (ignore-errors
+            (window-resize window delta t))
+          t)))))
+
+(defun claude--handle-window-resize (frame)
+  "Handle window resize events for FRAME.
+Resets vterm size when Claude windows change significantly."
+  (dolist (window (window-list frame 'no-mini))
+    (when (claude--window-showing-claude-p window)
+      (let* ((buf (window-buffer window))
+             (current-width (window-width window))
+             (initial-width (gethash window claude--window-widths)))
+        ;; Track initial width if not set
+        (unless initial-width
+          (puthash window current-width claude--window-widths)
+          (setq initial-width current-width))
+        ;; If width changed significantly, force vterm to recalculate
+        (when (and initial-width
+                   (> (abs (- current-width initial-width)) 5))
+          (claude--reset-vterm-size buf)
+          ;; Update tracked width
+          (puthash window current-width claude--window-widths))))))
+
+(defun claude--window-size-change-hook (frame)
+  "Hook for `window-size-change-functions'.
+Handles resize events for Claude windows in FRAME."
+  ;; First enforce constraints
+  (dolist (window (window-list frame 'no-mini))
+    (claude--constrain-window-width window))
+  ;; Then handle any resize effects
+  (claude--handle-window-resize frame))
+
+;; Register the hook
+(add-hook 'window-size-change-functions #'claude--window-size-change-hook)
+
+;; Clean up dead windows from tracking hash
+(defun claude--cleanup-window-tracking ()
+  "Remove dead windows from tracking hash table."
+  (let ((dead-keys '()))
+    (maphash (lambda (k _v)
+               (unless (window-live-p k)
+                 (push k dead-keys)))
+             claude--window-widths)
+    (dolist (k dead-keys)
+      (remhash k claude--window-widths))))
+
+(run-with-idle-timer 60 t #'claude--cleanup-window-tracking)
+
+(defun claude-reset-window ()
+  "Reset current Claude window - fixes garbled display after resize."
+  (interactive)
+  (when (claude-buffer-p)
+    (claude--reset-vterm-size (current-buffer))
+    (message "Reset vterm size")))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Debugging - Hang diagnosis
@@ -314,6 +449,7 @@ Use this instead of claude-code to ensure Claude opens HERE."
 (define-key ashton-mode-map (kbd "C-c c d k") #'claude-kill-stuck)
 (define-key ashton-mode-map (kbd "C-c c d l") #'claude-list-sessions)
 (define-key ashton-mode-map (kbd "C-c c d o") #'claude-kill-orphans)
+(define-key ashton-mode-map (kbd "C-c c d r") #'claude-reset-window)  ; Reset vterm size after garbled display
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Buffer Navigation - "What did Claude do?"

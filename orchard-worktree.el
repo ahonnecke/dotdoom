@@ -13,10 +13,10 @@
 (require 'orchard-cache)
 
 ;;; Forward declarations for functions defined in other orchard files
-(declare-function orchard--claude-buffer-for-path "config-orchard")
-(declare-function orchard--claude-process-running-p "config-orchard")
-(declare-function orchard--column-for-branch "config-orchard")
-(declare-function orchard-refresh "config-orchard")
+(declare-function orchard--claude-buffer-for-path "orchard-claude")
+(declare-function orchard--claude-process-running-p "orchard-claude")
+(declare-function orchard--column-for-branch "orchard-window")
+(declare-function orchard-refresh "orchard-dashboard")
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Worktree Data

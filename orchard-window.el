@@ -10,9 +10,9 @@
 (require 'orchard-vars)
 
 ;;; Forward declarations for functions defined in other orchard files
-(declare-function orchard--ensure-claude-loaded "config-orchard")
-(declare-function orchard--claude-buffer-for-path "config-orchard")
-(declare-function orchard--current-worktree "config-orchard")
+(declare-function orchard--ensure-claude-loaded "orchard-claude")
+(declare-function orchard--claude-buffer-for-path "orchard-claude")
+(declare-function orchard--current-worktree "orchard")
 (declare-function claude-code "claude-code")
 
 ;;; ════════════════════════════════════════════════════════════════════════════
