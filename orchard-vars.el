@@ -87,6 +87,30 @@ Called with the worktree path as argument."
   :group 'orchard)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Cache TTLs
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defcustom orchard-worktrees-cache-ttl 30
+  "Seconds before worktrees cache is considered stale."
+  :type 'integer
+  :group 'orchard)
+
+(defcustom orchard-issues-cache-ttl 300
+  "Seconds before GitHub issues cache is considered stale (5 minutes)."
+  :type 'integer
+  :group 'orchard)
+
+(defcustom orchard-merged-cache-ttl 600
+  "Seconds before merged branches cache is considered stale (10 minutes)."
+  :type 'integer
+  :group 'orchard)
+
+(defcustom orchard-claude-sessions-cache-ttl 60
+  "Seconds before Claude sessions cache is considered stale."
+  :type 'integer
+  :group 'orchard)
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Faces
 ;;; ════════════════════════════════════════════════════════════════════════════
 
