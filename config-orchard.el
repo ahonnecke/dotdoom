@@ -381,6 +381,28 @@ Returns indicator string or empty string."
   "Mark PATH as done resuming."
   (remhash (expand-file-name path) orchard--claude-resuming))
 
+(defun orchard--claude-resume-complete-p (buffer)
+  "Return t if BUFFER shows Claude has finished resuming.
+Looks for the prompt character or completion indicators."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (save-excursion
+        (goto-char (point-max))
+        (let ((end-text (buffer-substring-no-properties
+                         (max (point-min) (- (point) 500))
+                         (point))))
+          ;; Look for indicators that Claude is ready:
+          ;; - The ❯ prompt at end
+          ;; - "Restored" or "Resuming" messages followed by ready state
+          (or (string-match-p "❯\\s-*$" end-text)
+              (string-match-p "Restored.*session" end-text)))))))
+
+(defun orchard--resume-timed-out-p (path)
+  "Return t if resume for PATH has exceeded timeout."
+  (when-let ((start-time (gethash (expand-file-name path) orchard--claude-resuming)))
+    (> (float-time (time-subtract (current-time) start-time))
+       orchard-claude-resume-timeout)))
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Merged Branch Detection (via GitHub PR)
 ;;; ════════════════════════════════════════════════════════════════════════════
