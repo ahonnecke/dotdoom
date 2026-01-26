@@ -1267,28 +1267,62 @@ FN is called with no arguments."
         (magit-status path)))))
 
 (defun orchard--claude-in-window (path window)
-  "Start or switch to Claude for PATH in WINDOW without letting it escape."
+  "Start or switch to Claude for PATH in WINDOW without letting it escape.
+If PATH has a persisted session but no buffer, starts Claude in background
+and resumes the session before showing."
   (orchard--ensure-claude-loaded)
-  (orchard--with-undedicated-window window
-    (lambda ()
-      (select-window window)
-      ;; Check for existing buffer
-      (let ((claude-buf (orchard--claude-buffer-for-path path)))
-        (if (and claude-buf (buffer-live-p claude-buf))
-            ;; Existing - force into window
-            (set-window-buffer window claude-buf)
-          ;; New - start Claude and capture the buffer
+  (let ((claude-buf (orchard--claude-buffer-for-path path))
+        (has-session (orchard--worktree-has-claude-session-p path))
+        (resuming (orchard--claude-resuming-p path)))
+    (cond
+     ;; Already resuming - just wait
+     (resuming
+      (message "Claude is resuming, please wait..."))
+     ;; Existing buffer - show it
+     ((and claude-buf (buffer-live-p claude-buf))
+      (orchard--with-undedicated-window window
+        (lambda ()
+          (select-window window)
+          (set-window-buffer window claude-buf))))
+     ;; No buffer but has session - background resume
+     (has-session
+      (message "Starting Claude with session resume...")
+      (let* ((default-directory path)
+             (buffers-before (buffer-list)))
+        ;; Start Claude but don't show window yet
+        (save-window-excursion
+          (claude-code))
+        ;; Find the new buffer
+        (let ((new-claude (cl-find-if
+                          (lambda (buf)
+                            (and (string-prefix-p "*claude:" (buffer-name buf))
+                                 (not (memq buf buffers-before))))
+                          (buffer-list))))
+          (when new-claude
+            ;; Start background resume, show window when complete
+            (orchard--start-background-resume
+             new-claude path
+             (lambda (buf _path)
+               (when (window-live-p window)
+                 (orchard--with-undedicated-window window
+                   (lambda ()
+                     (select-window window)
+                     (set-window-buffer window buf))))))))))
+     ;; No buffer, no session - start fresh
+     (t
+      (orchard--with-undedicated-window window
+        (lambda ()
+          (select-window window)
           (let ((default-directory path)
                 (buffers-before (buffer-list)))
             (claude-code)
-            ;; Find the new Claude buffer
             (let ((new-claude (cl-find-if
                                (lambda (buf)
                                  (and (string-prefix-p "*claude:" (buffer-name buf))
                                       (not (memq buf buffers-before))))
                                (buffer-list))))
               (when new-claude
-                (set-window-buffer window new-claude)))))))))
+                (set-window-buffer window new-claude))))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Display Buffer Rules for Orchard
