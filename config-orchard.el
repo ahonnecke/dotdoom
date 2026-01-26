@@ -357,6 +357,30 @@ Returns indicator string or empty string."
 ;;   ;; Clean up dead entries periodically
 ;;   (run-with-idle-timer 60 t #'orchard--claude-status-cleanup))
 
+;;; ────────────────────────────────────────────────────────────────────────────
+;;; Background Resume - Hide Claude until /resume completes
+;;; ────────────────────────────────────────────────────────────────────────────
+
+(defvar orchard--claude-resuming (make-hash-table :test 'equal)
+  "Tracks paths currently resuming: path -> t when resuming, nil when done.")
+
+(defcustom orchard-claude-resume-timeout 60
+  "Maximum seconds to wait for resume to complete before showing anyway."
+  :type 'integer
+  :group 'orchard)
+
+(defun orchard--claude-resuming-p (path)
+  "Return t if PATH is currently resuming."
+  (gethash (expand-file-name path) orchard--claude-resuming))
+
+(defun orchard--mark-resuming (path)
+  "Mark PATH as currently resuming."
+  (puthash (expand-file-name path) (current-time) orchard--claude-resuming))
+
+(defun orchard--mark-resume-complete (path)
+  "Mark PATH as done resuming."
+  (remhash (expand-file-name path) orchard--claude-resuming))
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Merged Branch Detection (via GitHub PR)
 ;;; ════════════════════════════════════════════════════════════════════════════
