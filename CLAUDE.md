@@ -209,14 +209,16 @@ The orchard system was split from a 4375-line monolith into 8 focused modules:
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `orchard-vars.el` | 187 | Variables, customization (`defcustom`), faces |
-| `orchard-cache.el` | 501 | Claude sessions, merged branches, GitHub issues, state |
-| `orchard-worktree.el` | 338 | Worktree data, orphan detection, stage detection |
+| `orchard-vars.el` | 211 | Variables, customization (`defcustom`), faces, TTLs |
+| `orchard-cache.el` | 502 | Claude sessions, merged branches, GitHub issues, state |
+| `orchard-worktree.el` | 347 | Worktree data, orphan detection, stage detection |
 | `orchard-window.el` | 247 | Column management, window locking |
 | `orchard-claude.el` | 383 | Claude status tracking, buffer/session management |
-| `orchard-dashboard.el` | 892 | Major mode, formatting, navigation, views |
+| `orchard-dashboard.el` | 924 | Major mode, formatting, navigation, views |
 | `orchard-actions.el` | 1102 | Commands: push/PR/archive/delete, branch creation |
 | `orchard.el` | 702 | Main entry point, transient menu, keybindings |
+
+**Restore point**: `git checkout orchard-modular-v1.0`
 
 Load order: `config-orchard.el` → `orchard.el` → all sub-modules via `require`.
 
