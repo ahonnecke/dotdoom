@@ -26,9 +26,18 @@
   "Hash table mapping worktree paths to feature descriptions.")
 
 (defun orchard--get-repo-root ()
-  "Get the repository root, either from config or current directory."
+  "Get the repository root from config.
+If `orchard-repo-path' is not set, attempts to detect from current directory
+only if it looks like a project worktree (not random git repos like ~/.doom.d)."
   (or orchard-repo-path
-      (locate-dominating-file default-directory ".git")))
+      ;; Only fall back to detection if we're in a likely worktree directory
+      ;; (under orchard-worktree-parent with branch-like naming)
+      (let ((git-root (locate-dominating-file default-directory ".git")))
+        (when (and git-root
+                   orchard-worktree-parent
+                   (string-prefix-p (expand-file-name orchard-worktree-parent)
+                                    (expand-file-name git-root)))
+          git-root))))
 
 (defun orchard--get-worktrees (&optional include-hidden force-refresh)
   "Get all worktrees with status info.

@@ -884,13 +884,18 @@ This is the main entry point for the worktree manager."
 ;;; ════════════════════════════════════════════════════════════════════════════
 
 (defun orchard-refresh ()
-  "Refresh the dashboard using cached data."
+  "Refresh the dashboard using cached data.
+On first open (when caches are empty), allows initial fetch.
+Subsequent refreshes use cached data for instant response."
   (interactive)
   (when (fboundp 'ghq--cleanup-stale-ports)
     (ghq--cleanup-stale-ports))
   (when (eq major-mode 'orchard-mode)
+    ;; Only inhibit cache refresh if we already have cached data
+    ;; On first open, allow the initial fetch to happen
     (let ((inhibit-read-only t)
-          (orchard--inhibit-cache-refresh t)
+          (orchard--inhibit-cache-refresh (and orchard--issues-cache
+                                               orchard--worktrees-cache))
           (line (line-number-at-pos)))
       (erase-buffer)
       (insert (orchard--format-dashboard))
