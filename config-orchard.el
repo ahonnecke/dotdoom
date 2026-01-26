@@ -403,6 +403,33 @@ Looks for the prompt character or completion indicators."
     (> (float-time (time-subtract (current-time) start-time))
        orchard-claude-resume-timeout)))
 
+(defun orchard--wait-for-resume (buffer path callback)
+  "Poll BUFFER until resume completes, then call CALLBACK with buffer and path."
+  (let ((start-time (current-time)))
+    (run-with-timer
+     0.5 nil
+     (lambda ()
+       (let ((elapsed (floor (float-time (time-subtract (current-time) start-time)))))
+         (cond
+          ;; Buffer died
+          ((not (buffer-live-p buffer))
+           (orchard--mark-resume-complete path)
+           (message "Claude buffer died during resume"))
+          ;; Resume complete
+          ((orchard--claude-resume-complete-p buffer)
+           (orchard--mark-resume-complete path)
+           (message "Claude session restored (%ds)" elapsed)
+           (funcall callback buffer path))
+          ;; Timeout
+          ((orchard--resume-timed-out-p path)
+           (orchard--mark-resume-complete path)
+           (message "Resume timed out after %ds, showing anyway" elapsed)
+           (funcall callback buffer path))
+          ;; Still waiting - poll again
+          (t
+           (message "Resuming Claude session... (%ds)" elapsed)
+           (orchard--wait-for-resume buffer path callback))))))))
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Merged Branch Detection (via GitHub PR)
 ;;; ════════════════════════════════════════════════════════════════════════════
