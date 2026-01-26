@@ -98,8 +98,8 @@ Looks for common prompt patterns at end of buffer."
     (setq global-mode-string
           (delete '(:eval (claude-modeline--format)) global-mode-string))))
 
-;; Auto-enable on load
-(claude-modeline-mode 1)
+;; DISABLED: Testing if timer causes hangs - see CLAUDE-HANG-DEBUG.md
+;; (claude-modeline-mode 1)
 
 (provide 'config-claude-modeline)
 ;;; config-claude-modeline.el ends here

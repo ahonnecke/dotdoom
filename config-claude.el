@@ -17,6 +17,13 @@
 ;;   C-c c a - Jump to last action (what did Claude do?)
 ;;   C-c c S - Show summary of recent activity
 ;;
+;; Debugging & Session Management (C-c c d prefix):
+;;   C-c c d d - Quick debug state (message)
+;;   C-c c d x - Full debug dump (*Claude Debug* buffer)
+;;   C-c c d k - Kill stuck Claude processes (in Emacs)
+;;   C-c c d l - List all sessions (buffers + system processes)
+;;   C-c c d o - Kill orphan processes (no Emacs buffer)
+;;
 ;; In Claude/vterm buffer:
 ;;   C-c /   - Completion at point (works even if read-only)
 ;;   C-c TAB - Completion at point (alternate binding)
@@ -82,6 +89,231 @@ Use this instead of claude-code to ensure Claude opens HERE."
   (define-key ashton-mode-map (kbd "C-c c ?") #'claude-jump-to-last-question)
   (define-key ashton-mode-map (kbd "C-c c a") #'claude-jump-to-last-action)
   (define-key ashton-mode-map (kbd "C-c c S") #'claude-summary))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Claude Debugging - Hang diagnosis
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun claude-debug-state ()
+  "Dump Claude buffer state for debugging hangs."
+  (interactive)
+  (let ((buf (claude-get-buffer)))
+    (if (not buf)
+        (message "No Claude buffer found")
+      (with-current-buffer buf
+        (let* ((proc (get-buffer-process buf))
+               (vterm-proc (bound-and-true-p vterm--process)))
+          (message "Buffer: %s\nSize: %d bytes\nBuffer-proc: %s (%s)\nVterm-proc: %s (%s)\nReadOnly: %s\nPoint: %d/%d"
+                   (buffer-name)
+                   (buffer-size)
+                   proc
+                   (when proc (process-status proc))
+                   vterm-proc
+                   (when vterm-proc (process-status vterm-proc))
+                   (bound-and-true-p claude-code-read-only-mode)
+                   (point) (point-max)))))))
+
+(defun claude-debug-dump ()
+  "Dump extensive debug info to *Claude Debug* buffer."
+  (interactive)
+  (let ((debug-buf (get-buffer-create "*Claude Debug*"))
+        (claude-bufs (cl-remove-if-not
+                      (lambda (b) (string-prefix-p "*claude:" (buffer-name b)))
+                      (buffer-list))))
+    (with-current-buffer debug-buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "=== Claude Debug Dump ===\n")
+        (insert (format "Time: %s\n\n" (current-time-string)))
+
+        ;; All Claude buffers
+        (insert "== Claude Buffers ==\n")
+        (if (null claude-bufs)
+            (insert "  (none)\n")
+          (dolist (buf claude-bufs)
+            (with-current-buffer buf
+              (let* ((proc (get-buffer-process buf))
+                     (vterm-proc (bound-and-true-p vterm--process)))
+                (insert (format "\n%s:\n" (buffer-name)))
+                (insert (format "  Size: %d bytes\n" (buffer-size)))
+                (insert (format "  Buffer-proc: %s (%s)\n" proc
+                                (when proc (process-status proc))))
+                (insert (format "  Vterm-proc: %s (%s)\n" vterm-proc
+                                (when vterm-proc (process-status vterm-proc))))
+                (insert (format "  Read-only: %s\n"
+                                (bound-and-true-p claude-code-read-only-mode)))
+                (insert (format "  Point: %d / %d\n" (point) (point-max)))
+                ;; Last 10 lines
+                (insert "  Last output:\n")
+                (save-excursion
+                  (goto-char (point-max))
+                  (forward-line -10)
+                  (let ((tail (buffer-substring-no-properties (point) (point-max))))
+                    (dolist (line (split-string tail "\n"))
+                      (insert (format "    | %s\n" (truncate-string-to-width line 60 nil nil "..."))))))))))
+
+        ;; Timers
+        (insert "\n== Active Timers ==\n")
+        (dolist (timer timer-list)
+          (insert (format "  %s\n" timer)))
+
+        ;; Processes
+        (insert "\n== All Processes ==\n")
+        (dolist (proc (process-list))
+          (insert (format "  %s: %s\n" (process-name proc) (process-status proc))))
+
+        (goto-char (point-min))
+        (special-mode)))
+    (pop-to-buffer debug-buf)))
+
+(defun claude-kill-stuck ()
+  "Force-kill stuck Claude processes."
+  (interactive)
+  (let ((killed 0))
+    (dolist (buf (buffer-list))
+      (when (string-prefix-p "*claude:" (buffer-name buf))
+        (let ((proc (get-buffer-process buf)))
+          (when proc
+            (delete-process proc)
+            (cl-incf killed)))))
+    (message "Killed %d Claude process(es)" killed)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Claude Process Management - Systemic cleanup
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun claude--get-buffer-tty (buf)
+  "Get the tty name for claude BUF."
+  (when-let ((proc (get-buffer-process buf)))
+    (process-tty-name proc)))
+
+(defun claude--get-system-claude-pids ()
+  "Get list of (pid . tty) for all system claude processes."
+  (let ((output (shell-command-to-string "ps -eo pid,tty,cmd | grep -E '[c]laude$'"))
+        (results nil))
+    (dolist (line (split-string output "\n" t))
+      (when (string-match "^\\s-*\\([0-9]+\\)\\s-+\\(pts/[0-9]+\\|\\?\\)" line)
+        (push (cons (string-to-number (match-string 1 line))
+                    (match-string 2 line))
+              results)))
+    results))
+
+(defun claude-list-sessions ()
+  "List all Claude sessions - both Emacs buffers and system processes."
+  (interactive)
+  (let* ((buf (get-buffer-create "*Claude Sessions*"))
+         (emacs-claudes (cl-remove-if-not
+                         (lambda (b) (string-prefix-p "*claude:" (buffer-name b)))
+                         (buffer-list)))
+         (emacs-ttys (mapcar (lambda (b)
+                               (cons (claude--get-buffer-tty b) b))
+                             emacs-claudes))
+         (system-pids (claude--get-system-claude-pids)))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert "=== Claude Sessions ===\n\n")
+
+        ;; Emacs buffers
+        (insert (propertize "== Emacs Buffers ==\n" 'face 'bold))
+        (if (null emacs-claudes)
+            (insert "  (none)\n")
+          (dolist (b emacs-claudes)
+            (let* ((tty (claude--get-buffer-tty b))
+                   (tty-short (when tty (replace-regexp-in-string "/dev/" "" tty))))
+              (insert (format "  %s [%s]\n"
+                              (buffer-name b)
+                              (or tty-short "no tty"))))))
+
+        ;; System processes
+        (insert (propertize "\n== System Processes ==\n" 'face 'bold))
+        (if (null system-pids)
+            (insert "  (none)\n")
+          (dolist (entry system-pids)
+            (let* ((pid (car entry))
+                   (tty (cdr entry))
+                   (has-buffer (cl-find-if (lambda (pair)
+                                             (and (car pair)
+                                                  (string-suffix-p tty (car pair))))
+                                           emacs-ttys)))
+              (insert (format "  PID %d [%s] %s\n"
+                              pid tty
+                              (if has-buffer
+                                  (propertize "← has buffer" 'face 'success)
+                                (propertize "← ORPHAN" 'face 'warning)))))))
+
+        ;; Summary
+        (let ((orphans (cl-remove-if
+                        (lambda (entry)
+                          (let ((tty (cdr entry)))
+                            (cl-find-if (lambda (pair)
+                                          (and (car pair)
+                                               (string-suffix-p tty (car pair))))
+                                        emacs-ttys)))
+                        system-pids)))
+          (insert (format "\n%d buffers, %d processes, %d orphans\n"
+                          (length emacs-claudes)
+                          (length system-pids)
+                          (length orphans)))
+          (when orphans
+            (insert "\nPress 'K' to kill orphan processes\n")))
+
+        (goto-char (point-min))
+        (special-mode)
+        (local-set-key (kbd "K") #'claude-kill-orphans)
+        (local-set-key (kbd "g") #'claude-list-sessions)
+        (local-set-key (kbd "q") #'quit-window)))
+    (pop-to-buffer buf)))
+
+(defun claude-kill-orphans ()
+  "Kill claude processes that have no associated Emacs buffer."
+  (interactive)
+  (let* ((emacs-claudes (cl-remove-if-not
+                         (lambda (b) (string-prefix-p "*claude:" (buffer-name b)))
+                         (buffer-list)))
+         (emacs-ttys (delq nil (mapcar #'claude--get-buffer-tty emacs-claudes)))
+         (system-pids (claude--get-system-claude-pids))
+         (orphans (cl-remove-if
+                   (lambda (entry)
+                     (let ((tty (cdr entry)))
+                       (cl-find-if (lambda (etty)
+                                     (string-suffix-p tty etty))
+                                   emacs-ttys)))
+                   system-pids))
+         (killed 0))
+    (dolist (entry orphans)
+      (let ((pid (car entry)))
+        (when (yes-or-no-p (format "Kill orphan claude PID %d? " pid))
+          (shell-command (format "kill -9 %d" pid))
+          (cl-incf killed))))
+    (message "Killed %d orphan process(es)" killed)
+    (when (get-buffer "*Claude Sessions*")
+      (claude-list-sessions))))
+
+(defun claude--cleanup-on-buffer-kill ()
+  "Kill the claude process when its buffer is killed."
+  (when (string-prefix-p "*claude:" (buffer-name))
+    (let ((proc (get-buffer-process (current-buffer))))
+      (when (and proc (process-live-p proc))
+        (let ((tty (process-tty-name proc)))
+          ;; Kill the process
+          (delete-process proc)
+          ;; Also kill any system process on that tty (in case of orphaning)
+          (when tty
+            (let ((tty-short (replace-regexp-in-string "/dev/" "" tty)))
+              (dolist (entry (claude--get-system-claude-pids))
+                (when (equal (cdr entry) tty-short)
+                  (shell-command (format "kill -9 %d 2>/dev/null" (car entry))))))))))))
+
+;; Register cleanup hook
+(add-hook 'kill-buffer-hook #'claude--cleanup-on-buffer-kill)
+
+;; Debug bindings - use C-c c d prefix (terminal-safe)
+(define-key ashton-mode-map (kbd "C-c c d d") #'claude-debug-state)
+(define-key ashton-mode-map (kbd "C-c c d x") #'claude-debug-dump)
+(define-key ashton-mode-map (kbd "C-c c d k") #'claude-kill-stuck)
+(define-key ashton-mode-map (kbd "C-c c d l") #'claude-list-sessions)
+(define-key ashton-mode-map (kbd "C-c c d o") #'claude-kill-orphans)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Buffer Navigation - "What did Claude do?"
@@ -540,8 +772,8 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
                  (permissionDecision . ,decision)
                  (permissionDecisionReason . "Worktree branch protection"))))))))))
 
-;; Register the hook
-(add-hook 'claude-code-event-hook #'orchard--git-checkout-warning-hook)
+;; DISABLED: read-char-choice is blocking and can freeze Emacs if prompt is buried
+;; (add-hook 'claude-code-event-hook #'orchard--git-checkout-warning-hook)
 
 (provide 'config-claude)
 ;;; config-claude.el ends here
