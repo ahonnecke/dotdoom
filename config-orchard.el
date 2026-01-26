@@ -405,9 +405,9 @@ Looks for the prompt character or completion indicators."
 
 (defun orchard--wait-for-resume (buffer path callback)
   "Poll BUFFER until resume completes, then call CALLBACK with buffer and path."
-  (let ((start-time (current-time)))
+  (let ((start-time (gethash (expand-file-name path) orchard--claude-resuming)))
     (run-with-timer
-     0.5 nil
+     2 nil  ; Poll every 2s, not 0.5s
      (lambda ()
        (let ((elapsed (floor (float-time (time-subtract (current-time) start-time)))))
          (cond
@@ -423,11 +423,10 @@ Looks for the prompt character or completion indicators."
           ;; Timeout
           ((orchard--resume-timed-out-p path)
            (orchard--mark-resume-complete path)
-           (message "Resume timed out after %ds, showing anyway" elapsed)
+           (message "Resume timed out, showing anyway")
            (funcall callback buffer path))
-          ;; Still waiting - poll again
+          ;; Still waiting - poll again (quiet, no message spam)
           (t
-           (message "Resuming Claude session... (%ds)" elapsed)
            (orchard--wait-for-resume buffer path callback))))))))
 
 (defun orchard--start-background-resume (buffer path callback)
@@ -436,16 +435,16 @@ Looks for the prompt character or completion indicators."
   (message "Resuming previous Claude session...")
   ;; Send /resume after vterm settles
   (run-with-timer
-   1.5 nil
+   2 nil
    (lambda ()
      (when (buffer-live-p buffer)
        (with-current-buffer buffer
          (when (derived-mode-p 'vterm-mode)
            (vterm-send-string "/resume")
            (vterm-send-return)
-           ;; Auto-select most recent session after list appears
+           ;; Auto-select most recent session after TUI appears (needs more time)
            (run-with-timer
-            1.5 nil
+            3 nil
             (lambda ()
               (when (buffer-live-p buffer)
                 (with-current-buffer buffer
