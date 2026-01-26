@@ -357,101 +357,6 @@ Returns indicator string or empty string."
 ;;   ;; Clean up dead entries periodically
 ;;   (run-with-idle-timer 60 t #'orchard--claude-status-cleanup))
 
-;;; ────────────────────────────────────────────────────────────────────────────
-;;; Background Resume - Hide Claude until /resume completes
-;;; ────────────────────────────────────────────────────────────────────────────
-
-(defvar orchard--claude-resuming (make-hash-table :test 'equal)
-  "Tracks paths currently resuming: path -> t when resuming, nil when done.")
-
-(defcustom orchard-claude-resume-timeout 60
-  "Maximum seconds to wait for resume to complete before showing anyway."
-  :type 'integer
-  :group 'orchard)
-
-(defun orchard--claude-resuming-p (path)
-  "Return t if PATH is currently resuming."
-  (gethash (expand-file-name path) orchard--claude-resuming))
-
-(defun orchard--mark-resuming (path)
-  "Mark PATH as currently resuming."
-  (puthash (expand-file-name path) (current-time) orchard--claude-resuming))
-
-(defun orchard--mark-resume-complete (path)
-  "Mark PATH as done resuming."
-  (remhash (expand-file-name path) orchard--claude-resuming))
-
-(defun orchard--claude-resume-complete-p (buffer)
-  "Return t if BUFFER shows Claude has finished resuming.
-Looks for the prompt character or completion indicators."
-  (when (buffer-live-p buffer)
-    (with-current-buffer buffer
-      (save-excursion
-        (goto-char (point-max))
-        (let ((end-text (buffer-substring-no-properties
-                         (max (point-min) (- (point) 500))
-                         (point))))
-          ;; Look for indicators that Claude is ready:
-          ;; - The ❯ prompt at end
-          ;; - "Restored" or "Resuming" messages followed by ready state
-          (or (string-match-p "❯\\s-*$" end-text)
-              (string-match-p "Restored.*session" end-text)))))))
-
-(defun orchard--resume-timed-out-p (path)
-  "Return t if resume for PATH has exceeded timeout."
-  (when-let ((start-time (gethash (expand-file-name path) orchard--claude-resuming)))
-    (> (float-time (time-subtract (current-time) start-time))
-       orchard-claude-resume-timeout)))
-
-(defun orchard--wait-for-resume (buffer path callback)
-  "Poll BUFFER until resume completes, then call CALLBACK with buffer and path."
-  (let ((start-time (gethash (expand-file-name path) orchard--claude-resuming)))
-    (run-with-timer
-     2 nil  ; Poll every 2s, not 0.5s
-     (lambda ()
-       (let ((elapsed (floor (float-time (time-subtract (current-time) start-time)))))
-         (cond
-          ;; Buffer died
-          ((not (buffer-live-p buffer))
-           (orchard--mark-resume-complete path)
-           (message "Claude buffer died during resume"))
-          ;; Resume complete
-          ((orchard--claude-resume-complete-p buffer)
-           (orchard--mark-resume-complete path)
-           (message "Claude session restored (%ds)" elapsed)
-           (funcall callback buffer path))
-          ;; Timeout
-          ((orchard--resume-timed-out-p path)
-           (orchard--mark-resume-complete path)
-           (message "Resume timed out, showing anyway")
-           (funcall callback buffer path))
-          ;; Still waiting - poll again (quiet, no message spam)
-          (t
-           (orchard--wait-for-resume buffer path callback))))))))
-
-(defun orchard--start-background-resume (buffer path callback)
-  "Send /resume to BUFFER and wait for completion, then call CALLBACK."
-  (orchard--mark-resuming path)
-  (message "Resuming previous Claude session...")
-  ;; Send /resume after vterm settles
-  (run-with-timer
-   2 nil
-   (lambda ()
-     (when (buffer-live-p buffer)
-       (with-current-buffer buffer
-         (when (derived-mode-p 'vterm-mode)
-           (vterm-send-string "/resume")
-           (vterm-send-return)
-           ;; Auto-select most recent session after TUI appears (needs more time)
-           (run-with-timer
-            3 nil
-            (lambda ()
-              (when (buffer-live-p buffer)
-                (with-current-buffer buffer
-                  (vterm-send-return)))
-              ;; Start polling for completion
-              (orchard--wait-for-resume buffer path callback)))))))))
-
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Merged Branch Detection (via GitHub PR)
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -1266,62 +1171,28 @@ FN is called with no arguments."
         (magit-status path)))))
 
 (defun orchard--claude-in-window (path window)
-  "Start or switch to Claude for PATH in WINDOW without letting it escape.
-If PATH has a persisted session but no buffer, starts Claude in background
-and resumes the session before showing."
+  "Start or switch to Claude for PATH in WINDOW without letting it escape."
   (orchard--ensure-claude-loaded)
-  (let ((claude-buf (orchard--claude-buffer-for-path path))
-        (has-session (orchard--worktree-has-claude-session-p path))
-        (resuming (orchard--claude-resuming-p path)))
-    (cond
-     ;; Already resuming - just wait
-     (resuming
-      (message "Claude is resuming, please wait..."))
-     ;; Existing buffer - show it
-     ((and claude-buf (buffer-live-p claude-buf))
-      (orchard--with-undedicated-window window
-        (lambda ()
-          (select-window window)
-          (set-window-buffer window claude-buf))))
-     ;; No buffer but has session - background resume
-     (has-session
-      (message "Starting Claude with session resume...")
-      (let* ((default-directory path)
-             (buffers-before (buffer-list)))
-        ;; Start Claude but don't show window yet
-        (save-window-excursion
-          (claude-code))
-        ;; Find the new buffer
-        (let ((new-claude (cl-find-if
-                          (lambda (buf)
-                            (and (string-prefix-p "*claude:" (buffer-name buf))
-                                 (not (memq buf buffers-before))))
-                          (buffer-list))))
-          (when new-claude
-            ;; Start background resume, show window when complete
-            (orchard--start-background-resume
-             new-claude path
-             (lambda (buf _path)
-               (when (window-live-p window)
-                 (orchard--with-undedicated-window window
-                   (lambda ()
-                     (select-window window)
-                     (set-window-buffer window buf))))))))))
-     ;; No buffer, no session - start fresh
-     (t
-      (orchard--with-undedicated-window window
-        (lambda ()
-          (select-window window)
+  (orchard--with-undedicated-window window
+    (lambda ()
+      (select-window window)
+      ;; Check for existing buffer
+      (let ((claude-buf (orchard--claude-buffer-for-path path)))
+        (if (and claude-buf (buffer-live-p claude-buf))
+            ;; Existing - force into window
+            (set-window-buffer window claude-buf)
+          ;; New - start Claude and capture the buffer
           (let ((default-directory path)
                 (buffers-before (buffer-list)))
             (claude-code)
+            ;; Find the new Claude buffer
             (let ((new-claude (cl-find-if
                                (lambda (buf)
                                  (and (string-prefix-p "*claude:" (buffer-name buf))
                                       (not (memq buf buffers-before))))
                                (buffer-list))))
               (when new-claude
-                (set-window-buffer window new-claude))))))))))
+                (set-window-buffer window new-claude)))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Display Buffer Rules for Orchard
@@ -1857,34 +1728,17 @@ Keeps Claude in background - no window shown."
     claude-buf))
 
 (defun orchard--start-claude-with-resume (path)
-  "Start Claude for PATH in best window, auto-resume if session exists."
+  "Start Claude for PATH in best window. Does NOT auto-resume - user can /resume manually."
   (orchard--ensure-claude-loaded)
   (let* ((target-win (orchard--find-best-window))
-         (existing-claude (orchard--claude-buffer-for-path path))
-         (has-session (orchard--worktree-has-claude-session-p path)))
-    (cond
-     ;; Existing buffer - just switch to it
-     (existing-claude
-      (select-window target-win)
-      (switch-to-buffer existing-claude))
-     ;; No buffer but has session - start and auto-send /resume
-     (has-session
-      (select-window target-win)
-      (let ((default-directory path)
-            (buffers-before (buffer-list)))
-        (claude-code)
-        ;; Find the new buffer and send /resume
-        (when-let ((new-claude (cl-find-if
-                                (lambda (buf)
-                                  (and (string-prefix-p "*claude:" (buffer-name buf))
-                                       (not (memq buf buffers-before))))
-                                (buffer-list))))
-          (orchard--send-resume-to-claude new-claude 2))))
-     ;; No buffer, no session - start fresh
-     (t
-      (select-window target-win)
+         (existing-claude (orchard--claude-buffer-for-path path)))
+    (select-window target-win)
+    (if existing-claude
+        ;; Claude exists - just switch to it
+        (switch-to-buffer existing-claude)
+      ;; Start new Claude
       (let ((default-directory path))
-        (claude-code))))))
+        (claude-code)))))
 
 (defun orchard--send-resume-to-claude (claude-buf delay)
   "Send /resume and Enter to CLAUDE-BUF after DELAY seconds."
