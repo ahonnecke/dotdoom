@@ -91,6 +91,7 @@
     (define-key map (kbd "d") #'orchard-dired-at-point)
     (define-key map (kbd "t") #'orchard-test-at-point)
     (define-key map (kbd "l") #'orchard-list-claudes)
+    (define-key map (kbd "i") #'orchard-show-at-point)  ; show full info
     ;; GitHub Issues
     (define-key map (kbd "I") #'orchard-issue-start)
     (define-key map (kbd "o") #'orchard-issue-browse)
@@ -426,10 +427,15 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
                                        '(:background "#3E2723")
                                      '(:background "#2E3B2E")))))
     (concat
-     (propertize issue-line 'orchard-issue issue 'orchard-worktree wt)
+     (propertize issue-line
+                 'orchard-issue issue
+                 'orchard-worktree wt
+                 'help-echo (format "#%d: %s" number (or title "")))
      (when wt
        (propertize (orchard--format-branch-inline wt current-path)
-                   'orchard-issue issue 'orchard-worktree wt)))))
+                   'orchard-issue issue
+                   'orchard-worktree wt
+                   'help-echo (format "#%d: %s" number (or title "")))))))
 
 (defun orchard--format-orphan-worktree (wt current-path)
   "Format orphan worktree WT (no linked issue)."
@@ -658,6 +664,35 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
                   (string-prefix-p (file-name-as-directory (alist-get 'path wt))
                                    (file-name-as-directory dir)))
                 (orchard--get-worktrees))))
+
+(defun orchard-show-at-point ()
+  "Show full details of issue or worktree at point in echo area.
+Use this to see the complete issue title without truncation."
+  (interactive)
+  (let ((issue (orchard--get-issue-at-point))
+        (wt (orchard--get-worktree-at-point)))
+    (cond
+     (issue
+      (let* ((number (alist-get 'number issue))
+             (title (alist-get 'title issue))
+             (url (alist-get 'url issue))
+             (labels (alist-get 'labels issue))
+             (label-names (mapcar (lambda (l) (alist-get 'name l)) labels)))
+        (message "#%d: %s%s%s"
+                 number
+                 (or title "")
+                 (if label-names (format " [%s]" (string-join label-names ", ")) "")
+                 (if url (format "\n%s" url) ""))))
+     (wt
+      (let* ((path (alist-get 'path wt))
+             (branch (alist-get 'branch wt))
+             (desc (alist-get 'description wt)))
+        (message "%s\n%s%s"
+                 (or branch "(detached)")
+                 path
+                 (if desc (format "\n%s" desc) ""))))
+     (t
+      (message "No issue or worktree at point")))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Navigation
