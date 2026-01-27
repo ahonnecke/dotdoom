@@ -318,6 +318,19 @@ Returns list of (worktree . session-info) pairs."
 ;;; Filter Commands
 ;;; ════════════════════════════════════════════════════════════════════════════
 
+(defun orchard-filter-by-text ()
+  "Filter issues/branches by free text search.
+Shows only items where title or branch name contains the search string."
+  (interactive)
+  (let ((text (read-string "Search: " orchard--text-filter)))
+    (if (string-empty-p text)
+        (progn
+          (setq orchard--text-filter nil)
+          (message "Text filter cleared"))
+      (setq orchard--text-filter text)
+      (message "Filtering by: %s" text))
+    (orchard-refresh)))
+
 (defun orchard-filter-by-label ()
   "Filter issues by label.
 Prompts for a label from the available labels in cached issues."
@@ -330,11 +343,12 @@ Prompts for a label from the available labels in cached issues."
         (message "Filtering by label: %s" label)
         (orchard-refresh)))))
 
-(defun orchard-clear-label-filter ()
-  "Clear the label filter."
+(defun orchard-clear-filters ()
+  "Clear all filters (text and label)."
   (interactive)
-  (setq orchard--label-filter nil)
-  (message "Label filter cleared")
+  (setq orchard--label-filter nil
+        orchard--text-filter nil)
+  (message "All filters cleared")
   (orchard-refresh))
 
 (defun orchard-toggle-staging-issues ()
@@ -384,8 +398,9 @@ Toggle off if already marked. Automatically clears when PR is created."
    ("q" "QA/Verify only" orchard-view-qa)
    ("r" "Recent sessions" orchard-view-recent)]
   ["Filters"
-   ("/" "Search by label" orchard-filter-by-label)
-   ("\\" "Clear label filter" orchard-clear-label-filter)
+   ("/" "Search (free text)" orchard-filter-by-text)
+   ("L" "Filter by label" orchard-filter-by-label)
+   ("\\" "Clear all filters" orchard-clear-filters)
    ("s" "Toggle staging" orchard-toggle-staging-issues)]
   ["Hidden"
    ("-" "Hide at point" orchard-hide-at-point)

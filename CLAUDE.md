@@ -853,6 +853,25 @@ These files attempted clever completion features that never fully worked:
    ("p" "Previous" my-prev)])
 ```
 
+### Learning from Good Packages
+
+**When unsure how to implement something, read magit's source code first.**
+
+Magit is exceptionally well-written elisp. Copy its patterns for:
+- Buffer management (`magit-mode`, `magit-section`)
+- Process output handling (`magit-process-sentinel`)
+- Transient menus (magit invented them)
+- Refresh/revert patterns (`magit-refresh`)
+- Text properties and navigation
+
+Other good references:
+- `transient.el` - Menu system (by magit author)
+- `dash.el` - Functional list operations
+- `s.el` - String manipulation
+- `f.el` - File operations
+
+To read package source: `M-x find-library RET magit RET`
+
 ### Testing Elisp Interactively
 
 - `M-:` (eval-expression) - Evaluate single expression

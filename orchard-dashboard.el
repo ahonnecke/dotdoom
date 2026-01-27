@@ -50,8 +50,9 @@
 (declare-function orchard-quit-all "orchard-actions")
 (declare-function orchard-toggle-window-dedication "orchard-actions")
 (declare-function orchard--get-archivable-worktrees "orchard-actions")
+(declare-function orchard-filter-by-text "orchard-actions")
 (declare-function orchard-filter-by-label "orchard-actions")
-(declare-function orchard-clear-label-filter "orchard-actions")
+(declare-function orchard-clear-filters "orchard-actions")
 (declare-function orchard-toggle-staging-issues "orchard-actions")
 (declare-function orchard-filter-menu "orchard-actions")
 (declare-function ghq--cleanup-stale-ports "config-ghq" nil t)
@@ -103,8 +104,9 @@
     (define-key map (kbd "#") #'orchard-find-issue)
     (define-key map (kbd "!") #'orchard-resolve-issue)
     (define-key map (kbd "s") #'orchard-toggle-staging-issues)
-    (define-key map (kbd "/") #'orchard-filter-by-label)
-    (define-key map (kbd "\\") #'orchard-clear-label-filter)
+    (define-key map (kbd "/") #'orchard-filter-by-text)   ; free text search (vim convention)
+    (define-key map (kbd "L") #'orchard-filter-by-label)  ; L = Label filter
+    (define-key map (kbd "\\") #'orchard-clear-filters)   ; clear all filters
     ;; Lifecycle actions
     (define-key map (kbd "N") #'orchard-next-step)
     (define-key map (kbd "r") #'orchard-mark-pr-ready)  ; toggle PR-ready status
@@ -525,13 +527,29 @@ Returns alist with keys: has-analysis, has-plan, has-pr, pr-ready, claude-status
                               (setq issues (cl-remove-if-not
                                             (lambda (i) (orchard--issue-has-exact-label-p i orchard--label-filter))
                                             issues)))
+                            (when orchard--text-filter
+                              (setq issues (cl-remove-if-not
+                                            (lambda (i)
+                                              (let ((title (or (alist-get 'title i) "")))
+                                                (string-match-p (regexp-quote orchard--text-filter)
+                                                                title)))
+                                            issues)))
                             (setq issues (cl-remove-if
                                           (lambda (i) (orchard--issue-hidden-p (alist-get 'number i)))
                                           issues))
                             issues))
-         (visible-worktrees (cl-remove-if
-                             (lambda (wt) (orchard--worktree-hidden-p (alist-get 'path wt)))
-                             worktrees))
+         (visible-worktrees (let ((wts (cl-remove-if
+                                        (lambda (wt) (orchard--worktree-hidden-p (alist-get 'path wt)))
+                                        worktrees)))
+                              ;; Also filter worktrees by text
+                              (when orchard--text-filter
+                                (setq wts (cl-remove-if-not
+                                           (lambda (wt)
+                                             (let ((branch (or (alist-get 'branch wt) "")))
+                                               (string-match-p (regexp-quote orchard--text-filter)
+                                                               branch)))
+                                           wts)))
+                              wts))
          (categories (orchard--categorize-issues filtered-issues visible-worktrees))
          (up-next (alist-get 'up-next categories))
          (in-progress (alist-get 'in-progress categories))
@@ -561,6 +579,9 @@ Returns alist with keys: has-analysis, has-plan, has-pr, pr-ready, claude-status
      (when (> sync-issues 0)
        (propertize (format "  ⚠ %d sync issues" sync-issues)
                    'face 'orchard-branch-mismatch))
+     (when orchard--text-filter
+       (propertize (format "  /%s" orchard--text-filter)
+                   'face '(:foreground "#C678DD" :weight bold)))
      (when orchard--label-filter
        (propertize (format "  🏷 %s" orchard--label-filter)
                    'face '(:foreground "#61AFEF" :weight bold)))
@@ -949,24 +970,6 @@ Subsequent refreshes use cached data for instant response."
       (insert (orchard--format-dashboard))
       (goto-char (point-min))
       (forward-line (1- (min line (count-lines (point-min) (point-max))))))))
-
-;;; ════════════════════════════════════════════════════════════════════════════
-;;; Filter Transient
-;;; ════════════════════════════════════════════════════════════════════════════
-
-(transient-define-prefix orchard-filter-menu ()
-  "Filter and view options for Orchard dashboard."
-  ["View Presets"
-   ("w" "Working (next + progress)" orchard-view-working)
-   ("a" "All sections" orchard-view-all)
-   ("n" "Next only" orchard-view-next)
-   ("p" "In Progress only" orchard-view-progress)
-   ("q" "QA only" orchard-view-qa)
-   ("r" "Recent sessions" orchard-view-recent)]
-  ["Filters"
-   ("/" "Filter by label" orchard-filter-by-label)
-   ("\\" "Clear label filter" orchard-clear-label-filter)
-   ("s" "Toggle staging" orchard-toggle-staging-issues)])
 
 (provide 'orchard-dashboard)
 ;;; orchard-dashboard.el ends here

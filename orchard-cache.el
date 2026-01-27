@@ -232,6 +232,9 @@ Alist of (issue-number . closed-at) pairs.")
 (defvar orchard--label-filter nil
   "When non-nil, only show issues with this label (exact match).")
 
+(defvar orchard--text-filter nil
+  "When non-nil, only show issues/branches matching this text (case-insensitive).")
+
 (defvar orchard--current-view 'working
   "Current dashboard view preset.
 Possible values:

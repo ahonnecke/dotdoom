@@ -614,8 +614,9 @@ Shows category, GitHub state, worktree info, and visibility."
     ("#" "Find issue by number" orchard-find-issue)
     ("!" "Diagnose/resolve issue" orchard-resolve-issue)
     ("i" "Pick issue (prompt)" orchard-issue-start-prompt)
-    ("/" "Filter by label" orchard-filter-by-label)
-    ("\\" "Clear label filter" orchard-clear-label-filter)
+    ("/" "Search (free text)" orchard-filter-by-text)
+    ("L" "Filter by label" orchard-filter-by-label)
+    ("\\" "Clear all filters" orchard-clear-filters)
     ("s" "Toggle staging issues" orchard-toggle-staging-issues)]
    ["At Point"
     ("RET" "Open in column" orchard-open-at-point)
