@@ -413,7 +413,7 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
                       " "
                       (when (not (string-empty-p workflow))
                         (concat workflow " "))
-                      (propertize (truncate-string-to-width (or title "") 30 nil nil "...")
+                      (propertize (truncate-string-to-width (or title "") 45 nil nil "...")
                                   'face 'orchard-issue-title)
                       merged-badge
                       closed-badge
