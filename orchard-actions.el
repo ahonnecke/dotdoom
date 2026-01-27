@@ -1091,7 +1091,8 @@ If ISSUE-NUMBER is provided, link the worktree to that GitHub issue."
 (defun orchard--infer-branch-type-from-labels (labels)
   "Infer branch type from issue LABELS.
 Returns branch type string like \"FEATURE\", \"BUGFIX\", etc."
-  (let ((label-names (mapcar (lambda (l) (downcase (alist-get 'name l))) labels)))
+  ;; Labels may be vector from JSON, convert to list for mapcar
+  (let ((label-names (mapcar (lambda (l) (downcase (alist-get 'name l))) (append labels nil))))
     (cond
      ((cl-some (lambda (n) (string-match-p "bug\\|fix" n)) label-names) "BUGFIX")
      ((cl-some (lambda (n) (string-match-p "chore\\|maintenance" n)) label-names) "CHORE")

@@ -268,7 +268,8 @@ Possible values: 'up-next, 'in-progress, 'qa-verify, 'done, 'unlinked.")
   "Get list of all unique label names from cached issues."
   (let ((labels-set (make-hash-table :test 'equal)))
     (dolist (issue (orchard--get-open-issues))
-      (dolist (label (alist-get 'labels issue))
+      ;; Labels come as vector from JSON, convert to list for dolist
+      (dolist (label (append (alist-get 'labels issue) nil))
         (puthash (alist-get 'name label) t labels-set)))
     (sort (hash-table-keys labels-set) #'string<)))
 

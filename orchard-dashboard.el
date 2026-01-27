@@ -201,7 +201,8 @@
 
 (defun orchard--issue-type-icon (labels)
   "Return icon based on issue LABELS."
-  (let ((label-names (mapcar (lambda (l) (alist-get 'name l)) labels)))
+  ;; Labels may be vector from JSON, convert to list for mapcar
+  (let ((label-names (mapcar (lambda (l) (alist-get 'name l)) (append labels nil))))
     (cond
      ((cl-some (lambda (n) (string-match-p "bug\\|fix" n)) label-names) "🐛")
      ((cl-some (lambda (n) (string-match-p "feature\\|enhancement" n)) label-names) "✨")
@@ -279,9 +280,11 @@ Returns alist with keys: has-analysis, has-plan, has-pr, pr-ready, claude-status
 
 (defun orchard--format-labels (labels)
   "Format LABELS list for display."
-  (if (and labels (> (length labels) 0))
-      (concat " " (mapconcat #'orchard--format-label labels " "))
-    ""))
+  ;; Labels may be vector from JSON, convert to list for mapconcat
+  (let ((label-list (append labels nil)))
+    (if (and label-list (> (length label-list) 0))
+        (concat " " (mapconcat #'orchard--format-label label-list " "))
+      "")))
 
 (defun orchard--format-workflow-indicator (stage)
   "Format workflow indicator showing what's DONE and Claude status."
