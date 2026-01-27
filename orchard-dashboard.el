@@ -36,6 +36,7 @@
 (declare-function orchard-next-step "orchard-actions")
 (declare-function orchard-push-at-point "orchard-actions")
 (declare-function orchard-pr-at-point "orchard-actions")
+(declare-function orchard-mark-pr-ready "orchard-actions")
 (declare-function orchard-hide-at-point "orchard-actions")
 (declare-function orchard-show-hidden "orchard-actions")
 (declare-function orchard-archive-at-point "orchard-actions")
@@ -49,6 +50,10 @@
 (declare-function orchard-quit-all "orchard-actions")
 (declare-function orchard-toggle-window-dedication "orchard-actions")
 (declare-function orchard--get-archivable-worktrees "orchard-actions")
+(declare-function orchard-filter-by-label "orchard-actions")
+(declare-function orchard-clear-label-filter "orchard-actions")
+(declare-function orchard-toggle-staging-issues "orchard-actions")
+(declare-function orchard-filter-menu "orchard-actions")
 (declare-function ghq--cleanup-stale-ports "config-ghq" nil t)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -102,6 +107,7 @@
     (define-key map (kbd "\\") #'orchard-clear-label-filter)
     ;; Lifecycle actions
     (define-key map (kbd "N") #'orchard-next-step)
+    (define-key map (kbd "r") #'orchard-mark-pr-ready)  ; toggle PR-ready status
     (define-key map (kbd "u") #'orchard-push-at-point)
     (define-key map (kbd "P") #'orchard-pr-at-point)
     (define-key map (kbd "-") #'orchard-hide-at-point)
@@ -242,7 +248,7 @@
 
 (defun orchard--issue-workflow-stage (issue-number worktrees)
   "Get workflow stage indicators for ISSUE-NUMBER.
-Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
+Returns alist with keys: has-analysis, has-plan, has-pr, pr-ready, claude-status."
   (when-let ((wt (orchard--find-worktree-for-issue issue-number worktrees)))
     (let ((path (alist-get 'path wt)))
       (list
@@ -253,6 +259,8 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
                  (file-exists-p (expand-file-name ".plan.md" path))))
        (cons 'has-pr
              (file-exists-p (expand-file-name ".pr-url" path)))
+       (cons 'pr-ready
+             (eq (orchard--get-stage-override path) 'pr-ready))
        (cons 'claude-status
              (when-let ((buf (orchard--claude-buffer-for-path path)))
                (orchard--claude-status buf)))))))
@@ -282,6 +290,7 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
     (let ((a (alist-get 'has-analysis stage))
           (p (alist-get 'has-plan stage))
           (r (alist-get 'has-pr stage))
+          (pr-ready (alist-get 'pr-ready stage))
           (cs (alist-get 'claude-status stage)))
       (concat
        (pcase cs
@@ -291,6 +300,7 @@ Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
          (_ ""))
        (cond
         (r (propertize "PR" 'face '(:foreground "#61AFEF" :weight bold)))
+        (pr-ready (propertize "🚀READY" 'face '(:foreground "#C678DD" :weight bold)))
         (p (propertize "planned" 'face '(:foreground "#98C379")))
         (a (propertize "analyzed" 'face '(:foreground "#98C379")))
         (t (propertize "wip" 'face '(:foreground "#5C6370"))))))))

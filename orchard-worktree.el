@@ -312,18 +312,19 @@ Returns nil if worktree path doesn't exist (skip it)."
 
 (defun orchard--detect-stage (path &optional branch)
   "Detect the current stage for worktree at PATH with BRANCH name.
-Simplified stages derived from GitHub state:
+Stages derived from GitHub state:
   - merged: branch merged to upstream
   - pr-open: has open PR
+  - pr-ready: manually marked as ready for PR (pushed, CI passed)
   - in-progress: default working state"
   (let ((pr-url-file (expand-file-name ".pr-url" path)))
     (cond
-     ;; Check for manual override first
-     ((orchard--get-stage-override path))
+     ;; PR is open - highest priority (clears pr-ready override)
+     ((file-exists-p pr-url-file) 'pr-open)
      ;; Branch is merged to upstream (via squash PR)
      ((and branch (orchard--branch-merged-p branch)) 'merged)
-     ;; PR is open
-     ((file-exists-p pr-url-file) 'pr-open)
+     ;; Check for manual override (pr-ready)
+     ((orchard--get-stage-override path))
      ;; Default - in progress
      (t 'in-progress))))
 
@@ -331,6 +332,7 @@ Simplified stages derived from GitHub state:
   "Get display name for STAGE."
   (pcase stage
     ('in-progress "In Progress")
+    ('pr-ready "PR Ready")
     ('pr-open "PR Open")
     ('merged "Merged")
     (_ "")))
@@ -339,6 +341,7 @@ Simplified stages derived from GitHub state:
   "Get icon for STAGE."
   (pcase stage
     ('in-progress "🔧")
+    ('pr-ready "🚀")
     ('pr-open "🔀")
     ('merged "✓")
     (_ "")))

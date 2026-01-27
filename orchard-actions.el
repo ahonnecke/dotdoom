@@ -351,6 +351,26 @@ Prompts for a label from the available labels in cached issues."
   (orchard-refresh))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; PR-Ready Stage Management
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard-mark-pr-ready ()
+  "Mark worktree at point as PR-ready (pushed, CI passed, ready to create PR).
+Toggle off if already marked. Automatically clears when PR is created."
+  (interactive)
+  (if-let ((wt (orchard--get-worktree-at-point)))
+      (let* ((path (alist-get 'path wt))
+             (current-stage (orchard--get-stage-override path)))
+        (if (eq current-stage 'pr-ready)
+            (progn
+              (orchard--set-stage-override path nil)
+              (message "Cleared PR-ready status"))
+          (orchard--set-stage-override path 'pr-ready)
+          (message "Marked as PR-ready 🚀"))
+        (orchard-refresh))
+    (user-error "No worktree at point")))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Filter Transient Menu
 ;;; ════════════════════════════════════════════════════════════════════════════
 
