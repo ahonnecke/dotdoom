@@ -241,22 +241,26 @@
 
 ;; Ensure vertico-posframe is enabled (childframe popup for M-x etc)
 ;; NOTE: vertico-multiform can conflict with posframe, so we disable it
-(after! vertico
-  ;; Disable multiform which can override posframe display
-  (when (fboundp 'vertico-multiform-mode)
-    (vertico-multiform-mode -1))
-  (after! vertico-posframe
-    ;; Configure posframe appearance
-    (setq vertico-posframe-poshandler #'posframe-poshandler-frame-center
-          vertico-posframe-width 100
-          vertico-posframe-height 20
-          vertico-posframe-border-width 2
-          vertico-posframe-parameters
-          '((left-fringe . 8)
-            (right-fringe . 8)
-            (internal-border-width . 2)))
-    ;; Force enable
-    (vertico-posframe-mode 1)))
+;; Must disable BEFORE any minibuffer use to avoid recursive minibuffer warning
+(add-hook 'doom-after-init-hook
+          (lambda ()
+            ;; Disable multiform which can override posframe display
+            (when (fboundp 'vertico-multiform-mode)
+              (vertico-multiform-mode -1)))
+          -100)  ; Run early, before other hooks
+
+(after! vertico-posframe
+  ;; Configure posframe appearance
+  (setq vertico-posframe-poshandler #'posframe-poshandler-frame-center
+        vertico-posframe-width 100
+        vertico-posframe-height 20
+        vertico-posframe-border-width 2
+        vertico-posframe-parameters
+        '((left-fringe . 8)
+          (right-fringe . 8)
+          (internal-border-width . 2)))
+  ;; Force enable
+  (vertico-posframe-mode 1))
 
 ;; Open Orchard on startup
 (setq inhibit-startup-screen t
