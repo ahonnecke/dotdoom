@@ -240,14 +240,10 @@
 (load "~/.doom.d/config-cheatsheet")  ; C-c ? for help
 
 ;; Ensure vertico-posframe is enabled (childframe popup for M-x etc)
-;; NOTE: vertico-multiform can conflict with posframe, so we disable it
-;; Must disable BEFORE any minibuffer use to avoid recursive minibuffer warning
-(add-hook 'doom-after-init-hook
-          (lambda ()
-            ;; Disable multiform which can override posframe display
-            (when (fboundp 'vertico-multiform-mode)
-              (vertico-multiform-mode -1)))
-          -100)  ; Run early, before other hooks
+;; NOTE: vertico-multiform conflicts with posframe - prevent it from enabling
+(after! vertico
+  ;; Remove the hook that enables multiform (before it fires)
+  (remove-hook 'vertico-mode-hook #'vertico-multiform-mode))
 
 (after! vertico-posframe
   ;; Configure posframe appearance
@@ -259,7 +255,6 @@
         '((left-fringe . 8)
           (right-fringe . 8)
           (internal-border-width . 2)))
-  ;; Force enable
   (vertico-posframe-mode 1))
 
 ;; Open Orchard on startup
