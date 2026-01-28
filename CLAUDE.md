@@ -157,6 +157,18 @@ Meeting types: `standup`, `psc-it-sync`, `psc-pm-sync`
 (setq auth-sources '("~/.authinfo"))
 ```
 
+**Setup**: `~/.netrc` is symlinked to `~/.authinfo` so both Emacs auth-source (TRAMP, forge) and ange-ftp share the same credential file. CLI tools (curl, ftp) also benefit.
+
+```bash
+ln -s ~/.authinfo ~/.netrc
+```
+
+**Format** (one entry per line):
+```
+machine ftp.example.com login user password secret
+machine api.example.com login user@email.com password token123
+```
+
 ---
 
 ## Magit Customizations
