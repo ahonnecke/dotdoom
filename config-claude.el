@@ -42,15 +42,39 @@
   ;; Use vterm as the terminal backend (already have it via Doom)
   (setq claude-code-terminal-backend 'vterm)
 
-  ;; Global display rule: Claude buffers reuse existing Claude window
-  ;; or display in same window - NEVER split or take over other windows
+  ;; Global display rule: Claude buffers prefer empty windows,
+  ;; then same window - NEVER take over other Claude windows
+  (defun claude--display-buffer-prefer-empty (buffer alist)
+    "Display BUFFER in an empty window if available.
+Empty means: *scratch*, *Messages*, or dashboard buffers."
+    (let ((empty-window
+           (cl-find-if
+            (lambda (win)
+              (let ((buf-name (buffer-name (window-buffer win))))
+                (or (string= buf-name "*scratch*")
+                    (string= buf-name "*Messages*")
+                    (string= buf-name "*Orchard*")
+                    (string= buf-name "*doom*")
+                    (string-prefix-p " " buf-name)))) ; internal buffers
+            (window-list nil 'no-mini))))
+      (when empty-window
+        (set-window-buffer empty-window buffer)
+        empty-window)))
+
+  (defun claude--display-buffer-reuse-same (buffer alist)
+    "Reuse a window showing exactly BUFFER, not just any claude buffer."
+    (let ((existing (get-buffer-window buffer)))
+      (when existing
+        (select-window existing)
+        existing)))
+
   (add-to-list 'display-buffer-alist
                '("\\*claude:"
-                 (display-buffer-reuse-window
-                  display-buffer-same-window)
+                 (claude--display-buffer-reuse-same    ; reuse window showing THIS buffer
+                  claude--display-buffer-prefer-empty  ; prefer empty windows
+                  display-buffer-same-window)          ; fallback: current window
                  (reusable-frames . visible)
                  (inhibit-same-window . nil)
-                 ;; Prevent Claude from deleting other windows
                  (inhibit-switch-frame . t)
                  (preserve-size . (t . nil))))
 
@@ -94,136 +118,29 @@ Use this instead of claude-code to ensure Claude opens HERE."
   (define-key ashton-mode-map (kbd "C-c c S") #'claude-summary))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
-;;; Claude Window Resize Handling
+;;; Claude Window Resize Handling - DISABLED (too much monitoring)
 ;;; ════════════════════════════════════════════════════════════════════════════
-;;
-;; Claude Code's rich output (progress bars, task lists) doesn't handle
-;; terminal width changes gracefully. This causes garbled display when
-;; windows are resized smaller.
-;;
-;; Solution:
-;; 1. Set minimum/maximum window width to prevent tiny or overly wide windows
-;; 2. When window width changes significantly, force vterm to resize properly
-;; 3. Lock windows to prevent accidental resize during output
 
-(defcustom claude-min-window-width 80
-  "Minimum width for Claude windows.
-Windows showing Claude buffers will resist shrinking below this width."
-  :type 'integer
-  :group 'claude-code)
-
-(defcustom claude-max-window-width 140
-  "Maximum width for Claude windows.
-New Claude windows will be constrained to this width."
-  :type 'integer
-  :group 'claude-code)
-
-(defvar claude--window-widths (make-hash-table :test 'eq)
-  "Hash table tracking initial width of windows showing Claude buffers.")
+;; Window resize monitoring disabled - was causing issues
+;; Use claude-reset-window manually if needed
 
 (defun claude--window-showing-claude-p (window)
   "Return t if WINDOW is showing a Claude buffer."
   (and (window-live-p window)
        (string-prefix-p "*claude:" (buffer-name (window-buffer window)))))
 
-(defun claude--reset-vterm-size (buffer)
-  "Force BUFFER's vterm to recalculate its size.
-This helps fix garbled output after resize."
-  (when (buffer-live-p buffer)
-    (with-current-buffer buffer
-      (when (derived-mode-p 'vterm-mode)
-        ;; Force vterm to recalculate its terminal size
-        (when (fboundp 'vterm--set-size)
-          (let* ((win (get-buffer-window buffer))
-                 (width (when win (window-width win)))
-                 (height (when win (window-height win))))
-            (when (and width height)
-              ;; Set size slightly smaller then back to force refresh
-              (ignore-errors
-                (vterm--set-size height (1- width))
-                (run-at-time 0.1 nil
-                             (lambda ()
-                               (when (buffer-live-p buffer)
-                                 (with-current-buffer buffer
-                                   (when (and (fboundp 'vterm--set-size) win (window-live-p win))
-                                     (vterm--set-size
-                                      (window-height win)
-                                      (window-width win)))))))))))))))
-
-(defun claude--constrain-window-width (window)
-  "Ensure WINDOW showing Claude is within width constraints.
-Returns t if window was resized."
-  (when (and (window-live-p window)
-             (claude--window-showing-claude-p window))
-    (let* ((width (window-width window))
-           (frame-width (frame-width))
-           (target-width nil))
-      (cond
-       ;; Too narrow - try to expand
-       ((and (< width claude-min-window-width)
-             (> frame-width claude-min-window-width))
-        (setq target-width claude-min-window-width))
-       ;; Too wide - try to shrink
-       ((and (> width claude-max-window-width)
-             ;; Only constrain if there's room for other content
-             (> (length (window-list)) 1))
-        (setq target-width claude-max-window-width)))
-      (when target-width
-        (let ((delta (- target-width width)))
-          (ignore-errors
-            (window-resize window delta t))
-          t)))))
-
-(defun claude--handle-window-resize (frame)
-  "Handle window resize events for FRAME.
-Resets vterm size when Claude windows change significantly."
-  (dolist (window (window-list frame 'no-mini))
-    (when (claude--window-showing-claude-p window)
-      (let* ((buf (window-buffer window))
-             (current-width (window-width window))
-             (initial-width (gethash window claude--window-widths)))
-        ;; Track initial width if not set
-        (unless initial-width
-          (puthash window current-width claude--window-widths)
-          (setq initial-width current-width))
-        ;; If width changed significantly, force vterm to recalculate
-        (when (and initial-width
-                   (> (abs (- current-width initial-width)) 5))
-          (claude--reset-vterm-size buf)
-          ;; Update tracked width
-          (puthash window current-width claude--window-widths))))))
-
-(defun claude--window-size-change-hook (frame)
-  "Hook for `window-size-change-functions'.
-Handles resize events for Claude windows in FRAME."
-  ;; First enforce constraints
-  (dolist (window (window-list frame 'no-mini))
-    (claude--constrain-window-width window))
-  ;; Then handle any resize effects
-  (claude--handle-window-resize frame))
-
-;; Register the hook
-(add-hook 'window-size-change-functions #'claude--window-size-change-hook)
-
-;; Clean up dead windows from tracking hash
-(defun claude--cleanup-window-tracking ()
-  "Remove dead windows from tracking hash table."
-  (let ((dead-keys '()))
-    (maphash (lambda (k _v)
-               (unless (window-live-p k)
-                 (push k dead-keys)))
-             claude--window-widths)
-    (dolist (k dead-keys)
-      (remhash k claude--window-widths))))
-
-(run-with-idle-timer 60 t #'claude--cleanup-window-tracking)
-
 (defun claude-reset-window ()
   "Reset current Claude window - fixes garbled display after resize."
   (interactive)
-  (when (claude-buffer-p)
-    (claude--reset-vterm-size (current-buffer))
-    (message "Reset vterm size")))
+  (when (and (claude-buffer-p)
+             (derived-mode-p 'vterm-mode)
+             (fboundp 'vterm--set-size))
+    (let* ((win (get-buffer-window (current-buffer)))
+           (width (when win (window-width win)))
+           (height (when win (window-height win))))
+      (when (and width height)
+        (vterm--set-size height width)
+        (message "Reset vterm size")))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Debugging - Hang diagnosis
@@ -573,7 +490,8 @@ Handles resize events for Claude windows in FRAME."
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
 (defvar claude-slash-commands
-  '(("/help"           . "Show help and available commands")
+  '(;; Built-in commands
+    ("/help"           . "Show help and available commands")
     ("/clear"          . "Clear conversation history")
     ("/compact"        . "Compact conversation to save context")
     ("/status"         . "Show Claude status and session info")
@@ -594,10 +512,17 @@ Handles resize events for Claude windows in FRAME."
     ("/vim"            . "Toggle vim keybinding mode")
     ("/mcp"            . "MCP server management")
     ("/bug"            . "Report a bug to Anthropic")
+    ("/resume"         . "Resume previous session")
+    ("/diff"           . "Show git diff context")
+    ("/context"        . "Show current context window usage")
+    ;; Custom workflow commands (in .claude/commands/)
+    ("/ship"           . "Implement, commit, push, PR")
+    ("/finish"         . "Commit, push, PR (already implemented)")
+    ("/analyze"        . "Analyze issue and create plan")
+    ("/conflicts"      . "Resolve merge conflicts")
     ("/test-plan"      . "Generate test plan for changes")
     ("/pr-description" . "Generate PR description")
-    ("/diff"           . "Show git diff context")
-    ("/context"        . "Show current context window usage"))
+    ("/pr"             . "Create pull request"))
   "Claude slash commands with descriptions for completion annotations.")
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
@@ -771,30 +696,12 @@ Shows only slash commands with documentation."
         (vterm-insert choice)))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
-;;; Corfu Integration - auto-trigger in Claude buffers
+;;; Corfu Integration - DISABLED (was breaking vertico-childframe globally)
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
-(defun claude-setup-completion ()
-  "Setup completion for Claude vterm buffers."
-  ;; Register our capf
-  (setq-local completion-at-point-functions '(claude-combined-capf))
-  ;; Corfu settings for Claude
-  (setq-local corfu-auto t
-              corfu-auto-prefix 2
-              corfu-auto-delay 0.15
-              corfu-quit-no-match 'separator
-              corfu-preselect 'prompt)
-  ;; Orderless for fuzzy matching
-  (setq-local completion-styles '(orderless basic)
-              completion-category-overrides nil))
-
-;; Hook into Claude buffers
-(defun claude-maybe-setup-completion ()
-  "Setup completion if this is a Claude buffer."
-  (when (claude-buffer-p)
-    (claude-setup-completion)))
-
-(add-hook 'vterm-mode-hook #'claude-maybe-setup-completion)
+;; Claude completion setup disabled - use manual /command completion instead
+;; (defun claude-setup-completion () ...)
+;; (add-hook 'vterm-mode-hook #'claude-maybe-setup-completion)
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Keybindings
@@ -808,6 +715,102 @@ Shows only slash commands with documentation."
   ;; s-z as quick shortcut for same function as C-c c z
   ;; Bind in ashton-mode-map (global) so it works in vterm
   (define-key ashton-mode-map (kbd "s-z") #'claude-code-toggle-read-only-mode))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Yank Last Response - Copy Claude's output to clipboard
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun claude--strip-ansi (text)
+  "Strip ANSI escape codes from TEXT."
+  (replace-regexp-in-string "\033\\[[0-9;]*[a-zA-Z]" "" text))
+
+(defun claude--clean-response (text)
+  "Clean up Claude response TEXT for copying.
+Removes ANSI codes, spinner artifacts, and normalizes whitespace."
+  (let ((cleaned text))
+    ;; Strip ANSI escape codes
+    (setq cleaned (claude--strip-ansi cleaned))
+    ;; Remove common spinner/progress characters
+    (setq cleaned (replace-regexp-in-string "[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]" "" cleaned))
+    ;; Remove box drawing used for progress bars
+    (setq cleaned (replace-regexp-in-string "[━─▏▎▍▌▋▊▉█░▒▓]" "" cleaned))
+    ;; Collapse multiple blank lines
+    (setq cleaned (replace-regexp-in-string "\n\\{3,\\}" "\n\n" cleaned))
+    ;; Trim leading/trailing whitespace
+    (string-trim cleaned)))
+
+(defun claude-yank-last-response ()
+  "Copy Claude's last response to kill ring and clipboard.
+Works in any Claude buffer. Cleans up ANSI codes and artifacts."
+  (interactive)
+  (let ((buf (or (and (claude-buffer-p) (current-buffer))
+                 (claude-get-buffer))))
+    (if (not buf)
+        (message "No Claude buffer found")
+      (with-current-buffer buf
+        (save-excursion
+          (goto-char (point-max))
+          ;; Search backwards for Claude's response marker or human prompt
+          ;; Claude CLI shows "Human:" or ">" for user prompts
+          (let* ((response-end (point-max))
+                 (response-start
+                  (progn
+                    ;; Find the start of the last assistant response
+                    ;; Look for patterns that indicate user input
+                    (if (re-search-backward "^\\(>\\|Human:\\|❯\\)" nil t 2)
+                        ;; Found previous prompt, response starts after it
+                        (progn (forward-line 1) (point))
+                      ;; No prompt found, use beginning or search for assistant marker
+                      (goto-char (point-min))
+                      (if (re-search-forward "^\\(Assistant:\\|Claude:\\)" nil t)
+                          (progn (forward-line 0) (point))
+                        (point-min)))))
+                 (raw-text (buffer-substring-no-properties response-start response-end))
+                 (cleaned (claude--clean-response raw-text)))
+            (if (string-empty-p cleaned)
+                (message "No response found to copy")
+              ;; Put in kill ring
+              (kill-new cleaned)
+              ;; Also copy to system clipboard
+              (when (fboundp 'gui-set-selection)
+                (gui-set-selection 'CLIPBOARD cleaned))
+              (message "Copied %d chars to clipboard (from %d raw)"
+                       (length cleaned) (length raw-text)))))))))
+
+(defun claude-yank-last-code-block ()
+  "Copy the last code block from Claude's response.
+Extracts content between ``` markers."
+  (interactive)
+  (let ((buf (or (and (claude-buffer-p) (current-buffer))
+                 (claude-get-buffer))))
+    (if (not buf)
+        (message "No Claude buffer found")
+      (with-current-buffer buf
+        (save-excursion
+          (goto-char (point-max))
+          ;; Find last ``` block
+          (if (not (re-search-backward "^```" nil t 2))
+              (message "No code block found")
+            (let* ((block-end (progn
+                                (re-search-forward "^```" nil t)
+                                (forward-line 0)
+                                (point)))
+                   (block-start (progn
+                                  (re-search-backward "^```" nil t)
+                                  (forward-line 1)
+                                  (point)))
+                   (raw-text (buffer-substring-no-properties block-start block-end))
+                   (cleaned (claude--clean-response raw-text)))
+              (if (string-empty-p cleaned)
+                  (message "Empty code block")
+                (kill-new cleaned)
+                (when (fboundp 'gui-set-selection)
+                  (gui-set-selection 'CLIPBOARD cleaned))
+                (message "Copied %d chars of code to clipboard" (length cleaned))))))))))
+
+;; Keybindings - C-c c y prefix for yanking
+(define-key ashton-mode-map (kbd "C-c c Y") #'claude-yank-last-response)
+(define-key ashton-mode-map (kbd "C-c c C") #'claude-yank-last-code-block)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Workflow Commands - Pre-built prompts with context
@@ -853,10 +856,12 @@ Shows only slash commands with documentation."
   (claude-code-send-command "Write a commit message for the staged changes"))
 
 ;; Keybindings (C-c c w prefix for workflow)
+;; Note: /ship, /finish, /analyze, /conflicts are now Claude slash commands
 (define-key ashton-mode-map (kbd "C-c c w t") #'claude-workflow-test-plan)
 (define-key ashton-mode-map (kbd "C-c c w r") #'claude-workflow-review)
 (define-key ashton-mode-map (kbd "C-c c w f") #'claude-workflow-fix-error)
 (define-key ashton-mode-map (kbd "C-c c w e") #'claude-workflow-explain)
+(define-key ashton-mode-map (kbd "C-c c w c") #'claude-workflow-commit)
 (define-key ashton-mode-map (kbd "C-c c w c") #'claude-workflow-commit)
 
 ;;; ════════════════════════════════════════════════════════════════════════════

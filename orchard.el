@@ -68,28 +68,55 @@
   "Return t if WIN is showing the Orchard buffer."
   (string= "*Orchard*" (buffer-name (window-buffer win))))
 
+(defun orchard--window-empty-p (window)
+  "Return t if WINDOW is showing an 'empty' buffer we can take over."
+  (let ((buf-name (buffer-name (window-buffer window))))
+    (or (string= buf-name "*scratch*")
+        (string= buf-name "*Messages*")
+        (string= buf-name "*doom*")
+        (string-prefix-p " " buf-name)  ; internal buffers
+        (string-prefix-p "*Help" buf-name)
+        (string-prefix-p "*Completions" buf-name))))
+
 (defun orchard--find-best-window ()
   "Find the best window for opening Claude/magit.
 Priority:
-1. Existing Claude window (reuse, don't spawn new)
-2. Largest non-orchard window
-3. Current window as fallback
-NEVER splits - predictable window management."
+1. Empty window (scratch, messages, etc.)
+2. Split a non-orchard window if frame is wide enough
+3. Largest non-orchard, non-claude window
+4. Current window as fallback
+NEVER takes over an existing Claude window."
   (let* ((windows (window-list nil 'no-mini))
          (leftmost (orchard--leftmost-window))
-         (non-leftmost (cl-remove leftmost windows)))
+         (non-leftmost (cl-remove leftmost windows))
+         (frame-width (frame-width)))
     (or
-     ;; Reuse existing Claude window
-     (cl-find-if #'orchard--window-showing-claude-p non-leftmost)
-     ;; Use largest non-orchard window
-     (car (sort (cl-remove-if #'orchard--window-showing-orchard-p non-leftmost)
+     ;; 1. Find empty window
+     (cl-find-if #'orchard--window-empty-p non-leftmost)
+     ;; 2. Split if we have room (frame > 160 cols and only 1-2 windows)
+     (when (and (>= frame-width 160)
+                (<= (length windows) 2))
+       (let ((splittable (cl-find-if
+                          (lambda (w)
+                            (and (not (orchard--window-showing-orchard-p w))
+                                 (not (orchard--window-showing-claude-p w))
+                                 (>= (window-width w) 80)))
+                          non-leftmost)))
+         (when splittable
+           (split-window splittable nil 'right))))
+     ;; 3. Largest non-orchard, non-claude window
+     (car (sort (cl-remove-if
+                 (lambda (w)
+                   (or (orchard--window-showing-orchard-p w)
+                       (orchard--window-showing-claude-p w)))
+                 non-leftmost)
                 (lambda (a b)
                   (> (window-width a) (window-width b)))))
-     ;; Fallback: largest window that isn't orchard
+     ;; 4. Fallback: largest window that isn't orchard (may be claude - last resort)
      (car (sort (cl-remove-if #'orchard--window-showing-orchard-p windows)
                 (lambda (a b)
                   (> (window-width a) (window-width b)))))
-     ;; Last resort: current window
+     ;; 5. Last resort: current window
      (selected-window))))
 
 (defun orchard--find-sibling-window (mode-predicate)

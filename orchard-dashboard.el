@@ -57,6 +57,9 @@
 (declare-function orchard-filter-menu "orchard-actions")
 (declare-function orchard-research-open "orchard-actions")
 (declare-function orchard-research-set-context "orchard-actions")
+(declare-function orchard-resume-sessions "orchard-claude")
+(declare-function orchard-resume-sessions-prompt "orchard-claude")
+(defvar orchard--claude-sessions-file)
 (declare-function ghq--cleanup-stale-ports "config-ghq" nil t)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -100,6 +103,7 @@
     (define-key map (kbd "t") #'orchard-test-at-point)
     (define-key map (kbd "l") #'orchard-list-claudes)
     (define-key map (kbd "W") #'orchard-tile-claudes)   ; tile claude windows 2x2
+    (define-key map (kbd "Z") #'orchard-resume-sessions) ; resume saved sessions
     (define-key map (kbd "i") #'orchard-show-at-point)  ; show full info
     ;; GitHub Issues
     (define-key map (kbd "I") #'orchard-issue-start)
@@ -1028,6 +1032,16 @@ Use this to see the complete issue title without truncation."
 ;;; Main Entry Point
 ;;; ════════════════════════════════════════════════════════════════════════════
 
+(defvar orchard--checked-saved-sessions nil
+  "Non-nil if we've already checked for saved Claude sessions this Emacs session.")
+
+(defun orchard--maybe-prompt-resume ()
+  "Prompt to resume saved Claude sessions on first orchard open."
+  (unless orchard--checked-saved-sessions
+    (setq orchard--checked-saved-sessions t)
+    (when (file-exists-p orchard--claude-sessions-file)
+      (run-at-time 0.5 nil #'orchard-resume-sessions-prompt))))
+
 (defun orchard ()
   "Open the Orchard dashboard.
 This is the main entry point for the worktree manager."
@@ -1037,7 +1051,11 @@ This is the main entry point for the worktree manager."
       (unless (eq major-mode 'orchard-mode)
         (orchard-mode))
       (orchard-refresh))
-    (pop-to-buffer buf)))
+    (pop-to-buffer buf)
+    ;; Check for saved sessions on first open (run in background)
+    (orchard--maybe-prompt-resume)
+    ;; Return the buffer (important for initial-buffer-choice)
+    buf))
 
 (defun orchard-force-refresh ()
   "Force refresh with fresh data from GitHub (bypasses cache)."
