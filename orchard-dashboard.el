@@ -1036,11 +1036,10 @@ Use this to see the complete issue title without truncation."
   "Non-nil if we've already checked for saved Claude sessions this Emacs session.")
 
 (defun orchard--maybe-prompt-resume ()
-  "Prompt to resume saved Claude sessions on first orchard open."
-  (unless orchard--checked-saved-sessions
-    (setq orchard--checked-saved-sessions t)
-    (when (file-exists-p orchard--claude-sessions-file)
-      (run-at-time 0.5 nil #'orchard-resume-sessions-prompt))))
+  "Prompt to resume saved Claude sessions on first orchard open.
+DISABLED - session persistence was buggy (saving wrong paths)."
+  ;; Disabled - was saving '~' instead of actual worktree paths
+  nil)
 
 (defun orchard ()
   "Open the Orchard dashboard.

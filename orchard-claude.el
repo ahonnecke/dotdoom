@@ -492,8 +492,9 @@ Returns list of paths or nil."
                             (length valid-paths))))
           (orchard-resume-sessions))))))
 
-;; Save sessions on Emacs exit
-(add-hook 'kill-emacs-hook #'orchard--save-claude-sessions)
+;; Session persistence DISABLED - path extraction was buggy (saving "~" instead of real paths)
+;; Manual resume still available via orchard-resume-sessions if needed
+;; (add-hook 'kill-emacs-hook #'orchard--save-claude-sessions)
 
 ;; Register Claude event hook for status tracking and PR capture
 (with-eval-after-load 'claude-code
