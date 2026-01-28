@@ -197,94 +197,6 @@ Magit on top, Claude below."
           (select-window magit-win))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
-;;; Issue-Worktree Linking
-;;; ════════════════════════════════════════════════════════════════════════════
-
-(defun orchard--find-worktree-for-issue (issue-number &optional worktrees)
-  "Find and return the worktree associated with ISSUE-NUMBER, or nil.
-If WORKTREES is provided, search in that list instead of fetching."
-  (cl-find-if (lambda (wt)
-                (let ((linked-issue (orchard--get-worktree-issue
-                                     (alist-get 'path wt)
-                                     (alist-get 'branch wt))))
-                  (and linked-issue (= linked-issue issue-number))))
-              (or worktrees (orchard--get-worktrees))))
-
-(defun orchard--issue-has-pr-p (issue-number worktrees)
-  "Check if ISSUE-NUMBER has a PR created (via its worktree).
-Returns the PR URL if found, nil otherwise."
-  (when-let ((wt (orchard--find-worktree-for-issue issue-number worktrees)))
-    (let ((pr-url-file (expand-file-name ".pr-url" (alist-get 'path wt))))
-      (when (file-exists-p pr-url-file)
-        (with-temp-buffer
-          (insert-file-contents pr-url-file)
-          (string-trim (buffer-string)))))))
-
-(defun orchard--issue-claude-waiting-p (issue-number worktrees)
-  "Check if ISSUE-NUMBER has a Claude buffer that's waiting for input.
-Returns t if waiting, nil otherwise."
-  (when-let ((wt (orchard--find-worktree-for-issue issue-number worktrees)))
-    (when-let ((claude-buf (orchard--claude-buffer-for-path (alist-get 'path wt))))
-      (orchard--claude-waiting-p claude-buf))))
-
-(defun orchard--issue-workflow-stage (issue-number worktrees)
-  "Get workflow stage indicators for ISSUE-NUMBER.
-Returns alist with keys: has-analysis, has-plan, has-pr, claude-status."
-  (when-let ((wt (orchard--find-worktree-for-issue issue-number worktrees)))
-    (let ((path (alist-get 'path wt)))
-      (list
-       (cons 'has-analysis
-             (file-exists-p (expand-file-name ".feature-description" path)))
-       (cons 'has-plan
-             (or (file-exists-p (expand-file-name ".test-plan.md" path))
-                 (file-exists-p (expand-file-name ".plan.md" path))))
-       (cons 'has-pr
-             (file-exists-p (expand-file-name ".pr-url" path)))
-       (cons 'claude-status
-             (when-let ((buf (orchard--claude-buffer-for-path path)))
-               (orchard--claude-status buf)))))))
-
-;;; ════════════════════════════════════════════════════════════════════════════
-;;; Issue Formatting
-;;; ════════════════════════════════════════════════════════════════════════════
-
-(defun orchard--format-label (label)
-  "Format a single LABEL for display with color."
-  (let* ((name (alist-get 'name label))
-         (color (alist-get 'color label))
-         (fg-color (if color (format "#%s" color) "#888888")))
-    (propertize (format "[%s]" name)
-                'face `(:foreground ,fg-color :weight bold))))
-
-(defun orchard--format-labels (labels)
-  "Format LABELS list for display."
-  (if (and labels (> (length labels) 0))
-      (concat " " (mapconcat #'orchard--format-label labels " "))
-    ""))
-
-(defun orchard--format-workflow-indicator (stage)
-  "Format workflow indicator showing what's DONE and Claude status."
-  (if (null stage)
-      ""
-    (let ((a (alist-get 'has-analysis stage))
-          (p (alist-get 'has-plan stage))
-          (r (alist-get 'has-pr stage))
-          (cs (alist-get 'claude-status stage)))
-      (concat
-       ;; Claude status indicator
-       (pcase cs
-         ('waiting (propertize "⏳WAIT " 'face '(:foreground "#E06C75" :weight bold)))
-         ('idle (propertize "✓DONE " 'face '(:foreground "#E5C07B" :weight bold)))
-         ('active (propertize "⟳ " 'face '(:foreground "#61AFEF")))
-         (_ ""))
-       ;; Workflow stage
-       (cond
-        (r (propertize "PR" 'face '(:foreground "#61AFEF" :weight bold)))
-        (p (propertize "planned" 'face '(:foreground "#98C379")))
-        (a (propertize "analyzed" 'face '(:foreground "#98C379")))
-        (t (propertize "wip" 'face '(:foreground "#5C6370"))))))))
-
-;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Issue Browser
 ;;; ════════════════════════════════════════════════════════════════════════════
 
@@ -430,7 +342,7 @@ Shows category, GitHub state, worktree info, and visibility."
                                  (orchard-goto-issue (plist-get orchard--issue-state :issue-num))))
       (local-set-key (kbd "c") (lambda () (interactive)
                                  (when-let ((wt (plist-get orchard--issue-state :worktree)))
-                                   (orchard-open-branch wt))))
+                                   (orchard--start-claude-with-resume (alist-get 'path wt)))))
       (local-set-key (kbd "m") (lambda () (interactive)
                                  (when-let ((wt (plist-get orchard--issue-state :worktree)))
                                    (magit-status (alist-get 'path wt)))))

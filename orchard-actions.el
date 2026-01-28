@@ -37,6 +37,7 @@
 (declare-function orchard--format-section-header "orchard-dashboard")
 (declare-function orchard--branch-icon "orchard-dashboard")
 (declare-function orchard--branch-face "orchard-dashboard")
+(declare-function orchard--get-research-at-point "orchard-dashboard")
 (declare-function ghq--get-worktree-port "config-ghq")
 (declare-function ghq--allocate-port-for-path "config-ghq")
 (declare-function ghq--generate-workspace-env "config-ghq")
@@ -1169,6 +1170,71 @@ Use this when not in the orchard dashboard."
                      (lambda () orchard--temp-issue)))
             (orchard-issue-start)))
       (user-error "No issue selected"))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Research Directory Actions
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard-research-open (&optional set-context)
+  "Open Claude in a research directory.
+If on a research item in the dashboard, use that directory.
+Otherwise, prompt to select from `orchard-research-paths'.
+With prefix argument SET-CONTEXT, also set the research context."
+  (interactive "P")
+  (let* ((at-point (when (fboundp 'orchard--get-research-at-point)
+                     (orchard--get-research-at-point)))
+         (research-dirs (orchard--get-research-dirs))
+         (selected (cond
+                    ;; Use item at point if available
+                    (at-point at-point)
+                    ;; Single research dir - use it directly
+                    ((= (length research-dirs) 1)
+                     (car research-dirs))
+                    ;; Multiple dirs - prompt
+                    (research-dirs
+                     (let* ((choices (mapcar (lambda (r)
+                                               (cons (plist-get r :name) r))
+                                             research-dirs))
+                            (name (completing-read "Research directory: "
+                                                   (mapcar #'car choices) nil t)))
+                       (cdr (assoc name choices))))
+                    (t (user-error "No research directories configured in orchard-research-paths")))))
+    (when selected
+      (let ((path (plist-get selected :path))
+            (name (plist-get selected :name)))
+        ;; Optionally set context first
+        (when set-context
+          (orchard-research-set-context path))
+        ;; Start Claude in research directory
+        (orchard--start-claude-with-resume path)
+        (message "Opened Claude in research: %s" name)))))
+
+(defun orchard-research-set-context (&optional path)
+  "Set the current research context for a research directory.
+If PATH is nil, prompt for a research directory first."
+  (interactive)
+  (let* ((research-dirs (orchard--get-research-dirs))
+         (selected-path (or path
+                            (if (= (length research-dirs) 1)
+                                (plist-get (car research-dirs) :path)
+                              (let* ((choices (mapcar (lambda (r)
+                                                        (cons (plist-get r :name)
+                                                              (plist-get r :path)))
+                                                      research-dirs))
+                                     (name (completing-read "Research directory: "
+                                                            (mapcar #'car choices) nil t)))
+                                (cdr (assoc name choices))))))
+         (current-context (orchard--load-research-context selected-path))
+         (new-context (read-string
+                       (format "Research context%s: "
+                               (if current-context
+                                   (format " (current: %s)" current-context)
+                                 ""))
+                       current-context)))
+    (orchard--save-research-context selected-path new-context)
+    (message "Research context set: \"%s\"" new-context)
+    (when (eq major-mode 'orchard-mode)
+      (orchard-refresh))))
 
 (provide 'orchard-actions)
 ;;; orchard-actions.el ends here

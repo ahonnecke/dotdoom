@@ -55,6 +55,8 @@
 (declare-function orchard-clear-filters "orchard-actions")
 (declare-function orchard-toggle-staging-issues "orchard-actions")
 (declare-function orchard-filter-menu "orchard-actions")
+(declare-function orchard-research-open "orchard-actions")
+(declare-function orchard-research-set-context "orchard-actions")
 (declare-function ghq--cleanup-stale-ports "config-ghq" nil t)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -97,6 +99,7 @@
     (define-key map (kbd "d") #'orchard-dired-at-point)
     (define-key map (kbd "t") #'orchard-test-at-point)
     (define-key map (kbd "l") #'orchard-list-claudes)
+    (define-key map (kbd "W") #'orchard-tile-claudes)   ; tile claude windows 2x2
     (define-key map (kbd "i") #'orchard-show-at-point)  ; show full info
     ;; GitHub Issues
     (define-key map (kbd "I") #'orchard-issue-start)
@@ -118,6 +121,8 @@
     ;; Port management
     (define-key map (kbd "+") #'orchard-allocate-port)
     (define-key map (kbd "_") #'orchard-release-port)
+    ;; Research
+    (define-key map (kbd "T") #'orchard-research-open)
     ;; Filtering and views
     (define-key map (kbd "v w") #'orchard-view-working)
     (define-key map (kbd "v a") #'orchard-view-all)
@@ -288,15 +293,39 @@ Returns alist with keys: has-analysis, has-plan, has-pr, pr-ready, claude-status
         (concat " " (mapconcat #'orchard--format-label label-list " "))
       "")))
 
-(defun orchard--format-workflow-indicator (stage)
-  "Format workflow indicator showing what's DONE and Claude status."
+(defun orchard--format-pr-status-indicator (branch)
+  "Format PR status indicator for BRANCH showing CI and merge status."
+  (when-let ((pr-status (orchard--get-pr-status branch)))
+    (let ((ci (plist-get pr-status :ci-status))
+          (mergeable (plist-get pr-status :mergeable))
+          (review (plist-get pr-status :review-decision)))
+      (concat
+       ;; CI status
+       (pcase ci
+         ('success (propertize "✅" 'face '(:foreground "#98C379")))
+         ('failure (propertize "❌" 'face '(:foreground "#E06C75")))
+         ('pending (propertize "⏳" 'face '(:foreground "#E5C07B")))
+         (_ ""))
+       ;; Merge conflict
+       (when (equal mergeable "CONFLICTING")
+         (propertize "⚠️" 'face '(:foreground "#E06C75" :weight bold)))
+       ;; Review status
+       (pcase review
+         ("APPROVED" (propertize "👍" 'face '(:foreground "#98C379")))
+         ("CHANGES_REQUESTED" (propertize "🔄" 'face '(:foreground "#E5C07B")))
+         (_ ""))))))
+
+(defun orchard--format-workflow-indicator (stage &optional branch)
+  "Format workflow indicator showing what's DONE, Claude status, and PR status.
+BRANCH is used to look up PR status from cache."
   (if (null stage)
       ""
     (let ((a (alist-get 'has-analysis stage))
           (p (alist-get 'has-plan stage))
           (r (alist-get 'has-pr stage))
           (pr-ready (alist-get 'pr-ready stage))
-          (cs (alist-get 'claude-status stage)))
+          (cs (alist-get 'claude-status stage))
+          (pr-status-str (when branch (orchard--format-pr-status-indicator branch))))
       (concat
        (pcase cs
          ('waiting (propertize "⏳WAIT " 'face '(:foreground "#E06C75" :weight bold)))
@@ -304,7 +333,8 @@ Returns alist with keys: has-analysis, has-plan, has-pr, pr-ready, claude-status
          ('active (propertize "⟳ " 'face '(:foreground "#61AFEF")))
          (_ ""))
        (cond
-        (r (propertize "PR" 'face '(:foreground "#61AFEF" :weight bold)))
+        (r (concat (propertize "PR" 'face '(:foreground "#61AFEF" :weight bold))
+                   (when pr-status-str (concat " " pr-status-str))))
         (pr-ready (propertize "🚀READY" 'face '(:foreground "#C678DD" :weight bold)))
         (p (propertize "planned" 'face '(:foreground "#98C379")))
         (a (propertize "analyzed" 'face '(:foreground "#98C379")))
@@ -408,10 +438,11 @@ Returns alist with keys: has-analysis, has-plan, has-pr, pr-ready, claude-status
          (closed (alist-get 'closed issue))
          (icon (orchard--issue-type-icon labels))
          (wt-path (when wt (alist-get 'path wt)))
+         (wt-branch (when wt (alist-get 'branch wt)))
          (stage (when wt (orchard--issue-workflow-stage number (list wt))))
          (claude-status (alist-get 'claude-status stage))
          (needs-attention (memq claude-status '(waiting idle)))
-         (workflow (if wt (orchard--format-workflow-indicator stage) ""))
+         (workflow (if wt (orchard--format-workflow-indicator stage wt-branch) ""))
          (session-indicator (if wt-path (orchard--format-session-indicator wt-path) ""))
          (label-str (orchard--format-labels labels))
          (attention-prefix (if needs-attention
@@ -647,6 +678,9 @@ Returns alist with keys: has-analysis, has-plan, has-pr, pr-ready, claude-status
                      orphan-worktrees ""))))
      (when (orchard--section-visible-p 'recent-sessions)
        (orchard--format-recent-sessions))
+     ;; Research section
+     (when (orchard--section-visible-p 'research)
+       (orchard--format-research-section))
      ;; Empty state
      (when (and (null up-next) (null in-progress) (null qa-verify)
                 (null done) (null orphan-worktrees)
@@ -699,12 +733,24 @@ Returns alist with keys: has-analysis, has-plan, has-pr, pr-ready, claude-status
                                    (file-name-as-directory dir)))
                 (orchard--get-worktrees))))
 
+(defun orchard--get-research-at-point ()
+  "Get research info plist at point."
+  (or (get-text-property (point) 'orchard-research)
+      (save-excursion
+        (beginning-of-line)
+        (let ((end (line-end-position)) result)
+          (while (and (< (point) end) (not result))
+            (setq result (get-text-property (point) 'orchard-research))
+            (forward-char 1))
+          result))))
+
 (defun orchard-show-at-point ()
   "Show full details of issue or worktree at point in echo area.
 Use this to see the complete issue title without truncation."
   (interactive)
   (let ((issue (orchard--get-issue-at-point))
-        (wt (orchard--get-worktree-at-point)))
+        (wt (orchard--get-worktree-at-point))
+        (research (orchard--get-research-at-point)))
     (cond
      (issue
       (let* ((number (alist-get 'number issue))
@@ -725,6 +771,14 @@ Use this to see the complete issue title without truncation."
                  (or branch "(detached)")
                  path
                  (if desc (format "\n%s" desc) ""))))
+     (research
+      (let* ((name (plist-get research :name))
+             (path (plist-get research :path))
+             (context (plist-get research :context)))
+        (message "🔬 %s: %s%s"
+                 name
+                 path
+                 (if context (format "\n\"%s\"" context) ""))))
      (t
       (message "No issue or worktree at point")))))
 
@@ -828,7 +882,7 @@ Use this to see the complete issue title without truncation."
   "Return t if SECTION should be visible based on current view."
   (pcase orchard--current-view
     ('all t)
-    ('working (memq section '(up-next in-progress unlinked)))
+    ('working (memq section '(up-next in-progress unlinked research)))
     ('next (eq section 'up-next))
     ('qa (eq section 'qa-verify))
     ('progress (eq section 'in-progress))
@@ -922,6 +976,55 @@ Use this to see the complete issue title without truncation."
             session-items "")))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Research Section
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--format-research-item (research-info)
+  "Format a single RESEARCH-INFO plist for display."
+  (let* ((name (plist-get research-info :name))
+         (path (plist-get research-info :path))
+         (context (plist-get research-info :context))
+         (session (plist-get research-info :session-info))
+         (msg-count (when session (plist-get session :message-count)))
+         (modified (when session (plist-get session :modified)))
+         (rel-time (when modified (orchard--format-relative-time modified)))
+         (claude-buf (orchard--claude-buffer-for-path path))
+         (claude-status (when claude-buf (orchard--claude-status claude-buf))))
+    (concat
+     (propertize
+      (concat
+       "   🔬 "
+       (propertize name 'face '(:foreground "#C678DD" :weight bold))
+       (when (and msg-count (> msg-count 0))
+         (concat " "
+                 (propertize (format "💾%d" msg-count) 'face '(:foreground "#61AFEF"))
+                 (when rel-time
+                   (concat "/" (propertize rel-time 'face '(:foreground "#E5C07B"))))))
+       (pcase claude-status
+         ('waiting (propertize " ⏳WAIT" 'face '(:foreground "#E06C75" :weight bold)))
+         ('idle (propertize " ✓DONE" 'face '(:foreground "#E5C07B" :weight bold)))
+         ('active (propertize " ⟳" 'face '(:foreground "#61AFEF")))
+         (_ ""))
+       "\n")
+      'orchard-research research-info)
+     (when context
+       (propertize
+        (concat "      \""
+                (propertize (truncate-string-to-width context 55 nil nil "…")
+                            'face 'font-lock-comment-face)
+                "\"\n")
+        'orchard-research research-info)))))
+
+(defun orchard--format-research-section ()
+  "Format the RESEARCH section for the dashboard."
+  (let ((research-dirs (orchard--get-research-dirs)))
+    (when research-dirs
+      (concat
+       (orchard--format-section-header "RESEARCH" (length research-dirs) nil 'research)
+       (unless (orchard--section-collapsed-p 'research)
+         (mapconcat #'orchard--format-research-item research-dirs ""))))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Main Entry Point
 ;;; ════════════════════════════════════════════════════════════════════════════
 
@@ -942,9 +1045,12 @@ This is the main entry point for the worktree manager."
   (setq orchard--worktrees-cache nil
         orchard--worktrees-cache-time nil
         orchard--issues-cache nil
-        orchard--issues-cache-time nil)
+        orchard--issues-cache-time nil
+        orchard--pr-status-cache nil
+        orchard--pr-status-cache-time nil)
   (orchard--refresh-merged-cache)
   (orchard--refresh-closed-issues-cache)
+  (orchard--refresh-pr-status-cache)
   (orchard-refresh)
   (message "Orchard refreshed with fresh data"))
 

@@ -209,6 +209,91 @@ Does NOT auto-refresh - use `orchard-force-refresh' (G) to fetch from GitHub."
   (cdr (assoc branch orchard--merged-branches-cache)))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Open PR Status Cache
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defvar orchard--pr-status-cache nil
+  "Cache of open PR status by branch name.
+Alist of (branch . status-plist) where status-plist has:
+  :pr-number, :mergeable, :ci-status, :review-decision")
+
+(defvar orchard--pr-status-cache-time nil
+  "Time when PR status cache was last updated.")
+
+(defun orchard--summarize-ci-status (checks)
+  "Summarize CI status from CHECKS array.
+Returns: 'success, 'failure, 'pending, or nil."
+  (when (and checks (> (length checks) 0))
+    (let ((dominated-statuses (make-hash-table :test 'equal))
+          (dominated-check-runs (make-hash-table :test 'equal))
+          has-failure has-pending)
+      ;; Look at all checks, considering only most recent of each type/name
+      (dolist (check (append checks nil))
+        (let ((status (alist-get 'status check))
+              (conclusion (alist-get 'conclusion check))
+              (typename (alist-get '__typename check)))
+          (cond
+           ;; Still running
+           ((and (equal status "IN_PROGRESS")
+                 (equal typename "CheckRun"))
+            (setq has-pending t))
+           ;; Completed - check conclusion
+           ((equal status "COMPLETED")
+            (cond
+             ((member conclusion '("FAILURE" "TIMED_OUT" "CANCELLED"))
+              (setq has-failure t))
+             ((equal conclusion "SUCCESS")
+              nil)))  ; success, keep going
+           ;; StatusContext uses 'state' not 'conclusion'
+           ((equal typename "StatusContext")
+            (let ((state (alist-get 'state check)))
+              (cond
+               ((equal state "FAILURE") (setq has-failure t))
+               ((equal state "PENDING") (setq has-pending t))))))))
+      (cond
+       (has-failure 'failure)
+       (has-pending 'pending)
+       (t 'success)))))
+
+(defun orchard--refresh-pr-status-cache ()
+  "Refresh the open PR status cache from GitHub."
+  (let ((repo-root (orchard--get-repo-root)))
+    (when repo-root
+      (let ((default-directory repo-root))
+        (condition-case err
+            (let* ((output (shell-command-to-string
+                            "gh pr list --state open --limit 50 --json number,headRefName,mergeable,reviewDecision,statusCheckRollup 2>/dev/null"))
+                   (json (ignore-errors (json-read-from-string output))))
+              (when (vectorp json)
+                (setq orchard--pr-status-cache
+                      (mapcar (lambda (pr)
+                                (let ((branch (alist-get 'headRefName pr))
+                                      (checks (alist-get 'statusCheckRollup pr)))
+                                  (cons branch
+                                        (list :pr-number (alist-get 'number pr)
+                                              :mergeable (alist-get 'mergeable pr)
+                                              :ci-status (orchard--summarize-ci-status checks)
+                                              :review-decision (alist-get 'reviewDecision pr)))))
+                              (append json nil)))
+                (setq orchard--pr-status-cache-time (current-time))))
+          (error
+           (message "Failed to refresh PR status cache: %s" err)))))))
+
+(defun orchard--ensure-pr-status-cache ()
+  "Ensure PR status cache is fresh, refresh if stale."
+  (unless orchard--inhibit-cache-refresh
+    (when (or (null orchard--pr-status-cache-time)
+              (> (float-time (time-subtract (current-time)
+                                            orchard--pr-status-cache-time))
+                 orchard-issues-cache-ttl))  ; reuse issues TTL (5 min)
+      (orchard--refresh-pr-status-cache))))
+
+(defun orchard--get-pr-status (branch)
+  "Get PR status for BRANCH from cache.
+Returns plist with :pr-number, :mergeable, :ci-status, :review-decision or nil."
+  (cdr (assoc branch orchard--pr-status-cache)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; GitHub Issues Cache
 ;;; ════════════════════════════════════════════════════════════════════════════
 
@@ -501,6 +586,39 @@ Fast: no file I/O, just parses branch name like FEATURE-123-description."
     (setq results (assoc-delete-all path results))
     (setq orchard--state (plist-put orchard--state :test-results results))
     (orchard--save-state)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Research Directory Context
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--load-research-context (path)
+  "Load research context from .research-context file in PATH.
+Returns the context string or nil if not set."
+  (let ((context-file (expand-file-name ".research-context" path)))
+    (when (file-exists-p context-file)
+      (with-temp-buffer
+        (insert-file-contents context-file)
+        (string-trim (buffer-string))))))
+
+(defun orchard--save-research-context (path context)
+  "Save research CONTEXT to .research-context file in PATH."
+  (let ((context-file (expand-file-name ".research-context" path)))
+    (if (or (null context) (string-empty-p context))
+        (when (file-exists-p context-file)
+          (delete-file context-file))
+      (with-temp-file context-file
+        (insert context)))))
+
+(defun orchard--get-research-dirs ()
+  "Get list of research directories with their info.
+Returns list of plists with :name, :path, :context, :session-info."
+  (cl-loop for (name . path) in orchard-research-paths
+           for expanded = (expand-file-name path)
+           when (file-directory-p expanded)
+           collect (list :name name
+                         :path expanded
+                         :context (orchard--load-research-context expanded)
+                         :session-info (orchard--get-claude-session-info expanded))))
 
 (provide 'orchard-cache)
 ;;; orchard-cache.el ends here

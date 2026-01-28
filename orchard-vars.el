@@ -86,6 +86,18 @@ Called with the worktree path as argument."
   :type 'file
   :group 'orchard)
 
+(defcustom orchard-research-paths
+  '(("triage" . "~/src/cc.rnd/"))
+  "Alist of (name . path) for research directories.
+These are non-development directories used for debugging, demos,
+meeting prep, PR triage, and general investigation.
+
+Example:
+  \\='((\"triage\" . \"~/src/cc.rnd/\")
+    (\"psc-sync\" . \"~/src/psc-sync-notes/\"))"
+  :type '(alist :key-type string :value-type directory)
+  :group 'orchard)
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Cache TTLs
 ;;; ════════════════════════════════════════════════════════════════════════════
