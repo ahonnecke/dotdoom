@@ -207,7 +207,9 @@ Located in `config-magit.el`:
 | `C-c c k` | `claude-code-kill` | Kill Claude instance |
 | `C-c c z` / `s-z` | `claude-code-toggle-read-only-mode` | Toggle copy mode |
 
-**Modeline indicator**: Shows Claude status globally: `[Claude: 2🟢]` (running) or `[Claude: 1⏳]` (waiting for input)
+**Modeline indicator**: Shows Claude status globally: `[Claude: 2🟢]` (running count)
+
+**Note**: Claude status tracking is simplified to only check if the process is alive (no pattern matching). PR URLs are automatically captured when `gh pr create` is run.
 
 ---
 
@@ -578,6 +580,14 @@ Tree-sitter powered structural editing - navigate and manipulate code by AST nod
 ---
 
 ## Completion System
+
+### Minibuffer Completion (Vertico)
+
+- **Vertico** with `+childframe` flag for centered popup (via vertico-posframe)
+- **Note**: vertico-multiform is disabled to prevent conflict with posframe
+- Configured in `config.el` and `config-consult-embark.el`
+
+### In-Buffer Completion (Corfu)
 
 Located in `config-corfu.el`:
 
