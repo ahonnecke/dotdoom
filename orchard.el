@@ -171,7 +171,8 @@ No fancy window management - just switch buffers."
                                (buffer-list))))
               (set-window-configuration win-config)
               (when new-claude
-                (set-window-buffer target-win new-claude)))))))
+                (set-window-buffer target-win new-claude)
+                (orchard--fix-claude-size new-claude target-win)))))))
 
      ;; In claude/vterm - go to magit
      ((derived-mode-p 'vterm-mode)
@@ -239,7 +240,8 @@ Magit on top, Claude below."
                 (if new-claude
                     (progn
                       (message "Orchard: found Claude %s" (buffer-name new-claude))
-                      (set-window-buffer claude-win new-claude))
+                      (set-window-buffer claude-win new-claude)
+                      (orchard--fix-claude-size new-claude claude-win))
                   (message "Orchard: no Claude buffer, removing split")
                   (delete-window claude-win))))))
         ;; Return focus to magit

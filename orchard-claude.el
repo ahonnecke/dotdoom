@@ -221,6 +221,22 @@ Keeps Claude in background - no window shown."
                          (vterm-send-return))))))
     claude-buf))
 
+(defun orchard--fix-claude-size (buf win)
+  "Fix Claude BUF size to match WIN dimensions.
+Claude Code queries terminal size at startup, but our window restoration
+can leave it mismatched. This tells vterm the correct size."
+  (run-at-time 0.3 nil
+               (lambda ()
+                 (when (and (buffer-live-p buf)
+                            (window-live-p win)
+                            (eq (window-buffer win) buf))
+                   (with-current-buffer buf
+                     (when (fboundp 'vterm--set-size)
+                       ;; Subtract 2 from width for safety margin
+                       (let ((h (window-height win))
+                             (w (- (window-width win) 2)))
+                         (vterm--set-size h w))))))))
+
 (defun orchard--start-claude-with-resume (path)
   "Start Claude for PATH in current window. Does NOT auto-resume."
   (orchard--ensure-claude-loaded)
@@ -247,6 +263,8 @@ Keeps Claude in background - no window shown."
           (when new-claude
             (set-window-buffer target-win new-claude)
             (select-window target-win)
+            ;; Fix vterm size to match window (Claude queried size before restore)
+            (orchard--fix-claude-size new-claude target-win)
             ;; Register for session persistence
             (orchard--register-claude-buffer path)))))))
 
@@ -299,6 +317,8 @@ Keeps Claude in background - no window shown."
           (when new-claude
             (set-window-buffer target-win new-claude)
             (select-window target-win)
+            ;; Fix vterm size
+            (orchard--fix-claude-size new-claude target-win)
             ;; Send command after init
             (run-at-time 3 nil
                          (lambda ()

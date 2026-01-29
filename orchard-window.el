@@ -213,7 +213,8 @@ FN is called with no arguments."
               (set-window-configuration win-config)
               (when new-claude
                 (set-window-buffer window new-claude)
-                (select-window window)))))))))
+                (select-window window)
+                (orchard--fix-claude-size new-claude window)))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Display Buffer Rules for Orchard
