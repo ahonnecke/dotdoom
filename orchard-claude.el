@@ -234,11 +234,21 @@ Keeps Claude in background - no window shown."
             (let ((target-win (orchard--find-best-window)))
               (select-window target-win)
               (switch-to-buffer existing-claude))))
-      ;; Start new Claude in best window
+      ;; Start new Claude in best window - FORCE it to stay there
       (let ((target-win (orchard--find-best-window)))
         (select-window target-win)
         (let ((default-directory path))
-          (claude-code))))))
+          ;; Suppress display-buffer shenanigans to force Claude into target window
+          (cl-letf (((symbol-function 'display-buffer)
+                     (lambda (buffer &rest _)
+                       (set-window-buffer target-win buffer)
+                       target-win))
+                    ((symbol-function 'pop-to-buffer)
+                     (lambda (buffer &rest _)
+                       (set-window-buffer target-win buffer)
+                       (select-window target-win)
+                       target-win)))
+            (claude-code)))))))
 
 (defun orchard--send-resume-to-claude (claude-buf delay)
   "Send /resume and Enter to CLAUDE-BUF after DELAY seconds."
