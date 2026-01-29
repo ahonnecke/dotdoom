@@ -208,6 +208,17 @@ Returns the merge timestamp if merged, nil otherwise.
 Does NOT auto-refresh - use `orchard-force-refresh' (G) to fetch from GitHub."
   (cdr (assoc branch orchard--merged-branches-cache)))
 
+(defun orchard--issue-branch-merged-p (issue-number)
+  "Check if any branch for ISSUE-NUMBER has been merged.
+Searches merged-branches-cache for branches matching patterns like
+FEATURE/123-description or BUGFIX-123-description.
+Returns the merge timestamp if found, nil otherwise."
+  (when (and issue-number (> issue-number 0))
+    (let ((pattern (format "^[A-Za-z]+[/-]%d-" issue-number)))
+      (cl-loop for (branch . merged-at) in orchard--merged-branches-cache
+               when (string-match-p pattern branch)
+               return merged-at))))
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Open PR Status Cache
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -468,10 +479,21 @@ Parses patterns like:
   (when (and branch (string-match "^[A-Za-z]+[/-]\\([0-9]+\\)-" branch))
     (string-to-number (match-string 1 branch))))
 
-(defun orchard--get-worktree-issue (_path &optional branch)
-  "Get linked GitHub issue number for worktree, parsed from BRANCH name.
-Fast: no file I/O, just parses branch name like FEATURE-123-description."
-  (orchard--parse-issue-from-branch branch))
+(defun orchard--get-worktree-issue (path &optional branch)
+  "Get linked GitHub issue number for worktree at PATH.
+First checks .github-issue file (persistent link), then falls back to
+parsing BRANCH name like FEATURE-123-description."
+  (or
+   ;; Primary: read from .github-issue file (persists even if branch changes)
+   (when path
+     (let ((file (expand-file-name ".github-issue" path)))
+       (when (file-exists-p file)
+         (with-temp-buffer
+           (insert-file-contents file)
+           (let ((num (string-to-number (string-trim (buffer-string)))))
+             (when (> num 0) num))))))
+   ;; Fallback: parse from branch name
+   (orchard--parse-issue-from-branch branch)))
 
 (defun orchard--save-worktree-issue (path issue-number)
   "Save ISSUE-NUMBER link for worktree at PATH."

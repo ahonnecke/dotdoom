@@ -27,7 +27,6 @@
 (declare-function orchard--claude-buffer-for-path "orchard-claude")
 (declare-function orchard--get-claude-buffers "orchard-claude")
 (declare-function orchard--start-claude-with-resume "orchard-claude")
-(declare-function orchard--start-claude-with-command "orchard-claude")
 (declare-function orchard--setup-claude-settings "orchard-claude")
 (declare-function orchard--column-for-branch "orchard-window")
 (declare-function orchard-open-branch "orchard")
@@ -1083,10 +1082,8 @@ If ISSUE-NUMBER is provided, link the worktree to that GitHub issue."
       (orchard--save-worktree-issue worktree-path issue-number))
     ;; Run post-create hook
     (run-hook-with-args 'orchard-post-create-hook worktree-path)
-    ;; Open Claude - use /issue-analyse for new issues, /resume otherwise
-    (if issue-number
-        (orchard--start-claude-with-command worktree-path "/issue-analyse")
-      (orchard--start-claude-with-resume worktree-path))
+    ;; Open Claude - user can manually /issue-analyse or /resume as needed
+    (orchard--start-claude-with-resume worktree-path)
     ;; Refresh dashboard
     (when-let ((buf (get-buffer "*Orchard*")))
       (with-current-buffer buf (orchard-refresh)))
