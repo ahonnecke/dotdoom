@@ -42,6 +42,9 @@
   ;; Use vterm as the terminal backend (already have it via Doom)
   (setq claude-code-terminal-backend 'vterm)
 
+  ;; NEVER delete other windows when starting Claude
+  (setq claude-code-no-delete-other-windows t)
+
   ;; Global display rule: Claude buffers prefer empty windows,
   ;; then same window - NEVER take over other Claude windows
   (defun claude--display-buffer-prefer-empty (buffer alist)
