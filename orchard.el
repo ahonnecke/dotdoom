@@ -578,6 +578,7 @@ Shows category, GitHub state, worktree info, and visibility."
     ("N" "Next step" orchard-next-step)
     ("u" "Push (upload)" orchard-push-at-point)
     ("P" "Create PR" orchard-pr-at-point)
+    ("S-m" "Merge PR" orchard-merge-pr-at-point)
     ("-" "Hide (dismiss)" orchard-hide-at-point)
     ("H" "Show hidden" orchard-show-hidden)
     ("a" "Archive (rm worktree)" orchard-archive-at-point)

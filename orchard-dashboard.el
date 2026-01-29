@@ -36,6 +36,7 @@
 (declare-function orchard-next-step "orchard-actions")
 (declare-function orchard-push-at-point "orchard-actions")
 (declare-function orchard-pr-at-point "orchard-actions")
+(declare-function orchard-merge-pr-at-point "orchard-actions")
 (declare-function orchard-mark-pr-ready "orchard-actions")
 (declare-function orchard-hide-at-point "orchard-actions")
 (declare-function orchard-show-hidden "orchard-actions")
@@ -119,6 +120,7 @@
     (define-key map (kbd "r") #'orchard-mark-pr-ready)  ; toggle PR-ready status
     (define-key map (kbd "u") #'orchard-push-at-point)
     (define-key map (kbd "P") #'orchard-pr-at-point)
+    (define-key map (kbd "S-m") #'orchard-merge-pr-at-point)  ; Shift-M = merge PR
     (define-key map (kbd "-") #'orchard-hide-at-point)
     (define-key map (kbd "H") #'orchard-show-hidden)
     (define-key map (kbd "a") #'orchard-archive-at-point)
@@ -376,7 +378,7 @@ Returns alist with keys:
   qa-verify      - PR merged but issue still open
   done           - Ready to archive
   backlog        - Older issues without worktrees"
-  (let (new-issues needs-analysis in-flight pr-failing pr-review pr-approved qa-verify done backlog)
+  (let (new-issues needs-analysis in-flight stale-work pr-failing pr-review pr-approved qa-verify done backlog)
     (dolist (issue issues)
       (let* ((issue-num (alist-get 'number issue))
              (wt (orchard--find-worktree-for-issue issue-num worktrees)))
@@ -408,9 +410,18 @@ Returns alist with keys:
                 (push (cons issue wt) pr-approved))
                (t
                 (push (cons issue wt) pr-review))))
-             ;; Has plan but no PR
+             ;; Has plan but no PR - check if stale (no activity in 3+ days)
              (has-plan
-              (push (cons issue wt) in-flight))
+              (let* ((session-info (orchard--get-worktree-session-info path))
+                     (modified (when session-info (plist-get session-info :modified)))
+                     (stale (or (null modified)
+                                (> (/ (float-time (time-subtract (current-time)
+                                                                  (date-to-time modified)))
+                                      86400)
+                                   3))))  ; 3 days = stale
+                (if stale
+                    (push (cons issue wt) stale-work)
+                  (push (cons issue wt) in-flight))))
              ;; No plan yet
              (t
               (push (cons issue wt) needs-analysis)))))))
@@ -430,6 +441,7 @@ Returns alist with keys:
     `((new-issues . ,(nreverse new-issues))
       (needs-analysis . ,(nreverse needs-analysis))
       (in-flight . ,(nreverse in-flight))
+      (stale-work . ,(nreverse stale-work))
       (pr-failing . ,(nreverse pr-failing))
       (pr-review . ,(nreverse pr-review))
       (pr-approved . ,(nreverse pr-approved))
@@ -632,6 +644,7 @@ Returns alist with keys:
          (new-issues (alist-get 'new-issues categories))
          (needs-analysis (alist-get 'needs-analysis categories))
          (in-flight (alist-get 'in-flight categories))
+         (stale-work (alist-get 'stale-work categories))
          (pr-failing (alist-get 'pr-failing categories))
          (pr-review (alist-get 'pr-review categories))
          (pr-approved (alist-get 'pr-approved categories))
@@ -709,14 +722,22 @@ Returns alist with keys:
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
                      needs-analysis ""))))
-     ;; IN FLIGHT - has plan, no PR
+     ;; IN FLIGHT - has plan, no PR, active (touched in last 3 days)
      (when (and in-flight (orchard--section-visible-p 'in-flight))
        (concat
-        (orchard--format-section-header "🚧 IN FLIGHT" (length in-flight) "no PR yet" 'in-flight)
+        (orchard--format-section-header "🚧 IN FLIGHT" (length in-flight) "active, no PR" 'in-flight)
         (unless (orchard--section-collapsed-p 'in-flight)
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
                      in-flight ""))))
+     ;; STALE WORK - has plan, no PR, not touched in 3+ days
+     (when (and stale-work (orchard--section-visible-p 'stale-work))
+       (concat
+        (orchard--format-section-header "💤 STALE" (length stale-work) "no activity 3+ days" 'stale-work)
+        (unless (orchard--section-collapsed-p 'stale-work)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     stale-work ""))))
      ;; PR FAILING - has PR, CI failing
      (when (and pr-failing (orchard--section-visible-p 'pr-failing))
        (concat
@@ -779,7 +800,7 @@ Returns alist with keys:
        (orchard--format-research-section))
      ;; Empty state
      (when (and (null new-issues) (null needs-analysis) (null in-flight)
-                (null pr-failing) (null pr-review) (null pr-approved)
+                (null stale-work) (null pr-failing) (null pr-review) (null pr-approved)
                 (null qa-verify) (null done) (null backlog) (null orphan-worktrees)
                 (not (eq orchard--current-view 'recent)))
        (propertize "\n  No issues or worktrees found. Press I to start from an issue.\n"

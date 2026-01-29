@@ -281,7 +281,7 @@ Returns list of (worktree . session-info) pairs."
     ('working (memq section '(new-issues needs-analysis in-flight pr-failing pr-review pr-approved unlinked)))
     ('next (memq section '(new-issues backlog)))
     ('qa (eq section 'qa-verify))
-    ('progress (memq section '(needs-analysis in-flight pr-failing pr-review pr-approved)))
+    ('progress (memq section '(needs-analysis in-flight stale-work pr-failing pr-review pr-approved)))
     ('recent (eq section 'recent-sessions))
     (_ t)))
 
@@ -485,6 +485,38 @@ Auto-populates title and body from worktree description and linked issue."
                   (insert pr-url))
                 (message "PR created: %s" pr-url)))
             (orchard-refresh))))
+    (user-error "No worktree at point")))
+
+(defun orchard-merge-pr-at-point ()
+  "Merge the PR for branch at point.
+Uses squash merge by default."
+  (interactive)
+  (if-let ((wt (orchard--get-worktree-at-point)))
+      (let* ((path (alist-get 'path wt))
+             (branch (alist-get 'branch wt))
+             (default-directory path))
+        ;; Check if PR exists
+        (let ((pr-info (string-trim
+                        (shell-command-to-string
+                         (format "gh pr view %s --json number,state,url -q '.number,.state,.url' 2>/dev/null || true"
+                                 (shell-quote-argument branch))))))
+          (if (or (string-empty-p pr-info) (string-match-p "no pull requests" pr-info))
+              (user-error "No PR found for branch %s" branch)
+            (let* ((parts (split-string pr-info "\n"))
+                   (pr-num (nth 0 parts))
+                   (pr-state (nth 1 parts))
+                   (pr-url (nth 2 parts)))
+              (if (not (equal pr-state "OPEN"))
+                  (user-error "PR #%s is not open (state: %s)" pr-num pr-state)
+                (when (yes-or-no-p (format "Merge PR #%s with squash? " pr-num))
+                  (message "Merging PR #%s..." pr-num)
+                  (let ((result (shell-command-to-string
+                                 (format "gh pr merge %s --squash --delete-branch 2>&1" pr-num))))
+                    (message "%s" (string-trim result))
+                    ;; Refresh caches and dashboard
+                    (orchard--refresh-pr-status-cache)
+                    (orchard--refresh-merged-cache)
+                    (orchard-refresh))))))))
     (user-error "No worktree at point")))
 
 (defun orchard-archive-at-point ()
