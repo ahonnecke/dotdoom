@@ -114,12 +114,29 @@ MESSAGE is a plist with :type and :buffer-name."
    (buffer-list)))
 
 (defun orchard--claude-status (buffer)
-  "Get Claude BUFFER status: 'active or nil.
-Simplified - just checks if process is alive.
-Returns 'active (not 'running) to match dashboard formatter expectations."
+  "Get Claude BUFFER status: 'waiting, 'active, or nil.
+Checks if process is alive, then looks for prompt to detect waiting state.
+Returns symbols that match dashboard formatter expectations."
   (when (and (buffer-live-p buffer)
              (orchard--claude-process-running-p buffer))
-    'active))
+    ;; Check if Claude is waiting for input (prompt visible at end)
+    (if (orchard--claude-at-prompt-p buffer)
+        'waiting
+      'active)))
+
+(defun orchard--claude-at-prompt-p (buffer)
+  "Check if BUFFER shows Claude waiting at a prompt.
+Simple heuristic: looks for > or ❯ at end of buffer content."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (save-excursion
+        (goto-char (point-max))
+        ;; Look at last 50 chars for prompt indicators
+        (let ((end-text (buffer-substring-no-properties
+                         (max (point-min) (- (point-max) 50))
+                         (point-max))))
+          ;; Claude shows > or ❯ when waiting for input
+          (string-match-p "[>❯]\\s-*$" end-text))))))
 
 (defun orchard--claude-waiting-p (buffer)
   "Check if Claude BUFFER is running (simplified)."
