@@ -247,13 +247,19 @@ Issue → Branch → Claude → PR → Merge → QA/Verify → Close Issue → A
 Issue-centric layout with lifecycle sections:
 
 ```
-🌳 Orchard  📋 43 issues  🔔 2 Claude NEED ATTENTION  [1 hidden]
+🌳 Orchard  📋 43 issues  🔔 2 Claude NEED ATTENTION  ⏮ 3 from last session
 View: working (f for filter menu)
 
-▼ UP NEXT (14 available) ──────────────────────────────
-  📋 #633 Reference: Last Order Date    [enhancement] [P3]
+▼ ⏮ PREVIOUSLY ACTIVE (3) ────────────────────────────
+  📋 #713 Email body parsing            (from last session - X to clear)
 
-▼ IN PROGRESS (12) ────────────────────────────────────
+▼ 🔔 CLAUDE WAITING (2) ──────────────────────────────
+  📋 #640 Make a "ship to" catalog...   ⏳WAIT
+
+▼ ⚡ CURRENT (5) ─────────────────────────────────────
+  📋 #720 New issue created today       [bug]
+
+▼ 🚧 IN FLIGHT (12) ──────────────────────────────────
   📋 #640 Make a "ship to" catalog...   ⏳WAIT PR
      ↳ FEATURE/640-make-a-ship-to   ○ ↓2 :3007
 
@@ -262,16 +268,15 @@ View: working (f for filter menu)
 
 ▼ DONE (ready to archive) ─────────────────────────────
   📋 #596 Commit date didn't push       ✓Merged ✓Closed
-
-▼ UNLINKED BRANCHES (2) ───────────────────────────────
-  ✨ FEATURE/export-triage-1 ● ↓19
 ```
 
 ### Lifecycle Sections
 
 | Section | Description |
 |---------|-------------|
-| **UP NEXT** | Open issues without worktrees (available to start) |
+| **PREVIOUSLY ACTIVE** | Sessions from last Emacs (shown on restart, X to clear) |
+| **CLAUDE WAITING** | Claude sessions waiting for your input |
+| **CURRENT** | Issues active today (created/updated) |
 | **IN PROGRESS** | Issues with active worktrees |
 | **QA/VERIFY** | PR merged but issue still open (awaiting verification) |
 | **DONE** | Closed issues ready to archive with `M` |
@@ -298,6 +303,9 @@ View: working (f for filter menu)
 | `d` | Open dired | For worktree at point |
 | `P` | Create PR | With auto-populated title/body |
 | `u` | Push branch | To origin |
+| `X` | Clear previous | Dismiss "PREVIOUSLY ACTIVE" section |
+| `W` | Tile Claudes | Show up to 4 Claude windows in 2x2 grid |
+| `l` | List Claudes | Select from all Claude sessions |
 
 ### Filtering & Views
 
@@ -327,6 +335,18 @@ Ports are allocated lazily - only when needed for `make dev`:
 - Press `+` to allocate a port (max 10 worktrees)
 - Stale ports auto-cleaned on refresh
 - Deleting worktree frees the port
+
+### Session Persistence
+
+When Emacs exits, active Claude session paths are saved to `~/.orchard-claude-sessions.eld`.
+
+On next startup:
+- Dashboard shows **PREVIOUSLY ACTIVE** section with sessions from last time
+- Header shows `⏮ N from last session` indicator
+- Press `X` to dismiss the section (clears the saved file)
+- Sessions remain visible until dismissed so you can resume work
+
+This helps answer "what was I working on?" after restarting Emacs.
 
 ---
 
