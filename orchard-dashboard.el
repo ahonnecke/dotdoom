@@ -841,7 +841,7 @@ Returns alist with keys:
      (when (orchard--section-visible-p 'research)
        (orchard--format-research-section))
      ;; Empty state
-     (when (and (null new-issues) (null needs-analysis) (null in-flight)
+     (when (and (null claude-waiting) (null current) (null needs-analysis) (null in-flight)
                 (null stale-work) (null pr-failing) (null pr-review) (null pr-approved)
                 (null qa-verify) (null done) (null backlog) (null orphan-worktrees)
                 (not (eq orchard--current-view 'recent)))

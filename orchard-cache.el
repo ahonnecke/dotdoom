@@ -342,8 +342,9 @@ Possible values:
 
 (defvar orchard--collapsed-sections '(backlog)
   "List of section names that are collapsed.
-Possible values: 'new-issues, 'needs-analysis, 'in-flight, 'pr-failing,
-'pr-review, 'pr-approved, 'qa-verify, 'done, 'backlog, 'unlinked.
+Possible values: 'claude-waiting, 'current, 'needs-analysis, 'in-flight,
+'stale-work, 'pr-failing, 'pr-review, 'pr-approved, 'qa-verify, 'done,
+'backlog, 'unlinked.
 BACKLOG is collapsed by default.")
 
 (defun orchard--issue-has-label-p (issue label-pattern)
