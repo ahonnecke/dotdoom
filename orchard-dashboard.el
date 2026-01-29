@@ -369,25 +369,40 @@ BRANCH is used to look up PR status from cache."
 (defun orchard--categorize-issues (issues worktrees)
   "Categorize ISSUES into lifecycle groups based on WORKTREES state.
 Returns alist with keys:
-  new-issues     - Recent issues (7 days) without worktrees
+  current        - Issues with activity today (created/updated)
   needs-analysis - Has worktree but no plan file
   in-flight      - Has plan but no PR
+  stale-work     - Has plan but no activity in 3+ days
   pr-failing     - Has PR with CI failing
   pr-review      - Has PR, CI passing, needs review
   pr-approved    - Has PR, approved, needs merge
-  qa-verify      - PR merged but issue still open
+  qa-verify      - PR merged or has [production] label, issue still open
   done           - Ready to archive
   backlog        - Older issues without worktrees"
-  (let (new-issues needs-analysis in-flight stale-work pr-failing pr-review pr-approved qa-verify done backlog)
+  (let (current needs-analysis in-flight stale-work pr-failing pr-review pr-approved qa-verify done backlog)
     (dolist (issue issues)
       (let* ((issue-num (alist-get 'number issue))
-             (wt (orchard--find-worktree-for-issue issue-num worktrees)))
-        (if (not wt)
-            ;; No worktree - new or backlog
-            (if (orchard--issue-recent-p issue 7)
-                (push (cons issue nil) new-issues)
-              (push (cons issue nil) backlog))
-          ;; Has worktree - categorize by workflow stage
+             (wt (orchard--find-worktree-for-issue issue-num worktrees))
+             (has-production-label (orchard--issue-has-label-p issue "production"))
+             (active-today (orchard--issue-active-today-p issue)))
+        (cond
+         ;; Issues with [production] label are deployed - need verification/close
+         (has-production-label
+          (push (cons issue wt) qa-verify))
+         ;; No worktree
+         ((not wt)
+          (cond
+           ;; Active today - show in CURRENT
+           (active-today
+            (push (cons issue nil) current))
+           ;; Recent issue - also CURRENT for visibility
+           ((orchard--issue-recent-p issue 7)
+            (push (cons issue nil) current))
+           ;; Old issue - backlog
+           (t
+            (push (cons issue nil) backlog))))
+         ;; Has worktree - categorize by workflow stage
+         (t
           (let* ((stage (alist-get 'stage wt))
                  (path (alist-get 'path wt))
                  (branch (alist-get 'branch wt))
@@ -410,6 +425,9 @@ Returns alist with keys:
                 (push (cons issue wt) pr-approved))
                (t
                 (push (cons issue wt) pr-review))))
+             ;; Active today - CURRENT (highest priority for work items)
+             (active-today
+              (push (cons issue wt) current))
              ;; Has plan but no PR - check if stale (no activity in 3+ days)
              (has-plan
               (let* ((session-info (orchard--get-worktree-session-info path))
@@ -424,13 +442,13 @@ Returns alist with keys:
                   (push (cons issue wt) in-flight))))
              ;; No plan yet
              (t
-              (push (cons issue wt) needs-analysis)))))))
+              (push (cons issue wt) needs-analysis))))))))
     ;; Get archivable worktrees for DONE section
     (unless orchard--inhibit-cache-refresh
       (when (fboundp 'orchard--get-archivable-worktrees)
         (dolist (wt (orchard--get-archivable-worktrees))
           (let* ((branch (alist-get 'branch wt))
-                 (issue-num (orchard--get-worktree-issue nil branch)))
+                 (issue-num (orchard--get-worktree-issue (alist-get 'path wt) branch)))
             (when issue-num
               (push (cons `((number . ,issue-num)
                             (title . ,(format "Issue #%d" issue-num))
@@ -438,7 +456,7 @@ Returns alist with keys:
                             (closed . t))
                           wt)
                     done))))))
-    `((new-issues . ,(nreverse new-issues))
+    `((current . ,(nreverse current))
       (needs-analysis . ,(nreverse needs-analysis))
       (in-flight . ,(nreverse in-flight))
       (stale-work . ,(nreverse stale-work))
@@ -641,7 +659,7 @@ Returns alist with keys:
                                            wts)))
                               wts))
          (categories (orchard--categorize-issues filtered-issues visible-worktrees))
-         (new-issues (alist-get 'new-issues categories))
+         (current (alist-get 'current categories))
          (needs-analysis (alist-get 'needs-analysis categories))
          (in-flight (alist-get 'in-flight categories))
          (stale-work (alist-get 'stale-work categories))
@@ -706,14 +724,14 @@ Returns alist with keys:
      (propertize " Help" 'face 'font-lock-comment-face)
      "\n"
      ;; Sections - Workflow pipeline order
-     ;; NEW ISSUES - recently created, no worktree yet
-     (when (and new-issues (orchard--section-visible-p 'new-issues))
+     ;; CURRENT - active today or recent issues
+     (when (and current (orchard--section-visible-p 'current))
        (concat
-        (orchard--format-section-header "🆕 NEW ISSUES" (length new-issues) "last 7 days" 'new-issues)
-        (unless (orchard--section-collapsed-p 'new-issues)
+        (orchard--format-section-header "⚡ CURRENT" (length current) "active today" 'current)
+        (unless (orchard--section-collapsed-p 'current)
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
-                     new-issues ""))))
+                     current ""))))
      ;; NEEDS ANALYSIS - has worktree, no plan
      (when (and needs-analysis (orchard--section-visible-p 'needs-analysis))
        (concat
@@ -1000,10 +1018,10 @@ Use this to see the complete issue title without truncation."
   "Return t if SECTION should be visible based on current view."
   (pcase orchard--current-view
     ('all t)
-    ('working (memq section '(up-next in-progress unlinked research)))
-    ('next (eq section 'up-next))
+    ('working (memq section '(current needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
+    ('next (memq section '(current backlog)))
     ('qa (eq section 'qa-verify))
-    ('progress (eq section 'in-progress))
+    ('progress (memq section '(needs-analysis in-flight stale-work pr-failing pr-review pr-approved)))
     ('recent (eq section 'recent-sessions))
     (_ t)))
 

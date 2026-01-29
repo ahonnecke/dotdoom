@@ -403,6 +403,14 @@ BACKLOG is collapsed by default.")
             (< age-days days))
         (error nil)))))
 
+(defun orchard--issue-active-today-p (issue)
+  "Return t if ISSUE was created or updated today."
+  (let ((created (alist-get 'createdAt issue))
+        (updated (alist-get 'updatedAt issue))
+        (today (format-time-string "%Y-%m-%d")))
+    (or (and created (string-prefix-p today created))
+        (and updated (string-prefix-p today updated)))))
+
 (defun orchard--ensure-issues-cache ()
   "Ensure issues cache is fresh, refresh if stale.
 Does nothing if `orchard--inhibit-cache-refresh' is non-nil."

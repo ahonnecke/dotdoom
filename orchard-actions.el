@@ -277,8 +277,8 @@ Returns list of (worktree . session-info) pairs."
   "Return t if SECTION should be visible based on current view."
   (pcase orchard--current-view
     ('all t)
-    ('working (memq section '(new-issues needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
-    ('next (memq section '(new-issues backlog)))
+    ('working (memq section '(current needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
+    ('next (memq section '(current backlog)))
     ('qa (eq section 'qa-verify))
     ('progress (memq section '(needs-analysis in-flight stale-work pr-failing pr-review pr-approved)))
     ('recent (eq section 'recent-sessions))
