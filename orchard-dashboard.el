@@ -365,17 +365,55 @@ BRANCH is used to look up PR status from cache."
      'orchard-section section-id)))
 
 (defun orchard--categorize-issues (issues worktrees)
-  "Categorize ISSUES into lifecycle groups based on WORKTREES state."
-  (let (up-next in-progress qa-verify done)
+  "Categorize ISSUES into lifecycle groups based on WORKTREES state.
+Returns alist with keys:
+  new-issues     - Recent issues (7 days) without worktrees
+  needs-analysis - Has worktree but no plan file
+  in-flight      - Has plan but no PR
+  pr-failing     - Has PR with CI failing
+  pr-review      - Has PR, CI passing, needs review
+  pr-approved    - Has PR, approved, needs merge
+  qa-verify      - PR merged but issue still open
+  done           - Ready to archive
+  backlog        - Older issues without worktrees"
+  (let (new-issues needs-analysis in-flight pr-failing pr-review pr-approved qa-verify done backlog)
     (dolist (issue issues)
       (let* ((issue-num (alist-get 'number issue))
              (wt (orchard--find-worktree-for-issue issue-num worktrees)))
         (if (not wt)
-            (push (cons issue nil) up-next)
-          (let ((stage (alist-get 'stage wt)))
-            (if (eq stage 'merged)
-                (push (cons issue wt) qa-verify)
-              (push (cons issue wt) in-progress))))))
+            ;; No worktree - new or backlog
+            (if (orchard--issue-recent-p issue 7)
+                (push (cons issue nil) new-issues)
+              (push (cons issue nil) backlog))
+          ;; Has worktree - categorize by workflow stage
+          (let* ((stage (alist-get 'stage wt))
+                 (path (alist-get 'path wt))
+                 (branch (alist-get 'branch wt))
+                 (has-plan (or (file-exists-p (expand-file-name ".plan.md" path))
+                               (file-exists-p (expand-file-name ".test-plan.md" path))))
+                 (has-pr (file-exists-p (expand-file-name ".pr-url" path)))
+                 (pr-status (when has-pr (orchard--get-pr-status branch)))
+                 (ci-status (when pr-status (plist-get pr-status :ci-status)))
+                 (review (when pr-status (plist-get pr-status :review-decision))))
+            (cond
+             ;; PR merged - QA/verify
+             ((eq stage 'merged)
+              (push (cons issue wt) qa-verify))
+             ;; Has PR - categorize by CI/review status
+             (has-pr
+              (cond
+               ((eq ci-status 'failure)
+                (push (cons issue wt) pr-failing))
+               ((equal review "APPROVED")
+                (push (cons issue wt) pr-approved))
+               (t
+                (push (cons issue wt) pr-review))))
+             ;; Has plan but no PR
+             (has-plan
+              (push (cons issue wt) in-flight))
+             ;; No plan yet
+             (t
+              (push (cons issue wt) needs-analysis)))))))
     ;; Get archivable worktrees for DONE section
     (unless orchard--inhibit-cache-refresh
       (when (fboundp 'orchard--get-archivable-worktrees)
@@ -389,10 +427,15 @@ BRANCH is used to look up PR status from cache."
                             (closed . t))
                           wt)
                     done))))))
-    `((up-next . ,(nreverse up-next))
-      (in-progress . ,(nreverse in-progress))
+    `((new-issues . ,(nreverse new-issues))
+      (needs-analysis . ,(nreverse needs-analysis))
+      (in-flight . ,(nreverse in-flight))
+      (pr-failing . ,(nreverse pr-failing))
+      (pr-review . ,(nreverse pr-review))
+      (pr-approved . ,(nreverse pr-approved))
       (qa-verify . ,(nreverse qa-verify))
-      (done . ,(nreverse done)))))
+      (done . ,(nreverse done))
+      (backlog . ,(nreverse backlog)))))
 
 (defun orchard--get-orphan-worktrees (worktrees)
   "Get WORKTREES that don't have linked issues."
@@ -586,10 +629,15 @@ BRANCH is used to look up PR status from cache."
                                            wts)))
                               wts))
          (categories (orchard--categorize-issues filtered-issues visible-worktrees))
-         (up-next (alist-get 'up-next categories))
-         (in-progress (alist-get 'in-progress categories))
+         (new-issues (alist-get 'new-issues categories))
+         (needs-analysis (alist-get 'needs-analysis categories))
+         (in-flight (alist-get 'in-flight categories))
+         (pr-failing (alist-get 'pr-failing categories))
+         (pr-review (alist-get 'pr-review categories))
+         (pr-approved (alist-get 'pr-approved categories))
          (qa-verify (alist-get 'qa-verify categories))
          (done (alist-get 'done categories))
+         (backlog (alist-get 'backlog categories))
          (orphan-worktrees (cl-remove-if
                             (lambda (wt) (orchard--worktree-hidden-p (alist-get 'path wt)))
                             (orchard--get-orphan-worktrees visible-worktrees)))
@@ -644,35 +692,79 @@ BRANCH is used to look up PR status from cache."
      (propertize "[?]" 'face 'orchard-key)
      (propertize " Help" 'face 'font-lock-comment-face)
      "\n"
-     ;; Sections
-     (when (and up-next (orchard--section-visible-p 'up-next))
+     ;; Sections - Workflow pipeline order
+     ;; NEW ISSUES - recently created, no worktree yet
+     (when (and new-issues (orchard--section-visible-p 'new-issues))
        (concat
-        (orchard--format-section-header "UP NEXT" (length up-next) "available" 'up-next)
-        (unless (orchard--section-collapsed-p 'up-next)
+        (orchard--format-section-header "🆕 NEW ISSUES" (length new-issues) "last 7 days" 'new-issues)
+        (unless (orchard--section-collapsed-p 'new-issues)
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
-                     up-next ""))))
-     (when (and in-progress (orchard--section-visible-p 'in-progress))
+                     new-issues ""))))
+     ;; NEEDS ANALYSIS - has worktree, no plan
+     (when (and needs-analysis (orchard--section-visible-p 'needs-analysis))
        (concat
-        (orchard--format-section-header "IN PROGRESS" (length in-progress) nil 'in-progress)
-        (unless (orchard--section-collapsed-p 'in-progress)
+        (orchard--format-section-header "📋 NEEDS ANALYSIS" (length needs-analysis) "no plan" 'needs-analysis)
+        (unless (orchard--section-collapsed-p 'needs-analysis)
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
-                     in-progress ""))))
+                     needs-analysis ""))))
+     ;; IN FLIGHT - has plan, no PR
+     (when (and in-flight (orchard--section-visible-p 'in-flight))
+       (concat
+        (orchard--format-section-header "🚧 IN FLIGHT" (length in-flight) "no PR yet" 'in-flight)
+        (unless (orchard--section-collapsed-p 'in-flight)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     in-flight ""))))
+     ;; PR FAILING - has PR, CI failing
+     (when (and pr-failing (orchard--section-visible-p 'pr-failing))
+       (concat
+        (orchard--format-section-header "❌ PR FAILING CI" (length pr-failing) "fix needed" 'pr-failing)
+        (unless (orchard--section-collapsed-p 'pr-failing)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     pr-failing ""))))
+     ;; PR NEEDS REVIEW - has PR, CI passing, needs review
+     (when (and pr-review (orchard--section-visible-p 'pr-review))
+       (concat
+        (orchard--format-section-header "👀 PR NEEDS REVIEW" (length pr-review) "CI passing" 'pr-review)
+        (unless (orchard--section-collapsed-p 'pr-review)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     pr-review ""))))
+     ;; PR APPROVED - ready to merge
+     (when (and pr-approved (orchard--section-visible-p 'pr-approved))
+       (concat
+        (orchard--format-section-header "✅ PR APPROVED" (length pr-approved) "ready to merge" 'pr-approved)
+        (unless (orchard--section-collapsed-p 'pr-approved)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     pr-approved ""))))
+     ;; QA/VERIFY - merged but issue open
      (when (and qa-verify (orchard--section-visible-p 'qa-verify))
        (concat
-        (orchard--format-section-header "QA/VERIFY" (length qa-verify) "merged, issue open" 'qa-verify)
+        (orchard--format-section-header "🔍 QA/VERIFY" (length qa-verify) "merged, issue open" 'qa-verify)
         (unless (orchard--section-collapsed-p 'qa-verify)
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path t))
                      qa-verify ""))))
+     ;; DONE - ready to archive
      (when (and done (orchard--section-visible-p 'done))
        (concat
-        (orchard--format-section-header "DONE" (length done) "ready to archive" 'done)
+        (orchard--format-section-header "✓ DONE" (length done) "ready to archive" 'done)
         (unless (orchard--section-collapsed-p 'done)
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path t))
                      done ""))))
+     ;; BACKLOG - older issues without worktrees (collapsed by default)
+     (when (and backlog (orchard--section-visible-p 'backlog))
+       (concat
+        (orchard--format-section-header "📦 BACKLOG" (length backlog) "no worktree" 'backlog)
+        (unless (orchard--section-collapsed-p 'backlog)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     backlog ""))))
      (when (and orphan-worktrees (orchard--section-visible-p 'unlinked))
        (concat
         (orchard--format-section-header "UNLINKED BRANCHES" (length orphan-worktrees) nil 'unlinked)
@@ -686,8 +778,9 @@ BRANCH is used to look up PR status from cache."
      (when (orchard--section-visible-p 'research)
        (orchard--format-research-section))
      ;; Empty state
-     (when (and (null up-next) (null in-progress) (null qa-verify)
-                (null done) (null orphan-worktrees)
+     (when (and (null new-issues) (null needs-analysis) (null in-flight)
+                (null pr-failing) (null pr-review) (null pr-approved)
+                (null qa-verify) (null done) (null backlog) (null orphan-worktrees)
                 (not (eq orchard--current-view 'recent)))
        (propertize "\n  No issues or worktrees found. Press I to start from an issue.\n"
                    'face 'font-lock-comment-face))

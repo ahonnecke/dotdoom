@@ -329,9 +329,11 @@ Possible values:
   'qa       - Show only QA/VERIFY section
   'progress - Show only IN PROGRESS section")
 
-(defvar orchard--collapsed-sections nil
+(defvar orchard--collapsed-sections '(backlog)
   "List of section names that are collapsed.
-Possible values: 'up-next, 'in-progress, 'qa-verify, 'done, 'unlinked.")
+Possible values: 'new-issues, 'needs-analysis, 'in-flight, 'pr-failing,
+'pr-review, 'pr-approved, 'qa-verify, 'done, 'backlog, 'unlinked.
+BACKLOG is collapsed by default.")
 
 (defun orchard--issue-has-label-p (issue label-pattern)
   "Return t if ISSUE has a label matching LABEL-PATTERN (case-insensitive)."
@@ -368,7 +370,7 @@ Possible values: 'up-next, 'in-progress, 'qa-verify, 'done, 'unlinked.")
       (let ((default-directory repo-root))
         (condition-case err
             (let* ((output (shell-command-to-string
-                            "gh issue list --state open --limit 50 --json number,title,labels,assignees,url 2>/dev/null"))
+                            "gh issue list --state open --limit 50 --json number,title,labels,assignees,url,createdAt 2>/dev/null"))
                    (json (ignore-errors (json-read-from-string output))))
               (when (vectorp json)
                 (setq orchard--issues-cache json)
@@ -377,6 +379,18 @@ Possible values: 'up-next, 'in-progress, 'qa-verify, 'done, 'unlinked.")
                          (length orchard--issues-cache))))
           (error
            (message "Failed to refresh issues cache: %s" err)))))))
+
+(defun orchard--issue-recent-p (issue &optional days)
+  "Return t if ISSUE was created within DAYS (default 7)."
+  (let* ((days (or days 7))
+         (created (alist-get 'createdAt issue)))
+    (when created
+      (condition-case nil
+          (let* ((created-time (date-to-time created))
+                 (age-seconds (float-time (time-subtract (current-time) created-time)))
+                 (age-days (/ age-seconds 86400)))
+            (< age-days days))
+        (error nil)))))
 
 (defun orchard--ensure-issues-cache ()
   "Ensure issues cache is fresh, refresh if stale.
