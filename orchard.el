@@ -157,10 +157,21 @@ No fancy window management - just switch buffers."
      ((derived-mode-p 'magit-mode)
       (let ((claude-buf (orchard--claude-buffer-for-path project-root)))
         (if (and claude-buf (buffer-live-p claude-buf))
-            (pop-to-buffer claude-buf)
-          ;; Start new Claude
-          (let ((default-directory project-root))
-            (claude-code)))))
+            (switch-to-buffer claude-buf)
+          ;; Start new Claude - preserve windows
+          (let* ((target-win (selected-window))
+                 (win-config (current-window-configuration))
+                 (buffers-before (buffer-list))
+                 (default-directory project-root))
+            (claude-code)
+            (let ((new-claude (cl-find-if
+                               (lambda (buf)
+                                 (and (string-prefix-p "*claude:" (buffer-name buf))
+                                      (not (memq buf buffers-before))))
+                               (buffer-list))))
+              (set-window-configuration win-config)
+              (when new-claude
+                (set-window-buffer target-win new-claude)))))))
 
      ;; In claude/vterm - go to magit
      ((derived-mode-p 'vterm-mode)
@@ -209,9 +220,10 @@ Magit on top, Claude below."
               (progn
                 (message "Orchard: reusing Claude %s" (buffer-name existing-claude))
                 (set-window-buffer claude-win existing-claude))
-            ;; Start new Claude
-            (let ((default-directory path)
-                  (buffers-before (buffer-list)))
+            ;; Start new Claude - save our layout, let claude-code mess it up, restore
+            (let* ((split-config (current-window-configuration))
+                   (default-directory path)
+                   (buffers-before (buffer-list)))
               (message "Orchard: starting Claude for %s" path)
               (condition-case err
                   (claude-code)
@@ -222,6 +234,8 @@ Magit on top, Claude below."
                                    (and (string-prefix-p "*claude:" (buffer-name buf))
                                         (not (memq buf buffers-before))))
                                  (buffer-list))))
+                ;; Restore our split layout
+                (set-window-configuration split-config)
                 (if new-claude
                     (progn
                       (message "Orchard: found Claude %s" (buffer-name new-claude))

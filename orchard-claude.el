@@ -222,33 +222,33 @@ Keeps Claude in background - no window shown."
     claude-buf))
 
 (defun orchard--start-claude-with-resume (path)
-  "Start Claude for PATH in best window. Does NOT auto-resume - user can /resume manually."
+  "Start Claude for PATH in current window. Does NOT auto-resume."
   (orchard--ensure-claude-loaded)
   (let ((existing-claude (orchard--claude-buffer-for-path path)))
     (if existing-claude
-        ;; Claude exists - find its window or use best window
-        (let ((existing-win (get-buffer-window existing-claude)))
-          (if existing-win
-              (select-window existing-win)
-            ;; Buffer exists but no window - find a good window for it
-            (let ((target-win (orchard--find-best-window)))
-              (select-window target-win)
-              (switch-to-buffer existing-claude))))
-      ;; Start new Claude in best window - FORCE it to stay there
-      (let ((target-win (orchard--find-best-window)))
-        (select-window target-win)
-        (let ((default-directory path))
-          ;; Suppress display-buffer shenanigans to force Claude into target window
-          (cl-letf (((symbol-function 'display-buffer)
-                     (lambda (buffer &rest _)
-                       (set-window-buffer target-win buffer)
-                       target-win))
-                    ((symbol-function 'pop-to-buffer)
-                     (lambda (buffer &rest _)
-                       (set-window-buffer target-win buffer)
-                       (select-window target-win)
-                       target-win)))
-            (claude-code)))))))
+        ;; Claude exists - just switch to it in current window
+        (switch-to-buffer existing-claude)
+      ;; Start new Claude - brute force window preservation
+      (let* ((target-win (selected-window))
+             (win-config (current-window-configuration))
+             (buffers-before (buffer-list))
+             (default-directory path))
+        ;; Start Claude - let it do whatever crazy window stuff it wants
+        (claude-code)
+        ;; Find the new Claude buffer
+        (let ((new-claude (cl-find-if
+                           (lambda (buf)
+                             (and (string-prefix-p "*claude:" (buffer-name buf))
+                                  (not (memq buf buffers-before))))
+                           (buffer-list))))
+          ;; Restore our window layout
+          (set-window-configuration win-config)
+          ;; Now put Claude in the window we wanted
+          (when new-claude
+            (set-window-buffer target-win new-claude)
+            (select-window target-win)
+            ;; Register for session persistence
+            (orchard--register-claude-buffer path)))))))
 
 (defun orchard--send-resume-to-claude (claude-buf delay)
   "Send /resume and Enter to CLAUDE-BUF after DELAY seconds."
@@ -275,31 +275,35 @@ Keeps Claude in background - no window shown."
                      (vterm-send-return))))))
 
 (defun orchard--start-claude-with-command (path command)
-  "Start Claude for PATH in best window and run COMMAND after initialization."
+  "Start Claude for PATH in current window and run COMMAND after initialization."
   (orchard--ensure-claude-loaded)
-  (let* ((target-win (orchard--find-best-window))
-         (existing-claude (orchard--claude-buffer-for-path path)))
-    (select-window target-win)
+  (let ((existing-claude (orchard--claude-buffer-for-path path)))
     (if existing-claude
         ;; Claude exists - switch to it and send command
         (progn
           (switch-to-buffer existing-claude)
           (orchard--send-command-to-claude existing-claude 0.5 command))
-      ;; Start new Claude
-      (let ((default-directory path)
-            (buffers-before (buffer-list)))
+      ;; Start new Claude with window preservation
+      (let* ((target-win (selected-window))
+             (win-config (current-window-configuration))
+             (buffers-before (buffer-list))
+             (default-directory path))
         (claude-code)
-        ;; Find the new Claude buffer and send command after init
-        (run-at-time 3 nil
-                     (lambda ()
-                       (when-let ((new-claude
-                                   (cl-find-if
-                                    (lambda (buf)
-                                      (and (string-prefix-p "*claude:" (buffer-name buf))
-                                           (not (memq buf buffers-before))
-                                           (buffer-live-p buf)))
-                                    (buffer-list))))
-                         (orchard--send-command-to-claude new-claude 0 command))))))))
+        (let ((new-claude (cl-find-if
+                           (lambda (buf)
+                             (and (string-prefix-p "*claude:" (buffer-name buf))
+                                  (not (memq buf buffers-before))))
+                           (buffer-list))))
+          ;; Restore window layout
+          (set-window-configuration win-config)
+          (when new-claude
+            (set-window-buffer target-win new-claude)
+            (select-window target-win)
+            ;; Send command after init
+            (run-at-time 3 nil
+                         (lambda ()
+                           (when (buffer-live-p new-claude)
+                             (orchard--send-command-to-claude new-claude 0 command))))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Listing and Debugging
@@ -441,17 +445,57 @@ Use this to debug why Claude status isn't showing in orchard."
   (expand-file-name "~/.orchard-claude-sessions.eld")
   "File to persist active Claude session paths.")
 
+(defvar orchard--claude-buffer-paths (make-hash-table :test 'equal)
+  "Hash table mapping Claude buffer names to worktree paths.
+Populated when Claude is started via orchard.")
+
+(defun orchard--register-claude-buffer (path)
+  "Register that a Claude buffer was started for PATH.
+Called after starting Claude to track the association."
+  (run-at-time 0.5 nil
+               (lambda ()
+                 (when-let ((buf (orchard--claude-buffer-for-path path)))
+                   (puthash (buffer-name buf) path orchard--claude-buffer-paths)))))
+
+(defun orchard--sync-claude-buffer-paths ()
+  "Sync the buffer→path hash table with all existing Claude buffers.
+Call this to catch Claude buffers not started through orchard."
+  (when (fboundp 'orchard--get-worktrees)
+    (let ((worktrees (orchard--get-worktrees t)))
+      (dolist (buf (orchard--get-claude-buffers))
+        (let ((buf-name (buffer-name buf)))
+          (unless (gethash buf-name orchard--claude-buffer-paths)
+            ;; Try to find matching worktree
+            (dolist (wt worktrees)
+              (let* ((path (alist-get 'path wt))
+                     (wt-name (file-name-nondirectory (directory-file-name path))))
+                (when (string-match-p (regexp-quote wt-name) buf-name)
+                  (puthash buf-name path orchard--claude-buffer-paths))))))))))
+
 (defun orchard--get-active-claude-paths ()
   "Get list of worktree paths with active Claude sessions."
+  ;; Sync hash table first to catch buffers not started through orchard
+  (orchard--sync-claude-buffer-paths)
   (let ((paths nil))
     (dolist (buf (orchard--get-claude-buffers))
       (when (buffer-live-p buf)
-        (let ((buf-name (buffer-name buf)))
-          ;; Extract path from buffer name like "*claude: /path/to/worktree*"
-          (when (string-match "\\*claude:\\s-*\\(.+?\\)\\*?" buf-name)
-            (let ((path (match-string 1 buf-name)))
-              (when (file-directory-p path)
-                (push path paths)))))))
+        (let* ((buf-name (buffer-name buf))
+               ;; First try our tracking hash
+               (tracked-path (gethash buf-name orchard--claude-buffer-paths)))
+          (if (and tracked-path (file-directory-p tracked-path))
+              (push tracked-path paths)
+            ;; Fallback: try to find matching worktree
+            (let* ((name-part (when (string-match "\\*claude:\\s-*\\(.+?\\)\\*?" buf-name)
+                                (match-string 1 buf-name)))
+                   (worktrees (when (fboundp 'orchard--get-worktrees)
+                                (orchard--get-worktrees t))))
+              (when name-part
+                (dolist (wt worktrees)
+                  (let ((wt-path (alist-get 'path wt))
+                        (wt-name (file-name-nondirectory
+                                  (directory-file-name (alist-get 'path wt)))))
+                    (when (string-match-p (regexp-quote wt-name) name-part)
+                      (push wt-path paths))))))))))
     (delete-dups paths)))
 
 (defun orchard--save-claude-sessions ()
@@ -520,9 +564,9 @@ Returns list of paths or nil."
                             (length valid-paths))))
           (orchard-resume-sessions))))))
 
-;; Session persistence DISABLED - path extraction was buggy (saving "~" instead of real paths)
-;; Manual resume still available via orchard-resume-sessions if needed
-;; (add-hook 'kill-emacs-hook #'orchard--save-claude-sessions)
+;; Session persistence - save active Claude paths on exit
+;; Uses buffer→path hash table to track associations reliably
+(add-hook 'kill-emacs-hook #'orchard--save-claude-sessions)
 
 ;; Register Claude event hook for status tracking and PR capture
 (with-eval-after-load 'claude-code

@@ -105,6 +105,7 @@
     (define-key map (kbd "l") #'orchard-list-claudes)
     (define-key map (kbd "W") #'orchard-tile-claudes)   ; tile claude windows 2x2
     (define-key map (kbd "Z") #'orchard-resume-sessions) ; resume saved sessions
+    (define-key map (kbd "X") #'orchard--clear-previous-sessions) ; clear previous sessions
     (define-key map (kbd "i") #'orchard-show-at-point)  ; show full info
     ;; GitHub Issues
     (define-key map (kbd "I") #'orchard-issue-start)
@@ -619,11 +620,62 @@ Returns alist with keys:
     (propertize line 'orchard-worktree wt)))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Previous Sessions
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--load-previous-sessions ()
+  "Load previous session paths from saved file.
+Only loads once per Emacs session, clears the file after loading."
+  (unless orchard--previous-sessions-loaded
+    (setq orchard--previous-sessions-loaded t)
+    (when (fboundp 'orchard--load-claude-sessions)
+      (let ((paths (orchard--load-claude-sessions)))
+        (when paths
+          ;; Filter to valid directories
+          (setq orchard--previous-session-paths
+                (cl-remove-if-not #'file-directory-p paths))
+          ;; Clear the file so we don't keep showing old sessions
+          (when (and (boundp 'orchard--claude-sessions-file)
+                     (file-exists-p orchard--claude-sessions-file))
+            (delete-file orchard--claude-sessions-file)))))))
+
+(defun orchard--get-previous-session-items (worktrees)
+  "Get list of (worktree . issue) pairs for previously active sessions.
+WORKTREES is the list of current worktrees."
+  (when orchard--previous-session-paths
+    (let (items)
+      (dolist (path orchard--previous-session-paths)
+        ;; Find matching worktree
+        (let ((wt (cl-find-if
+                   (lambda (w)
+                     (string= (file-name-as-directory (alist-get 'path w))
+                              (file-name-as-directory path)))
+                   worktrees)))
+          (when wt
+            ;; Find linked issue if any
+            (let* ((issue-num (orchard--get-worktree-issue path (alist-get 'branch wt)))
+                   (issue (when issue-num
+                            (cl-find-if (lambda (i) (= (alist-get 'number i) issue-num))
+                                        (orchard--get-open-issues)))))
+              (push (cons wt issue) items)))))
+      (nreverse items))))
+
+(defun orchard--clear-previous-sessions ()
+  "Clear the previously active sessions display."
+  (interactive)
+  (setq orchard--previous-session-paths nil)
+  (when (eq major-mode 'orchard-mode)
+    (orchard-refresh))
+  (message "Cleared previous sessions"))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Dashboard Formatting
 ;;; ════════════════════════════════════════════════════════════════════════════
 
 (defun orchard--format-dashboard ()
   "Format the Orchard dashboard with issue-centric layout."
+  ;; Load previous sessions on first dashboard open
+  (orchard--load-previous-sessions)
   (let* ((worktrees (orchard--get-worktrees))
          (current (orchard--current-worktree))
          (current-path (when current (alist-get 'path current)))
@@ -688,6 +740,7 @@ Returns alist with keys:
          (orphan-worktrees (cl-remove-if
                             (lambda (wt) (orchard--worktree-hidden-p (alist-get 'path wt)))
                             (orchard--get-orphan-worktrees visible-worktrees)))
+         (previous-sessions (orchard--get-previous-session-items worktrees))
          (hidden-count (+ (length (orchard--get-hidden-issues)) (length (orchard--get-hidden))))
          (view-name (pcase orchard--current-view
                       ('working "working")
@@ -721,6 +774,9 @@ Returns alist with keys:
      (when (> hidden-count 0)
        (propertize (format "  [%d hidden]" hidden-count)
                    'face 'font-lock-comment-face))
+     (when previous-sessions
+       (propertize (format "  ⏮ %d from last session" (length previous-sessions))
+                   'face '(:foreground "#C678DD" :weight bold)))
      "\n"
      (unless (eq orchard--current-view 'all)
        (propertize (format "  View: %s (f for filter menu)\n" view-name)
@@ -740,6 +796,20 @@ Returns alist with keys:
      (propertize " Help" 'face 'font-lock-comment-face)
      "\n"
      ;; Sections - Workflow pipeline order
+     ;; PREVIOUSLY ACTIVE - sessions from last Emacs session (shows until dismissed)
+     (when previous-sessions
+       (concat
+        (orchard--format-section-header "⏮ PREVIOUSLY ACTIVE" (length previous-sessions)
+                                        "from last session - X to clear" 'previous-sessions)
+        (unless (orchard--section-collapsed-p 'previous-sessions)
+          (mapconcat (lambda (pair)
+                       (let ((wt (car pair))
+                             (issue (cdr pair)))
+                         (if issue
+                             (orchard--format-issue-with-branch (cons issue wt) current-path)
+                           ;; No linked issue - just show the worktree
+                           (orchard--format-orphan-worktree wt current-path))))
+                     previous-sessions ""))))
      ;; CLAUDE WAITING - highest priority, Claude needs input
      (when (and claude-waiting (orchard--section-visible-p 'claude-waiting))
        (concat
@@ -1192,9 +1262,7 @@ Use this to see the complete issue title without truncation."
   "Non-nil if we've already checked for saved Claude sessions this Emacs session.")
 
 (defun orchard--maybe-prompt-resume ()
-  "Prompt to resume saved Claude sessions on first orchard open.
-DISABLED - session persistence was buggy (saving wrong paths)."
-  ;; Disabled - was saving '~' instead of actual worktree paths
+  "No-op - resume disabled. Sessions shown in dashboard instead."
   nil)
 
 (defun orchard ()

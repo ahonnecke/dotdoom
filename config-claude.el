@@ -172,50 +172,66 @@ Use this instead of claude-code to ensure Claude opens HERE."
   "Dump extensive debug info to *Claude Debug* buffer."
   (interactive)
   (let ((debug-buf (get-buffer-create "*Claude Debug*"))
+        ;; Match both *claude: and *Claude: (case insensitive start)
         (claude-bufs (cl-remove-if-not
-                      (lambda (b) (string-prefix-p "*claude:" (buffer-name b)))
+                      (lambda (b)
+                        (string-match-p "^\\*[Cc]laude:" (buffer-name b)))
                       (buffer-list))))
     (with-current-buffer debug-buf
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (insert "=== Claude Debug Dump ===\n")
+        (insert "=== Claude Debug ===\n")
         (insert (format "Time: %s\n\n" (current-time-string)))
 
         ;; All Claude buffers
         (insert "== Claude Buffers ==\n")
         (if (null claude-bufs)
-            (insert "  (none)\n")
+            (insert "  (none found)\n")
           (dolist (buf claude-bufs)
             (with-current-buffer buf
               (let* ((proc (get-buffer-process buf))
-                     (vterm-proc (bound-and-true-p vterm--process)))
-                (insert (format "\n%s:\n" (buffer-name)))
-                (insert (format "  Size: %d bytes\n" (buffer-size)))
-                (insert (format "  Buffer-proc: %s (%s)\n" proc
-                                (when proc (process-status proc))))
-                (insert (format "  Vterm-proc: %s (%s)\n" vterm-proc
-                                (when vterm-proc (process-status vterm-proc))))
-                (insert (format "  Read-only: %s\n"
-                                (bound-and-true-p claude-code-read-only-mode)))
-                (insert (format "  Point: %d / %d\n" (point) (point-max)))
-                ;; Last 10 lines
-                (insert "  Last output:\n")
-                (save-excursion
-                  (goto-char (point-max))
-                  (forward-line -10)
-                  (let ((tail (buffer-substring-no-properties (point) (point-max))))
-                    (dolist (line (split-string tail "\n"))
-                      (insert (format "    | %s\n" (truncate-string-to-width line 60 nil nil "..."))))))))))
+                     (vterm-proc (bound-and-true-p vterm--process))
+                     (status (cond
+                              ((and vterm-proc (process-live-p vterm-proc)) "RUNNING")
+                              (vterm-proc "STOPPED")
+                              (t "NO-PROC"))))
+                (insert (format "\n  %s [%s]\n"
+                                (truncate-string-to-width (buffer-name) 50 nil nil "...")
+                                status))
+                (insert (format "    Size: %d  Point: %d/%d\n"
+                                (buffer-size) (point) (point-max)))))))
 
-        ;; Timers
-        (insert "\n== Active Timers ==\n")
-        (dolist (timer timer-list)
-          (insert (format "  %s\n" timer)))
+        ;; Vterm processes (may include non-claude)
+        (insert "\n== Vterm Processes ==\n")
+        (let ((vterm-procs (cl-remove-if-not
+                           (lambda (p) (string-prefix-p "vterm" (process-name p)))
+                           (process-list))))
+          (if (null vterm-procs)
+              (insert "  (none)\n")
+            (dolist (proc vterm-procs)
+              (insert (format "  %s: %s\n"
+                              (process-name proc)
+                              (process-status proc))))))
 
-        ;; Processes
-        (insert "\n== All Processes ==\n")
-        (dolist (proc (process-list))
-          (insert (format "  %s: %s\n" (process-name proc) (process-status proc))))
+        ;; Claude-related timers only
+        (insert "\n== Claude Timers ==\n")
+        (let ((claude-timers (cl-remove-if-not
+                              (lambda (timer)
+                                (let ((fn (timer--function timer)))
+                                  (and fn (symbolp fn)
+                                       (string-match-p "claude\\|orchard"
+                                                       (symbol-name fn)))))
+                              timer-list)))
+          (if (null claude-timers)
+              (insert "  (none)\n")
+            (dolist (timer claude-timers)
+              (let ((fn (timer--function timer))
+                    (args (timer--args timer)))
+                (insert (format "  %s %s\n"
+                                fn
+                                (if args (truncate-string-to-width
+                                          (format "%s" args) 40 nil nil "...")
+                                  "")))))))
 
         (goto-char (point-min))
         (special-mode)))

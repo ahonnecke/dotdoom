@@ -219,5 +219,16 @@ Example:
   "Face for highlighting the current line."
   :group 'orchard)
 
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Runtime State
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defvar orchard--previous-session-paths nil
+  "Paths that had active Claude sessions when Emacs last closed.
+Loaded from saved sessions file on first dashboard open.")
+
+(defvar orchard--previous-sessions-loaded nil
+  "Non-nil if we've already loaded previous sessions this Emacs session.")
+
 (provide 'orchard-vars)
 ;;; orchard-vars.el ends here

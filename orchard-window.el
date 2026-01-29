@@ -198,9 +198,10 @@ FN is called with no arguments."
         (if (and claude-buf (buffer-live-p claude-buf))
             ;; Existing - force into window
             (set-window-buffer window claude-buf)
-          ;; New - start Claude and capture the buffer
-          (let ((default-directory path)
-                (buffers-before (buffer-list)))
+          ;; New - save layout, start Claude, restore layout, put buffer in window
+          (let* ((win-config (current-window-configuration))
+                 (default-directory path)
+                 (buffers-before (buffer-list)))
             (claude-code)
             ;; Find the new Claude buffer
             (let ((new-claude (cl-find-if
@@ -208,8 +209,11 @@ FN is called with no arguments."
                                  (and (string-prefix-p "*claude:" (buffer-name buf))
                                       (not (memq buf buffers-before))))
                                (buffer-list))))
+              ;; Restore original layout
+              (set-window-configuration win-config)
               (when new-claude
-                (set-window-buffer window new-claude)))))))))
+                (set-window-buffer window new-claude)
+                (select-window window)))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Display Buffer Rules for Orchard

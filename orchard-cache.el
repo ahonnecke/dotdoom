@@ -514,6 +514,10 @@ parsing BRANCH name like FEATURE-123-description."
 ;;; State Persistence
 ;;; ════════════════════════════════════════════════════════════════════════════
 
+(defvar orchard--active-claude-paths nil
+  "List of worktree paths that had active Claude buffers.
+Persisted across Emacs restarts.")
+
 (defun orchard--load-state ()
   "Load state from state file."
   (when (file-exists-p orchard-state-file)
@@ -521,13 +525,40 @@ parsing BRANCH name like FEATURE-123-description."
       (insert-file-contents orchard-state-file)
       (ignore-errors
         (setq orchard--state (read (buffer-string))))))
-  (setq orchard--dev-owner (plist-get orchard--state :dev-owner)))
+  (setq orchard--dev-owner (plist-get orchard--state :dev-owner))
+  (setq orchard--active-claude-paths (plist-get orchard--state :active-claudes)))
 
 (defun orchard--save-state ()
   "Save state to state file."
   (setq orchard--state (plist-put orchard--state :dev-owner orchard--dev-owner))
+  (setq orchard--state (plist-put orchard--state :active-claudes orchard--active-claude-paths))
   (with-temp-file orchard-state-file
     (prin1 orchard--state (current-buffer))))
+
+(defun orchard--save-active-claudes ()
+  "Save list of worktree paths with active Claude buffers.
+Called on kill-emacs to preserve what you were working on."
+  (when (fboundp 'orchard--get-claude-buffers)
+    (let ((paths nil))
+      (dolist (buf (orchard--get-claude-buffers))
+        (when (buffer-live-p buf)
+          (let ((name (buffer-name buf)))
+            ;; Extract path from buffer name like "*claude: /path/to/worktree*"
+            (when (string-match "\\*claude:\\s-*\\(.+?\\)\\*?" name)
+              (let ((path (match-string 1 name)))
+                (when (file-directory-p path)
+                  (push path paths)))))))
+      (setq orchard--active-claude-paths (delete-dups paths))
+      (orchard--save-state))))
+
+(defun orchard--get-previously-active-paths ()
+  "Get list of worktree paths that had active Claude sessions before restart."
+  orchard--active-claude-paths)
+
+(defun orchard--clear-active-claudes ()
+  "Clear the active claudes list (after user has reopened them)."
+  (setq orchard--active-claude-paths nil)
+  (orchard--save-state))
 
 (defun orchard--set-dev-owner (path)
   "Set PATH as the dev owner. Pass nil to release."
