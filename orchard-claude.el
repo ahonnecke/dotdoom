@@ -114,11 +114,12 @@ MESSAGE is a plist with :type and :buffer-name."
    (buffer-list)))
 
 (defun orchard--claude-status (buffer)
-  "Get Claude BUFFER status: 'running or nil.
-Simplified - just checks if process is alive."
+  "Get Claude BUFFER status: 'active or nil.
+Simplified - just checks if process is alive.
+Returns 'active (not 'running) to match dashboard formatter expectations."
   (when (and (buffer-live-p buffer)
              (orchard--claude-process-running-p buffer))
-    'running))
+    'active))
 
 (defun orchard--claude-waiting-p (buffer)
   "Check if Claude BUFFER is running (simplified)."
