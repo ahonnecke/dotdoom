@@ -369,9 +369,10 @@ BRANCH is used to look up PR status from cache."
 (defun orchard--categorize-issues (issues worktrees)
   "Categorize ISSUES into lifecycle groups based on WORKTREES state.
 Returns alist with keys:
-  current        - Issues with activity today (created/updated)
+  claude-waiting - Claude buffer is waiting for input (HIGHEST PRIORITY)
+  current        - Issues with activity today or active Claude
   needs-analysis - Has worktree but no plan file
-  in-flight      - Has plan but no PR
+  in-flight      - Has plan or Claude session, no PR
   stale-work     - Has plan but no activity in 3+ days
   pr-failing     - Has PR with CI failing
   pr-review      - Has PR, CI passing, needs review
@@ -379,13 +380,20 @@ Returns alist with keys:
   qa-verify      - PR merged or has [production] label, issue still open
   done           - Ready to archive
   backlog        - Older issues without worktrees"
-  (let (current needs-analysis in-flight stale-work pr-failing pr-review pr-approved qa-verify done backlog)
+  (let (claude-waiting current needs-analysis in-flight stale-work pr-failing pr-review pr-approved qa-verify done backlog)
     (dolist (issue issues)
       (let* ((issue-num (alist-get 'number issue))
              (wt (orchard--find-worktree-for-issue issue-num worktrees))
+             (wt-path (when wt (alist-get 'path wt)))
+             (claude-buf (when wt-path (orchard--claude-buffer-for-path wt-path)))
+             (claude-status (when claude-buf (orchard--claude-status claude-buf)))
+             (has-saved-session (when wt-path (orchard--worktree-has-claude-session-p wt-path)))
              (has-production-label (orchard--issue-has-label-p issue "production"))
              (active-today (orchard--issue-active-today-p issue)))
         (cond
+         ;; Claude is WAITING for input - highest priority!
+         ((eq claude-status 'waiting)
+          (push (cons issue wt) claude-waiting))
          ;; Issues with [production] label are deployed - need verification/close
          (has-production-label
           (push (cons issue wt) qa-verify))
@@ -440,7 +448,13 @@ Returns alist with keys:
                 (if stale
                     (push (cons issue wt) stale-work)
                   (push (cons issue wt) in-flight))))
-             ;; No plan yet
+             ;; Active Claude (not waiting) - in flight
+             ((eq claude-status 'active)
+              (push (cons issue wt) in-flight))
+             ;; Has saved Claude session - in flight (work in progress)
+             (has-saved-session
+              (push (cons issue wt) in-flight))
+             ;; No plan, no Claude - needs analysis
              (t
               (push (cons issue wt) needs-analysis))))))))
     ;; Get archivable worktrees for DONE section
@@ -456,7 +470,8 @@ Returns alist with keys:
                             (closed . t))
                           wt)
                     done))))))
-    `((current . ,(nreverse current))
+    `((claude-waiting . ,(nreverse claude-waiting))
+      (current . ,(nreverse current))
       (needs-analysis . ,(nreverse needs-analysis))
       (in-flight . ,(nreverse in-flight))
       (stale-work . ,(nreverse stale-work))
@@ -659,6 +674,7 @@ Returns alist with keys:
                                            wts)))
                               wts))
          (categories (orchard--categorize-issues filtered-issues visible-worktrees))
+         (claude-waiting (alist-get 'claude-waiting categories))
          (current (alist-get 'current categories))
          (needs-analysis (alist-get 'needs-analysis categories))
          (in-flight (alist-get 'in-flight categories))
@@ -724,6 +740,14 @@ Returns alist with keys:
      (propertize " Help" 'face 'font-lock-comment-face)
      "\n"
      ;; Sections - Workflow pipeline order
+     ;; CLAUDE WAITING - highest priority, Claude needs input
+     (when (and claude-waiting (orchard--section-visible-p 'claude-waiting))
+       (concat
+        (orchard--format-section-header "🔔 CLAUDE WAITING" (length claude-waiting) "needs your input!" 'claude-waiting)
+        (unless (orchard--section-collapsed-p 'claude-waiting)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     claude-waiting ""))))
      ;; CURRENT - active today or recent issues
      (when (and current (orchard--section-visible-p 'current))
        (concat
@@ -1018,10 +1042,10 @@ Use this to see the complete issue title without truncation."
   "Return t if SECTION should be visible based on current view."
   (pcase orchard--current-view
     ('all t)
-    ('working (memq section '(current needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
-    ('next (memq section '(current backlog)))
+    ('working (memq section '(claude-waiting current needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
+    ('next (memq section '(claude-waiting current backlog)))
     ('qa (eq section 'qa-verify))
-    ('progress (memq section '(needs-analysis in-flight stale-work pr-failing pr-review pr-approved)))
+    ('progress (memq section '(claude-waiting needs-analysis in-flight stale-work pr-failing pr-review pr-approved)))
     ('recent (eq section 'recent-sessions))
     (_ t)))
 
