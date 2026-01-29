@@ -68,15 +68,24 @@
   "Return t if WIN is showing the Orchard buffer."
   (string= "*Orchard*" (buffer-name (window-buffer win))))
 
-(defun orchard--window-empty-p (window)
-  "Return t if WINDOW is showing an 'empty' buffer we can take over."
+(defun orchard--window-reusable-p (window)
+  "Return t if WINDOW is showing a buffer we can take over for Claude.
+Includes empty buffers and magit buffers (since we're opening Claude, not magit)."
   (let ((buf-name (buffer-name (window-buffer window))))
     (or (string= buf-name "*scratch*")
         (string= buf-name "*Messages*")
         (string= buf-name "*doom*")
         (string-prefix-p " " buf-name)  ; internal buffers
         (string-prefix-p "*Help" buf-name)
-        (string-prefix-p "*Completions" buf-name))))
+        (string-prefix-p "*Completions" buf-name)
+        (string-prefix-p "*magit" buf-name)  ; magit buffers are fine to reuse
+        (string-prefix-p "magit" buf-name)   ; magit-diff, magit-log, etc
+        (string-prefix-p "*forge" buf-name)  ; forge PR buffers
+        (string-prefix-p "*Diff" buf-name)   ; diff buffers
+        )))
+
+;; Keep old name as alias for compatibility
+(defalias 'orchard--window-empty-p 'orchard--window-reusable-p)
 
 (defun orchard--find-best-window ()
   "Find the best window for opening Claude/magit.
