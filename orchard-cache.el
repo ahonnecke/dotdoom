@@ -573,11 +573,26 @@ Returns t if there's a recent comment from `orchard-uat-commenter'."
 (defvar orchard--staging-merge-cache (make-hash-table :test 'eq)
   "Cache of staging merge timestamps: issue-number -> (cache-time . merge-timestamp).")
 
+(defvar orchard--staging-fetched-time nil
+  "Time when upstream/staging was last fetched. Used to avoid repeated fetches.")
+
+(defun orchard--ensure-staging-fetched ()
+  "Fetch upstream/staging if not done recently (within 5 minutes).
+Called once per refresh cycle, not per-issue."
+  (let ((repo-root (orchard--get-repo-root)))
+    (when repo-root
+      (let ((default-directory repo-root))
+        (when (or (null orchard--staging-fetched-time)
+                  (> (float-time (time-subtract (current-time) orchard--staging-fetched-time))
+                     300)) ; 5 minute TTL
+          (call-process "git" nil nil nil "fetch" "upstream" "staging" "--quiet")
+          (setq orchard--staging-fetched-time (current-time)))))))
+
 (defun orchard--get-staging-merge-time (issue-number)
   "Get the timestamp of the most recent merge to staging for ISSUE-NUMBER.
 Returns an Emacs time value, or nil if no merge found.
 Searches for branch patterns like FEATURE/123- or BUGFIX/123- in merge commits.
-Caches results for 5 minutes."
+Caches results for 5 minutes. Does NOT fetch - call `orchard--ensure-staging-fetched' first."
   (let* ((cached (gethash issue-number orchard--staging-merge-cache))
          (cache-time (car cached))
          (cache-fresh (and cache-time
@@ -587,8 +602,6 @@ Caches results for 5 minutes."
         (cdr cached)
       (let* ((repo-root (orchard--get-repo-root))
              (default-directory repo-root)
-             ;; Fetch staging to ensure we have latest
-             (_ (call-process "git" nil nil nil "fetch" "upstream" "staging"))
              ;; Search for branch pattern like FEATURE/123- or BUGFIX/123-
              ;; This is more precise than just grepping for the issue number
              (cmd (format "git log upstream/staging --grep='/%d-' --format='%%aI' -1 2>/dev/null"

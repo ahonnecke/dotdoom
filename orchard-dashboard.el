@@ -694,6 +694,9 @@ WORKTREES is the list of current worktrees."
   "Format the Orchard dashboard with issue-centric layout."
   ;; Load previous sessions on first dashboard open
   (orchard--load-previous-sessions)
+  ;; Fetch staging once per refresh (not per-issue)
+  (unless orchard--inhibit-cache-refresh
+    (orchard--ensure-staging-fetched))
   (let* ((worktrees (orchard--get-worktrees))
          (current (orchard--current-worktree))
          (current-path (when current (alist-get 'path current)))
