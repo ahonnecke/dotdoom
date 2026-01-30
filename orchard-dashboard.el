@@ -1320,6 +1320,18 @@ Use this to see the complete issue title without truncation."
   "No-op - resume disabled. Sessions shown in dashboard instead."
   nil)
 
+(defun orchard--find-empty-window ()
+  "Find an empty window (scratch, Messages, doom dashboard).
+Returns the window or nil."
+  (cl-find-if
+   (lambda (win)
+     (let ((buf-name (buffer-name (window-buffer win))))
+       (or (string= buf-name "*scratch*")
+           (string= buf-name "*Messages*")
+           (string= buf-name "*doom*")
+           (string-prefix-p " " buf-name)))) ; internal buffers
+   (window-list nil 'no-mini)))
+
 (defun orchard ()
   "Open the Orchard dashboard.
 This is the main entry point for the worktree manager."
@@ -1329,7 +1341,18 @@ This is the main entry point for the worktree manager."
       (unless (eq major-mode 'orchard-mode)
         (orchard-mode))
       (orchard-refresh))
-    (pop-to-buffer buf)
+    ;; Prefer empty windows, avoid Claude windows
+    (let ((empty-win (orchard--find-empty-window))
+          (existing-win (get-buffer-window buf)))
+      (cond
+       ;; Already displayed - just select it
+       (existing-win (select-window existing-win))
+       ;; Found empty window - use it
+       (empty-win
+        (set-window-buffer empty-win buf)
+        (select-window empty-win))
+       ;; Fallback - use pop-to-buffer
+       (t (pop-to-buffer buf))))
     ;; Check for saved sessions on first open (run in background)
     (orchard--maybe-prompt-resume)
     ;; Return the buffer (important for initial-buffer-choice)
