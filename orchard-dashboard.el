@@ -370,18 +370,21 @@ BRANCH is used to look up PR status from cache."
 (defun orchard--categorize-issues (issues worktrees)
   "Categorize ISSUES into lifecycle groups based on WORKTREES state.
 Returns alist with keys:
-  claude-waiting - Claude buffer is waiting for input (HIGHEST PRIORITY)
-  current        - Issues with activity today or active Claude
-  needs-analysis - Has worktree but no plan file
-  in-flight      - Has plan or Claude session, no PR
-  stale-work     - Has plan but no activity in 3+ days
-  pr-failing     - Has PR with CI failing
-  pr-review      - Has PR, CI passing, needs review
-  pr-approved    - Has PR, approved, needs merge
-  qa-verify      - PR merged or has [production] label, issue still open
-  done           - Ready to archive
-  backlog        - Older issues without worktrees"
-  (let (claude-waiting current needs-analysis in-flight stale-work pr-failing pr-review pr-approved qa-verify done backlog)
+  uat-urgent      - Has P1 label AND recent comment from UAT reviewer (HIGHEST)
+  claude-waiting  - Claude buffer is waiting for input (HIGHEST PRIORITY)
+  uat-failed      - Has P1 label (failed UAT, needs revisiting)
+  ready-to-deploy - Merged to dev but not on staging yet
+  current         - Issues with activity today or active Claude
+  needs-analysis  - Has worktree but no plan file
+  in-flight       - Has plan or Claude session, no PR
+  stale-work      - Has plan but no activity in 3+ days
+  pr-failing      - Has PR with CI failing
+  pr-review       - Has PR, CI passing, needs review
+  pr-approved     - Has PR, approved, needs merge
+  qa-verify       - PR merged or has [production] label, issue still open
+  done            - Ready to archive
+  backlog         - Older issues without worktrees"
+  (let (uat-urgent claude-waiting uat-failed ready-to-deploy current needs-analysis in-flight stale-work pr-failing pr-review pr-approved qa-verify done backlog)
     (dolist (issue issues)
       (let* ((issue-num (alist-get 'number issue))
              (wt (orchard--find-worktree-for-issue issue-num worktrees))
@@ -390,24 +393,36 @@ Returns alist with keys:
              (claude-status (when claude-buf (orchard--claude-status claude-buf)))
              (has-saved-session (when wt-path (orchard--worktree-has-claude-session-p wt-path)))
              (has-production-label (orchard--issue-has-label-p issue "production"))
+             (has-p1-label (orchard--issue-has-exact-label-p issue "P1"))
              (active-today (orchard--issue-active-today-p issue)))
         (cond
-         ;; Claude is WAITING for input - highest priority!
+         ;; P1 issues - only show if last comment > last staging deploy
+         ;; (meaning UAT failed and no fix has been deployed yet)
+         ((and has-p1-label (orchard--p1-needs-dev-attention-p issue))
+          (if (orchard--issue-needs-urgent-attention-p issue)
+              ;; Recent UAT comment = highest priority
+              (push (cons issue wt) uat-urgent)
+            ;; Otherwise just failed UAT
+            (push (cons issue wt) uat-failed)))
+         ;; P1 with fix deployed (staging newer than comment) - skip, awaiting re-test
+         (has-p1-label
+          nil) ; Don't show - fix deployed, awaiting UAT re-test
+         ;; Claude is WAITING for input - very high priority
          ((eq claude-status 'waiting)
           (push (cons issue wt) claude-waiting))
          ;; Issues with [production] label are deployed - need verification/close
          (has-production-label
           (push (cons issue wt) qa-verify))
+         ;; Merged to dev but not on staging - ready to deploy
+         ((orchard--issue-ready-to-deploy-p issue-num)
+          (push (cons issue wt) ready-to-deploy))
          ;; No worktree
          ((not wt)
           (cond
            ;; Active today - show in CURRENT
            (active-today
             (push (cons issue nil) current))
-           ;; Recent issue - also CURRENT for visibility
-           ((orchard--issue-recent-p issue 7)
-            (push (cons issue nil) current))
-           ;; Old issue - backlog
+           ;; Not active today - backlog
            (t
             (push (cons issue nil) backlog))))
          ;; Has worktree - categorize by workflow stage
@@ -471,7 +486,10 @@ Returns alist with keys:
                             (closed . t))
                           wt)
                     done))))))
-    `((claude-waiting . ,(nreverse claude-waiting))
+    `((uat-urgent . ,(nreverse uat-urgent))
+      (claude-waiting . ,(nreverse claude-waiting))
+      (uat-failed . ,(nreverse uat-failed))
+      (ready-to-deploy . ,(nreverse ready-to-deploy))
       (current . ,(nreverse current))
       (needs-analysis . ,(nreverse needs-analysis))
       (in-flight . ,(nreverse in-flight))
@@ -697,7 +715,12 @@ WORKTREES is the list of current worktrees."
          (staging-count (cl-count-if #'orchard--issue-staging-p all-open-issues))
          (filtered-issues (let ((issues all-open-issues))
                             (when orchard--hide-staging-issues
-                              (setq issues (cl-remove-if #'orchard--issue-staging-p issues)))
+                              ;; Filter staging BUT always keep P1 (high priority)
+                              (setq issues (cl-remove-if
+                                            (lambda (i)
+                                              (and (orchard--issue-staging-p i)
+                                                   (not (orchard--issue-has-exact-label-p i "P1"))))
+                                            issues)))
                             (when orchard--label-filter
                               (setq issues (cl-remove-if-not
                                             (lambda (i) (orchard--issue-has-exact-label-p i orchard--label-filter))
@@ -726,7 +749,10 @@ WORKTREES is the list of current worktrees."
                                            wts)))
                               wts))
          (categories (orchard--categorize-issues filtered-issues visible-worktrees))
+         (uat-urgent (alist-get 'uat-urgent categories))
          (claude-waiting (alist-get 'claude-waiting categories))
+         (uat-failed (alist-get 'uat-failed categories))
+         (ready-to-deploy (alist-get 'ready-to-deploy categories))
          (current (alist-get 'current categories))
          (needs-analysis (alist-get 'needs-analysis categories))
          (in-flight (alist-get 'in-flight categories))
@@ -810,7 +836,17 @@ WORKTREES is the list of current worktrees."
                            ;; No linked issue - just show the worktree
                            (orchard--format-orphan-worktree wt current-path))))
                      previous-sessions ""))))
-     ;; CLAUDE WAITING - highest priority, Claude needs input
+     ;; UAT URGENT - P1 with recent daly comment = HIGHEST priority
+     (when (and uat-urgent (orchard--section-visible-p 'uat-urgent))
+       (concat
+        (orchard--format-section-header "🔥 UAT URGENT" (length uat-urgent)
+                                        (format "P1 + %s comment today!" orchard-uat-commenter)
+                                        'uat-urgent)
+        (unless (orchard--section-collapsed-p 'uat-urgent)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     uat-urgent ""))))
+     ;; CLAUDE WAITING - very high priority, Claude needs input
      (when (and claude-waiting (orchard--section-visible-p 'claude-waiting))
        (concat
         (orchard--format-section-header "🔔 CLAUDE WAITING" (length claude-waiting) "needs your input!" 'claude-waiting)
@@ -818,6 +854,22 @@ WORKTREES is the list of current worktrees."
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
                      claude-waiting ""))))
+     ;; UAT FAILED - P1 label, needs revisiting
+     (when (and uat-failed (orchard--section-visible-p 'uat-failed))
+       (concat
+        (orchard--format-section-header "🚨 UAT FAILED" (length uat-failed) "P1 - needs revisiting" 'uat-failed)
+        (unless (orchard--section-collapsed-p 'uat-failed)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     uat-failed ""))))
+     ;; READY TO DEPLOY - merged to dev, not on staging
+     (when (and ready-to-deploy (orchard--section-visible-p 'ready-to-deploy))
+       (concat
+        (orchard--format-section-header "🚀 READY TO DEPLOY" (length ready-to-deploy) "merged to dev, not on staging" 'ready-to-deploy)
+        (unless (orchard--section-collapsed-p 'ready-to-deploy)
+          (mapconcat (lambda (pair)
+                       (orchard--format-issue-with-branch pair current-path))
+                     ready-to-deploy ""))))
      ;; CURRENT - active today or recent issues
      (when (and current (orchard--section-visible-p 'current))
        (concat
@@ -911,7 +963,7 @@ WORKTREES is the list of current worktrees."
      (when (orchard--section-visible-p 'research)
        (orchard--format-research-section))
      ;; Empty state
-     (when (and (null claude-waiting) (null current) (null needs-analysis) (null in-flight)
+     (when (and (null uat-urgent) (null claude-waiting) (null uat-failed) (null current) (null needs-analysis) (null in-flight)
                 (null stale-work) (null pr-failing) (null pr-review) (null pr-approved)
                 (null qa-verify) (null done) (null backlog) (null orphan-worktrees)
                 (not (eq orchard--current-view 'recent)))
@@ -1112,10 +1164,10 @@ Use this to see the complete issue title without truncation."
   "Return t if SECTION should be visible based on current view."
   (pcase orchard--current-view
     ('all t)
-    ('working (memq section '(claude-waiting current needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
-    ('next (memq section '(claude-waiting current backlog)))
-    ('qa (eq section 'qa-verify))
-    ('progress (memq section '(claude-waiting needs-analysis in-flight stale-work pr-failing pr-review pr-approved)))
+    ('working (memq section '(uat-urgent claude-waiting uat-failed current needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
+    ('next (memq section '(uat-urgent claude-waiting uat-failed current backlog)))
+    ('qa (memq section '(uat-urgent qa-verify uat-failed)))  ; P1/UAT failures show in QA view too
+    ('progress (memq section '(uat-urgent claude-waiting uat-failed needs-analysis in-flight stale-work pr-failing pr-review pr-approved)))
     ('recent (eq section 'recent-sessions))
     (_ t)))
 

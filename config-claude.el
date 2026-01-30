@@ -8,7 +8,7 @@
 ;;   C-c c s - Send command/prompt to Claude
 ;;   C-c c r - Send region to Claude
 ;;   C-c c b - Send buffer to Claude
-;;   C-c c t - Toggle Claude buffer visibility
+;;   C-c c t - Toggle Claude buffer (show/hide)
 ;;   C-c c m - Transient menu with all commands
 ;;   C-c c y - Answer "yes" to Claude prompt
 ;;   C-c c n - Answer "no" to Claude prompt
@@ -16,6 +16,7 @@
 ;;   C-c c ? - Jump to last question (what is Claude asking?)
 ;;   C-c c a - Jump to last action (what did Claude do?)
 ;;   C-c c S - Show summary of recent activity
+;;   C-c c R - Review last output (read-only + scroll to start)
 ;;
 ;; Debugging & Session Management (C-c c d prefix):
 ;;   C-c c d d - Quick debug state (message)
@@ -108,7 +109,7 @@ Use this instead of claude-code to ensure Claude opens HERE."
   (define-key ashton-mode-map (kbd "C-c c s") #'claude-code-send-command)
   (define-key ashton-mode-map (kbd "C-c c r") #'claude-code-send-region)
   (define-key ashton-mode-map (kbd "C-c c b") #'claude-code-send-buffer)
-  (define-key ashton-mode-map (kbd "C-c c t") #'claude-code-toggle-buffer)
+  (define-key ashton-mode-map (kbd "C-c c t") #'claude-code-toggle)
   (define-key ashton-mode-map (kbd "C-c c m") #'claude-code-transient-menu)
   (define-key ashton-mode-map (kbd "C-c c y") #'claude-code-yes)
   (define-key ashton-mode-map (kbd "C-c c n") #'claude-code-no)
@@ -118,7 +119,8 @@ Use this instead of claude-code to ensure Claude opens HERE."
   ;; Navigation - "what did Claude do?"
   (define-key ashton-mode-map (kbd "C-c c ?") #'claude-jump-to-last-question)
   (define-key ashton-mode-map (kbd "C-c c a") #'claude-jump-to-last-action)
-  (define-key ashton-mode-map (kbd "C-c c S") #'claude-summary))
+  (define-key ashton-mode-map (kbd "C-c c S") #'claude-summary)
+  (define-key ashton-mode-map (kbd "C-c c R") #'claude-review-last-output))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Window Resize Handling - DISABLED (too much monitoring)
@@ -427,6 +429,30 @@ Use this instead of claude-code to ensure Claude opens HERE."
                 (recenter))
             (message "No questions found")))
       (message "No Claude buffer found"))))
+
+(defun claude-review-last-output ()
+  "Enter read-only mode and scroll to start of Claude's last response.
+Useful for reviewing what Claude just did."
+  (interactive)
+  (let ((buf (or (and (claude-buffer-p) (current-buffer))
+                 (claude-get-buffer))))
+    (if (not buf)
+        (message "No Claude buffer found")
+      (pop-to-buffer buf)
+      ;; Enter read-only mode if not already
+      (when (and (fboundp 'claude-code-read-only-mode)
+                 (not (bound-and-true-p claude-code-read-only-mode)))
+        (claude-code-toggle-read-only-mode))
+      ;; Find start of last response
+      (goto-char (point-max))
+      ;; Search backwards for user prompt marker (indicates end of previous response)
+      ;; Then the next line is start of Claude's response
+      (if (re-search-backward "^\\(>\\|❯\\|Human:\\)" nil t)
+          (progn
+            (forward-line 1)
+            (recenter 0))  ; Put at top of window
+        ;; No prompt found - go to beginning
+        (goto-char (point-min))))))
 
 (defun claude-jump-to-last-action ()
   "Jump to Claude's last tool use/action."

@@ -314,18 +314,18 @@ Returns nil if worktree path doesn't exist (skip it)."
   "Detect the current stage for worktree at PATH with BRANCH name.
 Stages derived from GitHub state:
   - merged: branch merged to upstream (checks both current branch and linked issue)
-  - pr-open: has open PR
+  - pr-open: has open PR (but not merged yet)
   - pr-ready: manually marked as ready for PR (pushed, CI passed)
   - in-progress: default working state"
   (let ((pr-url-file (expand-file-name ".pr-url" path))
         (issue-num (orchard--get-worktree-issue path branch)))
     (cond
-     ;; PR is open - highest priority (clears pr-ready override)
-     ((file-exists-p pr-url-file) 'pr-open)
-     ;; Branch is merged to upstream (via squash PR)
+     ;; Branch is merged to upstream (via squash PR) - check BEFORE pr-url
      ((and branch (orchard--branch-merged-p branch)) 'merged)
      ;; Issue's branch was merged (even if worktree switched to dev/main)
      ((and issue-num (orchard--issue-branch-merged-p issue-num)) 'merged)
+     ;; PR is open (and not merged)
+     ((file-exists-p pr-url-file) 'pr-open)
      ;; Check for manual override (pr-ready)
      ((orchard--get-stage-override path))
      ;; Default - in progress

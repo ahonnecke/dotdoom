@@ -219,6 +219,34 @@ Returns the merge timestamp if found, nil otherwise."
                when (string-match-p pattern branch)
                return merged-at))))
 
+(defun orchard--issue-on-staging-p (issue-number)
+  "Check if ISSUE-NUMBER's changes have been deployed to staging.
+Returns t if the issue's branch appears in upstream/staging history."
+  (when (and issue-number (> issue-number 0))
+    ;; Use the staging merge cache - if we have a timestamp, it's on staging
+    (not (null (orchard--get-staging-merge-time issue-number)))))
+
+(defun orchard--issue-ready-to-deploy-p (issue-number)
+  "Check if ISSUE-NUMBER has code merged to dev that's NOT yet on staging.
+Compares timestamps: if latest dev merge > latest staging merge, needs deploy.
+Returns t if the issue needs to be included in the next staging deploy."
+  (when (and issue-number (> issue-number 0))
+    (let ((dev-merge-time (orchard--issue-branch-merged-p issue-number))
+          (staging-merge-time (orchard--get-staging-merge-time issue-number)))
+      (cond
+       ;; Not merged to dev yet - not ready to deploy
+       ((not dev-merge-time) nil)
+       ;; Never deployed to staging - definitely needs deploy
+       ((not staging-merge-time) t)
+       ;; Compare: dev merge must be AFTER staging merge
+       (t (let ((dev-time (if (stringp dev-merge-time)
+                              (date-to-time dev-merge-time)
+                            dev-merge-time))
+                (staging-time (if (stringp staging-merge-time)
+                                  (date-to-time staging-merge-time)
+                                staging-merge-time)))
+            (time-less-p staging-time dev-time)))))))
+
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Open PR Status Cache
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -376,19 +404,33 @@ BACKLOG is collapsed by default.")
     (sort (hash-table-keys labels-set) #'string<)))
 
 (defun orchard--refresh-issues-cache ()
-  "Refresh the open issues cache from GitHub."
+  "Refresh the open issues cache from GitHub.
+Fetches recent issues plus ALL P1-labeled issues (high priority)."
   (let ((repo-root (orchard--get-repo-root)))
     (when repo-root
       (let ((default-directory repo-root))
         (condition-case err
-            (let* ((output (shell-command-to-string
-                            "gh issue list --state open --limit 50 --json number,title,labels,assignees,url,createdAt 2>/dev/null"))
-                   (json (ignore-errors (json-read-from-string output))))
-              (when (vectorp json)
-                (setq orchard--issues-cache json)
+            (let* (;; Fetch recent open issues (sorted by updated)
+                   (recent-output (shell-command-to-string
+                                   "gh issue list --state open --limit 50 --json number,title,labels,assignees,url,createdAt,updatedAt 2>/dev/null"))
+                   (recent-json (ignore-errors (json-read-from-string recent-output)))
+                   ;; Fetch ALL P1 issues separately (they're high priority, don't want to miss any)
+                   (p1-output (shell-command-to-string
+                               "gh issue list --state open --label P1 --limit 100 --json number,title,labels,assignees,url,createdAt,updatedAt 2>/dev/null"))
+                   (p1-json (ignore-errors (json-read-from-string p1-output)))
+                   ;; Merge: P1 issues first, then recent (deduped)
+                   (p1-list (when (vectorp p1-json) (append p1-json nil)))
+                   (recent-list (when (vectorp recent-json) (append recent-json nil)))
+                   (p1-numbers (mapcar (lambda (i) (alist-get 'number i)) p1-list))
+                   (deduped-recent (cl-remove-if (lambda (i) (memq (alist-get 'number i) p1-numbers))
+                                                  recent-list))
+                   (merged (vconcat (append p1-list deduped-recent))))
+              (when (> (length merged) 0)
+                (setq orchard--issues-cache merged)
                 (setq orchard--issues-cache-time (current-time))
-                (message "Refreshed issues cache: %d open issues"
-                         (length orchard--issues-cache))))
+                (message "Refreshed issues cache: %d issues (%d P1)"
+                         (length orchard--issues-cache)
+                         (length p1-list))))
           (error
            (message "Failed to refresh issues cache: %s" err)))))))
 
@@ -471,6 +513,137 @@ Does NOT auto-refresh - use `orchard-force-refresh' (G) to fetch from GitHub."
     (cl-find-if (lambda (issue)
                   (eq (alist-get 'number issue) issue-number))
                 orchard--issues-cache)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Issue Comments (for P1/UAT checking)
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defvar orchard--issue-comments-cache (make-hash-table :test 'eq)
+  "Cache of issue comments: issue-number -> (timestamp . comments-list).")
+
+(defcustom orchard-uat-commenter "daly"
+  "GitHub username whose comments indicate UAT failure needs attention."
+  :type 'string
+  :group 'orchard)
+
+(defun orchard--fetch-issue-comments (issue-number)
+  "Fetch comments for ISSUE-NUMBER from GitHub. Returns list of comment alists."
+  (let ((repo-root (orchard--get-repo-root)))
+    (when repo-root
+      (let ((default-directory repo-root))
+        (condition-case nil
+            (let* ((cmd (format "gh issue view %d --json comments --jq '.comments' 2>/dev/null" issue-number))
+                   (output (shell-command-to-string cmd))
+                   (json (ignore-errors (json-read-from-string output))))
+              (when (vectorp json)
+                (append json nil)))  ; Convert vector to list
+          (error nil))))))
+
+(defun orchard--issue-has-recent-comment-from-p (issue-number username &optional days)
+  "Check if ISSUE-NUMBER has a comment from USERNAME within DAYS (default 1).
+Caches results for 5 minutes to avoid repeated API calls."
+  (let* ((days (or days 1))
+         (cached (gethash issue-number orchard--issue-comments-cache))
+         (cache-time (car cached))
+         (cache-fresh (and cache-time
+                           (< (float-time (time-subtract (current-time) cache-time))
+                              300)))  ; 5 min cache
+         (comments (if cache-fresh
+                       (cdr cached)
+                     (let ((fetched (orchard--fetch-issue-comments issue-number)))
+                       (puthash issue-number (cons (current-time) fetched)
+                                orchard--issue-comments-cache)
+                       fetched)))
+         (cutoff-time (time-subtract (current-time) (days-to-time days))))
+    (cl-some (lambda (comment)
+               (let* ((author (alist-get 'login (alist-get 'author comment)))
+                      (created (alist-get 'createdAt comment))
+                      (comment-time (when created (date-to-time created))))
+                 (and (string-equal-ignore-case (or author "") username)
+                      comment-time
+                      (time-less-p cutoff-time comment-time))))
+             comments)))
+
+(defun orchard--issue-needs-urgent-attention-p (issue)
+  "Check if ISSUE (with P1 label) needs urgent attention.
+Returns t if there's a recent comment from `orchard-uat-commenter'."
+  (let ((issue-num (alist-get 'number issue)))
+    (orchard--issue-has-recent-comment-from-p issue-num orchard-uat-commenter 1)))
+
+(defvar orchard--staging-merge-cache (make-hash-table :test 'eq)
+  "Cache of staging merge timestamps: issue-number -> (cache-time . merge-timestamp).")
+
+(defun orchard--get-staging-merge-time (issue-number)
+  "Get the timestamp of the most recent merge to staging for ISSUE-NUMBER.
+Returns an Emacs time value, or nil if no merge found.
+Searches for branch patterns like FEATURE/123- or BUGFIX/123- in merge commits.
+Caches results for 5 minutes."
+  (let* ((cached (gethash issue-number orchard--staging-merge-cache))
+         (cache-time (car cached))
+         (cache-fresh (and cache-time
+                           (< (float-time (time-subtract (current-time) cache-time))
+                              300)))) ; 5 minute TTL
+    (if cache-fresh
+        (cdr cached)
+      (let* ((repo-root (orchard--get-repo-root))
+             (default-directory repo-root)
+             ;; Fetch staging to ensure we have latest
+             (_ (call-process "git" nil nil nil "fetch" "upstream" "staging"))
+             ;; Search for branch pattern like FEATURE/123- or BUGFIX/123-
+             ;; This is more precise than just grepping for the issue number
+             (cmd (format "git log upstream/staging --grep='/%d-' --format='%%aI' -1 2>/dev/null"
+                          issue-number))
+             (result (string-trim (shell-command-to-string cmd)))
+             (merge-time (when (and result (not (string-empty-p result)))
+                           (date-to-time result))))
+        (puthash issue-number (cons (current-time) merge-time)
+                 orchard--staging-merge-cache)
+        merge-time))))
+
+(defun orchard--get-latest-comment-time (issue-number)
+  "Get the timestamp of the most recent comment on ISSUE-NUMBER.
+Returns an Emacs time value, or nil if no comments.
+Fetches and caches comments if not already cached."
+  (let* ((cached (gethash issue-number orchard--issue-comments-cache))
+         (cache-time (car cached))
+         (cache-fresh (and cache-time
+                           (< (float-time (time-subtract (current-time) cache-time))
+                              300)))  ; 5 min cache
+         (comments (if cache-fresh
+                       (cdr cached)
+                     (let ((fetched (orchard--fetch-issue-comments issue-number)))
+                       (puthash issue-number (cons (current-time) fetched)
+                                orchard--issue-comments-cache)
+                       fetched))))
+    (when comments
+      ;; Find the latest comment by comparing timestamps
+      (let ((latest-time nil))
+        (dolist (comment comments)
+          (let* ((created (alist-get 'createdAt comment))
+                 (comment-time (when created (date-to-time created))))
+            (when (and comment-time
+                       (or (not latest-time)
+                           (time-less-p latest-time comment-time)))
+              (setq latest-time comment-time))))
+        latest-time))))
+
+(defun orchard--p1-needs-dev-attention-p (issue)
+  "Check if P1 ISSUE needs developer attention.
+Returns t if the issue's last comment is newer than its last staging merge.
+This indicates UAT failed after the most recent fix was deployed.
+Returns nil if a fix has been deployed since the last comment (awaiting re-test)."
+  (let* ((issue-num (alist-get 'number issue))
+         (staging-time (orchard--get-staging-merge-time issue-num))
+         (comment-time (orchard--get-latest-comment-time issue-num)))
+    (cond
+     ;; No staging merge found - never deployed, needs work
+     ((not staging-time) t)
+     ;; No comments - just deployed, awaiting test
+     ((not comment-time) nil)
+     ;; Comment is newer than staging merge - UAT failed, needs fix
+     ((time-less-p staging-time comment-time) t)
+     ;; Staging merge is newer - fix deployed, awaiting re-test
+     (t nil))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Worktree-Issue Linking

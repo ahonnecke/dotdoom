@@ -200,7 +200,8 @@ Located in `config-magit.el`:
 | `C-c c s` | `claude-code-send-command` | Send prompt to Claude |
 | `C-c c r` | `claude-code-send-region` | Send selected region |
 | `C-c c b` | `claude-code-send-buffer` | Send current buffer |
-| `C-c c t` | `claude-code-toggle-buffer` | Show/hide Claude window |
+| `C-c c t` | `claude-code-toggle` | Show/hide Claude window |
+| `C-c c R` | `claude-review-last-output` | Read-only + scroll to last output |
 | `C-c c m` | `claude-code-transient-menu` | All commands menu |
 | `C-c c y` | `claude-code-yes` | Answer "yes" to prompt |
 | `C-c c n` | `claude-code-no` | Answer "no" to prompt |
@@ -256,10 +257,17 @@ View: working (f for filter menu)
 ▼ 🔔 CLAUDE WAITING (2) ──────────────────────────────
   📋 #640 Make a "ship to" catalog...   ⏳WAIT
 
-▼ ⚡ CURRENT (5) ─────────────────────────────────────
+▼ 🚨 UAT FAILED (2 P1 - needs revisiting) ─────────────
+  📋 #707 Email upload visibility       [P1] [staging]
+
+▼ 🚀 READY TO DEPLOY (3 merged to dev, not on staging) ─
+  📋 #707 Email upload visibility       [P1]
+  📋 #608 No due date vs lead time      [P1]
+
+▼ ⚡ CURRENT (5 active today) ─────────────────────────
   📋 #720 New issue created today       [bug]
 
-▼ 🚧 IN FLIGHT (12) ──────────────────────────────────
+▼ 🚧 IN FLIGHT (12 active, no PR) ─────────────────────
   📋 #640 Make a "ship to" catalog...   ⏳WAIT PR
      ↳ FEATURE/640-make-a-ship-to   ○ ↓2 :3007
 
@@ -276,6 +284,8 @@ View: working (f for filter menu)
 |---------|-------------|
 | **PREVIOUSLY ACTIVE** | Sessions from last Emacs (shown on restart, X to clear) |
 | **CLAUDE WAITING** | Claude sessions waiting for your input |
+| **UAT FAILED** | P1 issues where last comment > last staging deploy (needs fix) |
+| **READY TO DEPLOY** | Merged to dev but not yet on staging |
 | **CURRENT** | Issues active today (created/updated) |
 | **IN PROGRESS** | Issues with active worktrees |
 | **QA/VERIFY** | PR merged but issue still open (awaiting verification) |
