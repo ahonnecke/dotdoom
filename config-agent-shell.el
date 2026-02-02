@@ -22,11 +22,13 @@
   (setq agent-shell-anthropic-authentication
         (agent-shell-anthropic-make-authentication :login t))
 
-  ;; Inherit environment (for AWS profiles, etc)
+  ;; Inherit environment (for AWS profiles, etc) but EXCLUDE ANTHROPIC_API_KEY
+  ;; to ensure we use subscription login, not pay-per-token API billing
   (setq agent-shell-anthropic-claude-environment
         (agent-shell-make-environment-variables
          :inherit-env t
-         :env-file "~/.env"))
+         :load-env "~/.env"
+         "ANTHROPIC_API_KEY" ""))
 
   ;; Set Claude Code as default agent
   (setq agent-shell-preferred-agent-config
