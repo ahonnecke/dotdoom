@@ -38,6 +38,12 @@ Set this in your project-specific config."
   :type 'string
   :group 'orchard)
 
+(defcustom orchard-shared-settings-dir
+  (expand-file-name "src/.crewcapableai.shared" (getenv "HOME"))
+  "Directory containing shared Claude settings."
+  :type 'string
+  :group 'orchard)
+
 (defcustom orchard-worktree-prefix nil
   "Prefix for worktree directories (e.g., \"myproject\").
 With nested structure: worktrees are PREFIX/BRANCH-name.

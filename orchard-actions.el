@@ -26,7 +26,7 @@
 (declare-function orchard--save-feature-description "orchard-worktree")
 (declare-function orchard--claude-buffer-for-path "orchard-claude")
 (declare-function orchard--get-claude-buffers "orchard-claude")
-(declare-function orchard--start-claude-with-resume "orchard-claude")
+(declare-function orchard--start-claude-backend "orchard-claude")
 (declare-function orchard--setup-claude-settings "orchard-claude")
 (declare-function orchard--column-for-branch "orchard-window")
 (declare-function orchard-open-branch "orchard")
@@ -62,7 +62,7 @@ If on an issue, start a branch (or jump to existing) and open Claude."
            (path (alist-get 'path wt))
            (branch (alist-get 'branch wt)))
       (message "Opening Claude for %s..." branch)
-      (orchard--start-claude-with-resume path)))
+      (orchard--start-claude-backend path)))
    ((orchard--get-issue-at-point)
     (orchard-issue-start))
    (t
@@ -88,7 +88,23 @@ Preserves existing Claude buffers, keeps Orchard on far left."
         (let* ((path (alist-get 'path wt))
                (branch (alist-get 'branch wt)))
           (message "Opening Claude for %s..." branch)
-          (orchard--start-claude-with-resume path))
+          (orchard--start-claude-backend path))
+      (user-error "No worktree at point (or issue has no worktree)"))))
+
+(defun orchard-claude-analyze-at-point ()
+  "Open Claude for worktree at point and run /analyze.
+Sets up a file watcher on .plan.md to notify when plan is ready.
+If on an issue line, find the associated worktree."
+  (interactive)
+  (let ((wt (or (orchard--get-worktree-at-point)
+                ;; Fall back to finding worktree for issue at point
+                (when-let ((issue (orchard--get-issue-at-point)))
+                  (orchard--find-worktree-for-issue (alist-get 'number issue))))))
+    (if wt
+        (let* ((path (alist-get 'path wt))
+               (branch (alist-get 'branch wt)))
+          (message "Starting Claude analysis for %s..." branch)
+          (orchard-claude-analyze path))
       (user-error "No worktree at point (or issue has no worktree)"))))
 
 (defun orchard-dired-at-point ()
@@ -1020,9 +1036,16 @@ Based on current stage, performs the appropriate action:
     (setq normalized (replace-regexp-in-string "^-+\\|-+$" "" normalized))
     (downcase normalized)))
 
+(defcustom orchard-create-worktree-script
+  (expand-file-name "bin/create-worktree" doom-user-dir)
+  "Path to the create-worktree script."
+  :type 'string
+  :group 'orchard)
+
 (defun orchard--create-branch (type name description &optional issue-number)
   "Create new branch of TYPE with NAME and DESCRIPTION.
-If ISSUE-NUMBER is provided, link the worktree to that GitHub issue."
+If ISSUE-NUMBER is provided, link the worktree to that GitHub issue.
+Uses external script for git operations (testable, reusable)."
   (let* ((repo-root (orchard--get-repo-root))
          (prefix (upcase type))
          (normalized-name (orchard--normalize-branch-name name))
@@ -1038,57 +1061,45 @@ If ISSUE-NUMBER is provided, link the worktree to that GitHub issue."
                              (expand-file-name wt-prefix orchard-worktree-parent))
                           (expand-file-name
                            (concat wt-prefix "--" safe-branch)
-                           orchard-worktree-parent))))
+                           orchard-worktree-parent)))
+         (settings-file (expand-file-name "settings.local.json"
+                                          orchard-shared-settings-dir)))
     (unless repo-root
       (user-error "No repository root configured"))
     (when (file-exists-p worktree-path)
       (user-error "Worktree already exists: %s" worktree-path))
-    ;; Ensure parent directory exists (for nested structure)
-    (when orchard-nested-worktrees
-      (let ((parent-dir (expand-file-name wt-prefix orchard-worktree-parent)))
-        (unless (file-directory-p parent-dir)
-          (make-directory parent-dir t))))
-    ;; Fetch upstream
-    (message "Fetching upstream...")
-    (let ((default-directory repo-root))
-      (shell-command "git fetch upstream 2>/dev/null"))
-    ;; Check if branch already exists
-    (let* ((default-directory repo-root)
-           (branch-exists (zerop (call-process "git" nil nil nil
-                                               "show-ref" "--verify" "--quiet"
-                                               (concat "refs/heads/" full-branch))))
-           (cmd (if branch-exists
-                    (format "git worktree add %s %s 2>&1"
-                            (shell-quote-argument worktree-path)
-                            (shell-quote-argument full-branch))
-                  (format "git worktree add -b %s %s %s 2>&1"
-                          (shell-quote-argument full-branch)
-                          (shell-quote-argument worktree-path)
-                          orchard-upstream-branch)))
-           (result (shell-command-to-string cmd)))
-      (message "Creating worktree %s...%s" full-branch
-               (if branch-exists " (using existing branch)" ""))
-      ;; Check if worktree was created successfully
+    ;; Build command
+    (let* ((cmd (list orchard-create-worktree-script
+                      "-r" repo-root
+                      "-u" orchard-upstream-branch))
+           ;; Add optional args
+           (_ (when (and settings-file (file-exists-p settings-file))
+                (setq cmd (append cmd (list "-s" settings-file)))))
+           (_ (when issue-number
+                (setq cmd (append cmd (list "-i" (number-to-string issue-number))))))
+           (_ (when (and description (not (string-empty-p description)))
+                (setq cmd (append cmd (list "-d" description)))))
+           ;; Add positional args
+           (cmd (append cmd (list type normalized-name worktree-path)))
+           ;; Run it
+           (default-directory repo-root)
+           (output (with-temp-buffer
+                     (let ((exit-code (apply #'call-process (car cmd) nil t nil (cdr cmd))))
+                       (if (zerop exit-code)
+                           (string-trim (buffer-string))
+                         (user-error "create-worktree failed: %s" (buffer-string)))))))
+      ;; Verify worktree was created
       (unless (file-directory-p worktree-path)
-        (user-error "Failed to create worktree: %s" (string-trim result))))
-    ;; Port allocation is now lazy - use P in dashboard to allocate when needed
-    ;; Setup Claude settings
-    (orchard--setup-claude-settings worktree-path)
-    ;; Save description
-    (when (and description (not (string-empty-p description)))
-      (orchard--save-feature-description worktree-path description))
-    ;; Save issue link if provided
-    (when issue-number
-      (orchard--save-worktree-issue worktree-path issue-number))
-    ;; Run post-create hook
-    (run-hook-with-args 'orchard-post-create-hook worktree-path)
-    ;; Open Claude - user can manually /issue-analyse or /resume as needed
-    (orchard--start-claude-with-resume worktree-path)
-    ;; Refresh dashboard
-    (when-let ((buf (get-buffer "*Orchard*")))
-      (with-current-buffer buf (orchard-refresh)))
-    (message "✨ Created %s" full-branch)
-    worktree-path))
+        (user-error "Worktree not created at: %s" worktree-path))
+      ;; Run post-create hook (Emacs-specific)
+      (run-hook-with-args 'orchard-post-create-hook worktree-path)
+      ;; Open Claude (uses agent-shell or claude-code.el based on backend)
+      (orchard--start-claude-backend worktree-path)
+      ;; Refresh dashboard
+      (when-let ((buf (get-buffer "*Orchard*")))
+        (with-current-buffer buf (orchard-refresh)))
+      (message "✨ Created %s" full-branch)
+      worktree-path)))
 
 (defun orchard-new-feature (name)
   "Create new FEATURE/NAME branch."
@@ -1163,7 +1174,7 @@ Opens Claude with auto-resume after creation or when jumping to existing."
             ;; Already has worktree - jump to it with Claude + resume
             (when-let ((wt (orchard--find-worktree-for-issue number)))
               (message "Opening Claude for #%d..." number)
-              (orchard--start-claude-with-resume (alist-get 'path wt)))
+              (orchard--start-claude-backend (alist-get 'path wt)))
           ;; No worktree - proceed with creation (which now opens Claude)
           (let* ((inferred-type (orchard--infer-branch-type-from-labels labels))
                  (branch-type (completing-read
@@ -1235,7 +1246,7 @@ With prefix argument SET-CONTEXT, also set the research context."
         (when set-context
           (orchard-research-set-context path))
         ;; Start Claude in research directory
-        (orchard--start-claude-with-resume path)
+        (orchard--start-claude-backend path)
         (message "Opened Claude in research: %s" name)))))
 
 (defun orchard-research-set-context (&optional path)
