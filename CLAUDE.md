@@ -216,6 +216,11 @@ Located in `config-magit.el`:
 
 ## Orchard - Issue-Centric Worktree Manager (C-c O prefix)
 
+**THE FLOW:**
+1. Orchard is the splash screen. It's the entry point for everything.
+2. From Orchard, press RET to open Claude for a worktree/issue.
+3. That's it. Orchard → Claude.
+
 Opens on startup. Entry point: `config-orchard.el` (thin shim that loads modular system).
 
 ### Module Architecture (Jan 2025 refactor)
