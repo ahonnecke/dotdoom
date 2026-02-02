@@ -641,16 +641,21 @@ Fetches and caches comments if not already cached."
         latest-time))))
 
 (defun orchard--p1-needs-dev-attention-p (issue)
-  "Check if P1 ISSUE needs developer attention.
-Returns t if the issue's last comment is newer than its last staging merge.
-This indicates UAT failed after the most recent fix was deployed.
-Returns nil if a fix has been deployed since the last comment (awaiting re-test)."
+  "Check if P1 ISSUE needs developer attention due to UAT failure.
+Returns t if:
+  - There WAS a previous staging deployment, AND
+  - The last comment is newer than that deployment (UAT failed after deploy)
+Returns nil if:
+  - Never deployed to staging (new P1 work, not a UAT failure)
+  - Deployed but no comments yet (awaiting initial test)
+  - Fix deployed since last comment (awaiting re-test)"
   (let* ((issue-num (alist-get 'number issue))
          (staging-time (orchard--get-staging-merge-time issue-num))
          (comment-time (orchard--get-latest-comment-time issue-num)))
     (cond
-     ;; No staging merge found - never deployed, needs work
-     ((not staging-time) t)
+     ;; No staging merge found - never deployed, NOT a UAT failure
+     ;; Let it flow through normal categorization (current/in-flight/pr-review)
+     ((not staging-time) nil)
      ;; No comments - just deployed, awaiting test
      ((not comment-time) nil)
      ;; Comment is newer than staging merge - UAT failed, needs fix
