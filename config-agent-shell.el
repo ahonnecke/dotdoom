@@ -286,14 +286,14 @@
                 (when agent-shell--greet-timer
                   (cancel-timer agent-shell--greet-timer)
                   (setq agent-shell--greet-timer nil))
-                (goto-char (point-max))
                 (run-at-time 0.5 nil
                              (lambda ()
                                (when-let ((b (agent-shell--get-buffer)))
                                  (with-current-buffer b
+                                   ;; Use shell-maker's submit, not comint
                                    (goto-char (point-max))
                                    (insert "hi")
-                                   (comint-send-input))))))
+                                   (shell-maker-submit))))))
             ;; Not ready yet - timer will retry
             nil))))))
 
