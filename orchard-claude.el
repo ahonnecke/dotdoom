@@ -7,9 +7,230 @@
 ;; - Claude buffer management
 ;; - Starting/resuming Claude sessions
 ;; - Claude settings/commands setup
+;; - Backend abstraction (agent-shell or claude-code.el)
+;; - Workflow commands (analyze, implement, pr)
 
 (require 'orchard-vars)
 (require 'orchard-cache)
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Backend Abstraction
+;;; ════════════════════════════════════════════════════════════════════════════
+;;
+;; Support both agent-shell (ACP, preferred) and claude-code.el (vterm, fallback)
+
+(defcustom orchard-claude-backend 'auto
+  "Which Claude backend to use.
+- `auto': Try agent-shell first, fall back to claude-code.el
+- `agent-shell': Use agent-shell (ACP protocol, comint-based)
+- `claude-code': Use claude-code.el (vterm-based)"
+  :type '(choice (const :tag "Auto-detect" auto)
+                 (const :tag "Agent Shell (ACP)" agent-shell)
+                 (const :tag "Claude Code (vterm)" claude-code))
+  :group 'orchard)
+
+(defvar orchard--plan-watchers (make-hash-table :test 'equal)
+  "Hash table mapping worktree paths to file-notify descriptors for .plan.md.")
+
+(defun orchard--detect-backend ()
+  "Detect which Claude backend is available.
+Prefers agent-shell over claude-code when auto-detecting."
+  (cond
+   ;; Explicit setting takes precedence
+   ((eq orchard-claude-backend 'agent-shell) 'agent-shell)
+   ((eq orchard-claude-backend 'claude-code) 'claude-code)
+   ;; Auto-detect: prefer agent-shell if claude-code-acp is installed
+   ((executable-find "claude-code-acp")
+    (condition-case nil
+        (progn (require 'agent-shell) 'agent-shell)
+      (error 'claude-code)))
+   ;; Fall back to claude-code
+   ((or (featurep 'claude-code)
+        (condition-case nil (progn (require 'claude-code) t) (error nil)))
+    'claude-code)
+   (t (user-error "No Claude backend available. Install agent-shell or claude-code.el"))))
+
+(defun orchard--get-claude-buffer-for-backend (path)
+  "Find Claude buffer for PATH using the current backend."
+  (let ((backend (orchard--detect-backend)))
+    (pcase backend
+      ('agent-shell
+       (orchard--get-agent-shell-buffer path))
+      ('claude-code
+       (orchard--claude-buffer-for-path path)))))
+
+(defun orchard--start-claude-backend (path &optional command)
+  "Start Claude in PATH using detected backend, optionally running COMMAND."
+  (let ((backend (orchard--detect-backend)))
+    (pcase backend
+      ('agent-shell
+       (orchard--start-agent-shell path command))
+      ('claude-code
+       (if command
+           (orchard--start-claude-with-command path command)
+         (orchard--start-claude-with-resume path))))))
+
+(defun orchard--start-agent-shell (path &optional command)
+  "Start agent-shell for PATH, optionally running COMMAND after init.
+Automatically uses --continue to resume the most recent session in PATH."
+  (require 'agent-shell)
+  (let ((default-directory path)
+        ;; Add --continue to resume sessions, --permission-mode dontAsk to reduce prompts
+        (agent-shell-anthropic-claude-command '("claude-code-acp" "--continue" "--permission-mode" "dontAsk")))
+    ;; Start agent-shell - let it handle its own window
+    (agent-shell-anthropic-start-claude-code)
+    ;; Send command after Claude initializes (needs time to start)
+    (when command
+      (run-at-time 4 nil
+                   (lambda ()
+                     ;; Find the agent buffer for this path
+                     (let ((agent-buf (orchard--get-agent-shell-buffer path)))
+                       (when (and agent-buf (buffer-live-p agent-buf))
+                         (with-current-buffer agent-buf
+                           (goto-char (point-max))
+                           (insert command)
+                           (comint-send-input)))))))))
+
+(defun orchard--get-agent-shell-buffer (path)
+  "Find agent-shell buffer for PATH."
+  (let ((name (file-name-nondirectory (directory-file-name path))))
+    (cl-find-if
+     (lambda (buf)
+       (and (buffer-live-p buf)
+            (with-current-buffer buf
+              (and (derived-mode-p 'shell-maker-mode)
+                   (string-match-p (regexp-quote name) (buffer-name buf))))))
+     (buffer-list))))
+
+(defun orchard--send-to-claude (command &optional path)
+  "Send COMMAND to Claude buffer for PATH (or current worktree)."
+  (let* ((path (or path default-directory))
+         (buf (orchard--get-claude-buffer-for-backend path))
+         (backend (orchard--detect-backend)))
+    (unless buf
+      (user-error "No Claude buffer for %s" path))
+    (with-current-buffer buf
+      (pcase backend
+        ('agent-shell
+         (goto-char (point-max))
+         (insert command)
+         (comint-send-input))
+        ('claude-code
+         (vterm-send-string command)
+         (vterm-send-return))))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Workflow Commands
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard-claude-analyze (&optional path)
+  "Start Claude and run /analyze for PATH (or current worktree).
+Sets up a file watcher on .plan.md to notify when plan is ready."
+  (interactive)
+  (let* ((path (or path
+                   (when-let ((wt (orchard--get-worktree-at-point)))
+                     (alist-get 'path wt))
+                   default-directory))
+         (existing-buf (orchard--get-claude-buffer-for-backend path)))
+    ;; Setup plan watcher before starting
+    (orchard--setup-plan-watcher path)
+    (if existing-buf
+        ;; Claude exists - just send analyze
+        (progn
+          (pop-to-buffer existing-buf)
+          (orchard--send-to-claude "/analyze" path))
+      ;; Start new Claude with analyze
+      (orchard--start-claude-backend path "/analyze"))))
+
+(defun orchard-claude-implement (&optional path)
+  "Send /implement to Claude for PATH (or current worktree)."
+  (interactive)
+  (orchard--send-to-claude "/ship" (or path default-directory)))
+
+(defun orchard-claude-pr (&optional path)
+  "Send /pr to Claude for PATH (or current worktree)."
+  (interactive)
+  (orchard--send-to-claude "/pr" (or path default-directory)))
+
+(defun orchard-claude-finish (&optional path)
+  "Send /finish to Claude for PATH (or current worktree)."
+  (interactive)
+  (orchard--send-to-claude "/finish" (or path default-directory)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Plan Watcher
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--setup-plan-watcher (path)
+  "Setup file-notify watcher for .plan.md in PATH."
+  (let ((plan-file (expand-file-name ".plan.md" path)))
+    ;; Remove existing watcher if any
+    (when-let ((old-desc (gethash path orchard--plan-watchers)))
+      (file-notify-rm-watch old-desc)
+      (remhash path orchard--plan-watchers))
+    ;; Watch the directory for .plan.md changes
+    (let ((desc (file-notify-add-watch
+                 path
+                 '(change)
+                 (lambda (event)
+                   (orchard--handle-plan-event event path)))))
+      (puthash path desc orchard--plan-watchers))))
+
+(defun orchard--handle-plan-event (event path)
+  "Handle file-notify EVENT for plan file in PATH."
+  (let ((event-type (nth 1 event))
+        (event-file (nth 2 event))
+        (plan-file (expand-file-name ".plan.md" path)))
+    (when (and (or (eq event-type 'created)
+                   (eq event-type 'changed))
+               (string= (expand-file-name event-file path) plan-file))
+      ;; Plan file was created or modified
+      (orchard--on-plan-ready path))))
+
+(defun orchard--on-plan-ready (path)
+  "Called when .plan.md is ready in PATH. Pop up for review."
+  (let ((plan-file (expand-file-name ".plan.md" path))
+        (branch (file-name-nondirectory (directory-file-name path))))
+    (when (file-exists-p plan-file)
+      ;; Notify user
+      (message "Plan ready for %s! Review and approve with `orchard-approve-plan`" branch)
+      ;; Pop up the plan file in a side window
+      (let ((buf (find-file-noselect plan-file)))
+        (display-buffer buf
+                        '((display-buffer-in-side-window)
+                          (side . right)
+                          (window-width . 0.4))))
+      ;; Add approval keybinding to the plan buffer
+      (with-current-buffer (find-file-noselect plan-file)
+        (local-set-key (kbd "C-c C-c")
+                       (lambda ()
+                         (interactive)
+                         (orchard-approve-plan path)))
+        (local-set-key (kbd "C-c C-k")
+                       (lambda ()
+                         (interactive)
+                         (message "Plan rejected. Edit and save, or run /analyze again.")))
+        (setq header-line-format
+              (propertize " [C-c C-c] Approve & Implement  [C-c C-k] Reject "
+                          'face 'mode-line-highlight))))))
+
+(defun orchard-approve-plan (&optional path)
+  "Approve the plan for PATH and trigger implementation."
+  (interactive)
+  (let* ((path (or path default-directory))
+         (plan-file (expand-file-name ".plan.md" path)))
+    (when (file-exists-p plan-file)
+      ;; Close the plan window
+      (when-let ((buf (get-file-buffer plan-file)))
+        (when-let ((win (get-buffer-window buf)))
+          (delete-window win)))
+      ;; Remove the watcher
+      (when-let ((desc (gethash path orchard--plan-watchers)))
+        (file-notify-rm-watch desc)
+        (remhash path orchard--plan-watchers))
+      ;; Send /ship to implement
+      (message "Plan approved! Starting implementation...")
+      (orchard--send-to-claude "/ship" path))))
 
 ;;; Forward declarations for functions defined in other orchard files
 (declare-function orchard-refresh "orchard-dashboard")
@@ -179,6 +400,19 @@ Simple heuristic: looks for > or ❯ at end of buffer content."
             (when (file-exists-p target)
               (delete-file target))
             (make-symbolic-link cmd-file target)))))))
+
+(defun orchard-sync-claude-commands ()
+  "Re-sync Claude commands for all worktrees.
+Use this when you add new commands to the shared directory."
+  (interactive)
+  (let ((worktrees (orchard--get-worktrees t))
+        (synced 0))
+    (dolist (wt worktrees)
+      (let ((path (alist-get 'path wt)))
+        (when (and path (file-directory-p path))
+          (orchard--setup-claude-settings path)
+          (cl-incf synced))))
+    (message "Synced Claude commands for %d worktrees" synced)))
 
 (defun orchard--start-background-claude (path)
   "Start Claude in PATH without displaying it.
@@ -403,6 +637,41 @@ Prioritizes sessions that are waiting for input."
                    (format " (%d more available)" (- (length all-claudes) 4))
                  "")))))
 
+(defun orchard-debug-windows ()
+  "Debug window state - run this BEFORE starting Claude to see what orchard sees."
+  (interactive)
+  (let* ((windows (window-list nil 'no-mini))
+         (leftmost (orchard--leftmost-window))
+         (non-leftmost (cl-remove leftmost windows)))
+    (with-output-to-temp-buffer "*orchard-window-debug*"
+      (princ "=== WINDOW STATE ===\n\n")
+      (princ (format "Total windows: %d\n" (length windows)))
+      (princ (format "Frame width: %d\n\n" (frame-width)))
+      (dolist (win windows)
+        (let* ((buf (window-buffer win))
+               (buf-name (buffer-name buf))
+               (edges (window-edges win))
+               (width (window-width win))
+               (height (window-height win))
+               (is-leftmost (eq win leftmost))
+               (is-reusable (orchard--window-reusable-p win))
+               (is-claude (orchard--window-showing-claude-p win))
+               (is-orchard (orchard--window-showing-orchard-p win)))
+          (princ (format "Window: %s\n" win))
+          (princ (format "  Buffer: %s\n" buf-name))
+          (princ (format "  Size: %dx%d (WxH)\n" width height))
+          (princ (format "  Edges: %s\n" edges))
+          (princ (format "  Flags: %s%s%s%s\n"
+                         (if is-leftmost "LEFTMOST " "")
+                         (if is-reusable "REUSABLE " "")
+                         (if is-claude "CLAUDE " "")
+                         (if is-orchard "ORCHARD " "")))
+          (princ "\n")))
+      (princ "=== BEST WINDOW SELECTION ===\n")
+      (let ((best (orchard--find-best-window)))
+        (princ (format "orchard--find-best-window returns: %s\n" best))
+        (princ (format "  showing: %s\n" (buffer-name (window-buffer best))))))))
+
 (defun orchard-debug-claude-status ()
   "Show diagnostic info for all Claude buffers and issue mappings.
 Use this to debug why Claude status isn't showing in orchard."
@@ -558,10 +827,10 @@ Returns list of paths or nil."
            ((not (file-directory-p path))
             (cl-incf skipped)
             (message "Skipping %s (directory not found)" path))
-           ((orchard--claude-buffer-for-path path)
+           ((orchard--get-claude-buffer-for-backend path)
             (cl-incf skipped)) ; already running
            (t
-            (orchard--start-claude-with-resume path)
+            (orchard--start-claude-backend path)
             (cl-incf resumed))))
         (message "Resumed %d Claude session(s)%s"
                  resumed
@@ -591,6 +860,181 @@ Returns list of paths or nil."
 ;; Register Claude event hook for status tracking and PR capture
 (with-eval-after-load 'claude-code
   (add-hook 'claude-code-event-hook #'orchard--claude-status-hook))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Claude Slash Commands (for agent-shell)
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defvar orchard-claude-commands
+  '(("/analyze" . "Analyze the issue and create implementation plan")
+    ("/ship" . "Implement the approved plan")
+    ("/pr" . "Create a pull request")
+    ("/fix-ci" . "Check CI status and fix failures")
+    ("/help" . "Show Claude help")
+    ("/clear" . "Clear conversation context")
+    ("/compact" . "Summarize and compact conversation")
+    ("/resume" . "Resume a previous session")
+    ("/config" . "Show/edit Claude configuration")
+    ("/cost" . "Show token usage and cost")
+    ("/memory" . "Show Claude's memory"))
+  "Alist of Claude slash commands and descriptions.")
+
+(defun orchard-claude-command-menu ()
+  "Show a menu of Claude slash commands and send the selected one."
+  (interactive)
+  (let* ((choices (mapcar (lambda (cmd)
+                            (format "%-12s %s" (car cmd) (cdr cmd)))
+                          orchard-claude-commands))
+         (selection (completing-read "Claude command: " choices nil t))
+         (command (car (split-string selection))))
+    (orchard--send-to-claude command)))
+
+(defun orchard-claude-send-analyze ()
+  "Send /analyze to Claude."
+  (interactive)
+  (orchard--send-to-claude "/analyze"))
+
+(defun orchard-claude-send-ship ()
+  "Send /ship to Claude."
+  (interactive)
+  (orchard--send-to-claude "/ship"))
+
+(defun orchard-claude-send-pr ()
+  "Send /pr to Claude."
+  (interactive)
+  (orchard--send-to-claude "/pr"))
+
+(defun orchard-claude-send-help ()
+  "Send /help to Claude."
+  (interactive)
+  (orchard--send-to-claude "/help"))
+
+(defun orchard-claude-command-help ()
+  "Show Claude command keybindings."
+  (interactive)
+  (let ((help-buf (get-buffer-create "*Claude Commands*")))
+    (with-current-buffer help-buf
+      (erase-buffer)
+      (insert (propertize "Claude Commands (C-c /)\n" 'face 'bold))
+      (insert (make-string 40 ?─) "\n\n")
+      (insert (propertize "Workflow:\n" 'face 'font-lock-keyword-face))
+      (insert "  a   /analyze    Analyze issue, create plan\n")
+      (insert "  s   /ship       Implement approved plan\n")
+      (insert "  p   /pr         Create pull request\n")
+      (insert "  !   /fix-ci     Check and fix CI failures\n\n")
+      (insert (propertize "Session:\n" 'face 'font-lock-keyword-face))
+      (insert "  h   /help       Show Claude help\n")
+      (insert "  c   /clear      Clear conversation\n")
+      (insert "  C   /compact    Summarize conversation\n")
+      (insert "  r   /resume     Resume previous session\n\n")
+      (insert (propertize "Other:\n" 'face 'font-lock-keyword-face))
+      (insert "  /   Menu        Pick from all commands\n")
+      (insert "  $   /cost       Show token usage\n")
+      (insert "  ?   Help        This buffer\n")
+      (insert "  q   Quit        Close this help\n")
+      (setq buffer-read-only t)
+      (local-set-key (kbd "q") #'quit-window)
+      (goto-char (point-min)))
+    (display-buffer help-buf '((display-buffer-in-side-window)
+                               (side . bottom)
+                               (window-height . 16)))))
+
+(defun orchard-claude-send-clear ()
+  "Send /clear to Claude."
+  (interactive)
+  (orchard--send-to-claude "/clear"))
+
+(defun orchard-claude-send-compact ()
+  "Send /compact to Claude."
+  (interactive)
+  (orchard--send-to-claude "/compact"))
+
+(defun orchard-claude-send-resume ()
+  "Send /resume to Claude."
+  (interactive)
+  (orchard--send-to-claude "/resume"))
+
+(defun orchard-claude-send-cost ()
+  "Send /cost to Claude."
+  (interactive)
+  (orchard--send-to-claude "/cost"))
+
+(defun orchard-claude-send-fix-ci ()
+  "Send /fix-ci to Claude to check and fix CI failures."
+  (interactive)
+  (orchard--send-to-claude "/fix-ci"))
+
+;; Keymap for agent-shell Claude buffers
+(defvar orchard-claude-command-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "/") #'orchard-claude-command-menu)
+    (define-key map (kbd "?") #'orchard-claude-command-help)
+    (define-key map (kbd "a") #'orchard-claude-send-analyze)
+    (define-key map (kbd "s") #'orchard-claude-send-ship)
+    (define-key map (kbd "p") #'orchard-claude-send-pr)
+    (define-key map (kbd "!") #'orchard-claude-send-fix-ci)
+    (define-key map (kbd "h") #'orchard-claude-send-help)
+    (define-key map (kbd "c") #'orchard-claude-send-clear)
+    (define-key map (kbd "C") #'orchard-claude-send-compact)
+    (define-key map (kbd "r") #'orchard-claude-send-resume)
+    (define-key map (kbd "$") #'orchard-claude-send-cost)
+    map)
+  "Keymap for Claude commands. Bind to a prefix in shell-maker-mode.")
+
+;; Completion for /commands
+(defun orchard--claude-command-completion ()
+  "Completion-at-point function for Claude slash commands."
+  (when (and (derived-mode-p 'shell-maker-mode)
+             (string-match-p "Claude" (buffer-name)))
+    (let* ((line-start (save-excursion
+                         (comint-bol)
+                         (point)))
+           (input (buffer-substring-no-properties line-start (point))))
+      ;; Only complete if input starts with /
+      (when (string-prefix-p "/" input)
+        (list line-start
+              (point)
+              (mapcar #'car orchard-claude-commands)
+              :exclusive 'no)))))
+
+(defun orchard--slash-or-complete ()
+  "Insert / or complete if at start of input with /."
+  (interactive)
+  (let* ((line-start (save-excursion (comint-bol) (point)))
+         (input (buffer-substring-no-properties line-start (point))))
+    (if (string= input "")
+        ;; At start of line - insert / and show completions
+        (progn
+          (insert "/")
+          (completion-at-point))
+      ;; Not at start - just insert /
+      (insert "/"))))
+
+(defun orchard--question-or-help ()
+  "Show help if at start of input, otherwise insert ?."
+  (interactive)
+  (let* ((line-start (save-excursion (comint-bol) (point)))
+         (input (buffer-substring-no-properties line-start (point))))
+    (if (string= input "")
+        (orchard-claude-command-help)
+      (insert "?"))))
+
+;; Hook to add keybindings in agent-shell buffers
+(defun orchard--setup-agent-shell-keys ()
+  "Setup Claude command keybindings in agent-shell buffers."
+  (when (and (derived-mode-p 'shell-maker-mode)
+             (string-match-p "Claude" (buffer-name)))
+    ;; Prefix map
+    (local-set-key (kbd "C-c /") orchard-claude-command-map)
+    (local-set-key (kbd "C-c C-/") #'orchard-claude-command-menu)
+    ;; Smart / and ? at prompt
+    (local-set-key (kbd "/") #'orchard--slash-or-complete)
+    (local-set-key (kbd "?") #'orchard--question-or-help)
+    ;; Add completion function
+    (add-hook 'completion-at-point-functions
+              #'orchard--claude-command-completion nil t)))
+
+(add-hook 'shell-maker-mode-hook #'orchard--setup-agent-shell-keys)
 
 (provide 'orchard-claude)
 ;;; orchard-claude.el ends here

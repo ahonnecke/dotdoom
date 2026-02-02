@@ -105,7 +105,9 @@ Use this instead of claude-code to ensure Claude opens HERE."
         (lambda (buf) (display-buffer-same-window buf nil)))
 
   ;; Bind to C-c c prefix via ashton-mode-map for consistency
-  (define-key ashton-mode-map (kbd "C-c c c") #'claude-code-here)
+  ;; Use agent-shell (ACP) as primary, keep vterm commands as fallback
+  (define-key ashton-mode-map (kbd "C-c c c") #'agent-shell-anthropic-start-claude-code)
+  (define-key ashton-mode-map (kbd "C-c c C") #'claude-code-here) ; vterm fallback
   (define-key ashton-mode-map (kbd "C-c c s") #'claude-code-send-command)
   (define-key ashton-mode-map (kbd "C-c c r") #'claude-code-send-region)
   (define-key ashton-mode-map (kbd "C-c c b") #'claude-code-send-buffer)
