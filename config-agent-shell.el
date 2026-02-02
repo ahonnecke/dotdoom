@@ -45,11 +45,12 @@
 ;;; ════════════════════════════════════════════════════════════════════════════
 
 (defun agent-shell--get-buffer ()
-  "Get the current agent-shell buffer or the most recent one."
-  (or (and (derived-mode-p 'agent-shell-mode) (current-buffer))
+  "Get the current agent-shell buffer or the most recent one.
+Looks for buffers with Claude Code prompt or *agent:* naming."
+  (or (and (string-match-p "Claude Code\\|\\*agent:" (buffer-name))
+           (current-buffer))
       (seq-find (lambda (b)
-                  (with-current-buffer b
-                    (derived-mode-p 'agent-shell-mode)))
+                  (string-match-p "Claude Code\\|\\*agent:" (buffer-name b)))
                 (buffer-list))))
 
 (defun agent-shell-send-command (cmd)
