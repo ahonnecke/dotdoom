@@ -267,19 +267,52 @@
             (local-set-key (kbd "C-c m") #'agent-shell-cmd-model)
             (local-set-key (kbd "C-c $") #'agent-shell-cmd-cost)))
 
-;; Auto-send initial greeting after agent starts
-(defun agent-shell--auto-greet ()
-  "Send initial greeting to get agent going after startup."
-  (run-at-time 1 nil
+;; Auto-send initial greeting after agent is ready
+(defvar agent-shell--greet-timer nil
+  "Timer for checking agent readiness.")
+
+(defun agent-shell--check-ready-and-greet ()
+  "Check if agent is ready (shows 'Ready' in buffer) and send greeting."
+  (when-let ((buf (agent-shell--get-buffer)))
+    (with-current-buffer buf
+      (save-excursion
+        (goto-char (point-max))
+        ;; Look for "Ready" in last ~500 chars
+        (let ((search-start (max (point-min) (- (point-max) 500))))
+          (if (search-backward "Ready" search-start t)
+              ;; Ready found - send greeting and cancel timer
+              (progn
+                (when agent-shell--greet-timer
+                  (cancel-timer agent-shell--greet-timer)
+                  (setq agent-shell--greet-timer nil))
+                (goto-char (point-max))
+                (run-at-time 0.5 nil
+                             (lambda ()
+                               (when-let ((b (agent-shell--get-buffer)))
+                                 (with-current-buffer b
+                                   (goto-char (point-max))
+                                   (insert "hi")
+                                   (comint-send-input))))))
+            ;; Not ready yet - timer will retry
+            nil))))))
+
+(defun agent-shell--start-ready-check ()
+  "Start checking for agent readiness."
+  ;; Cancel any existing timer
+  (when agent-shell--greet-timer
+    (cancel-timer agent-shell--greet-timer))
+  ;; Start checking every 0.5s, give up after 30s
+  (setq agent-shell--greet-timer
+        (run-at-time 2 0.5 #'agent-shell--check-ready-and-greet))
+  ;; Auto-cancel after 30 seconds
+  (run-at-time 30 nil
                (lambda ()
-                 (when-let ((buf (agent-shell--get-buffer)))
-                   (with-current-buffer buf
-                     (goto-char (point-max))
-                     (insert "hello")
-                     (comint-send-input))))))
+                 (when agent-shell--greet-timer
+                   (cancel-timer agent-shell--greet-timer)
+                   (setq agent-shell--greet-timer nil)))))
 
 (advice-add 'agent-shell-anthropic-start-claude-code :after
-            (lambda (&rest _) (agent-shell--auto-greet)))
+            (lambda (&rest _) (agent-shell--start-ready-check)))
 
 (provide 'config-agent-shell)
 ;;; config-agent-shell.el ends here
