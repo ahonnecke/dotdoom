@@ -36,7 +36,10 @@
 ;;   C-c c w e - Explain code (region or file)
 ;;   C-c c w c - Suggest commit message
 
-;; Load claude-code after vterm is available
+;; Bind agent-shell immediately (not waiting for vterm)
+(define-key ashton-mode-map (kbd "C-c c c") #'agent-shell-anthropic-start-claude-code)
+
+;; Load claude-code after vterm is available (for fallback/legacy commands)
 (after! vterm
   (require 'claude-code)
 
@@ -104,9 +107,7 @@ Use this instead of claude-code to ensure Claude opens HERE."
   (setq claude-code-display-window-fn
         (lambda (buf) (display-buffer-same-window buf nil)))
 
-  ;; Bind to C-c c prefix via ashton-mode-map for consistency
-  ;; Use agent-shell (ACP) as primary, keep vterm commands as fallback
-  (define-key ashton-mode-map (kbd "C-c c c") #'agent-shell-anthropic-start-claude-code)
+  ;; Bind vterm fallback commands (C-c c c is bound outside after! block)
   (define-key ashton-mode-map (kbd "C-c c C") #'claude-code-here) ; vterm fallback
   (define-key ashton-mode-map (kbd "C-c c s") #'claude-code-send-command)
   (define-key ashton-mode-map (kbd "C-c c r") #'claude-code-send-region)

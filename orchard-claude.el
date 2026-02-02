@@ -19,7 +19,7 @@
 ;;
 ;; Support both agent-shell (ACP, preferred) and claude-code.el (vterm, fallback)
 
-(defcustom orchard-claude-backend 'auto
+(defcustom orchard-claude-backend 'agent-shell
   "Which Claude backend to use.
 - `auto': Try agent-shell first, fall back to claude-code.el
 - `agent-shell': Use agent-shell (ACP protocol, comint-based)
@@ -37,7 +37,9 @@
 Prefers agent-shell over claude-code when auto-detecting."
   (cond
    ;; Explicit setting takes precedence
-   ((eq orchard-claude-backend 'agent-shell) 'agent-shell)
+   ((eq orchard-claude-backend 'agent-shell)
+    (require 'agent-shell)
+    'agent-shell)
    ((eq orchard-claude-backend 'claude-code) 'claude-code)
    ;; Auto-detect: prefer agent-shell if claude-code-acp is installed
    ((executable-find "claude-code-acp")
