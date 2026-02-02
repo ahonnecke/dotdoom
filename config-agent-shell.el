@@ -27,7 +27,6 @@
   (setq agent-shell-anthropic-claude-environment
         (agent-shell-make-environment-variables
          :inherit-env t
-         :load-env "~/.env"
          "ANTHROPIC_API_KEY" ""))
 
   ;; Set Claude Code as default agent
