@@ -99,6 +99,7 @@
     ;; Open/interact with worktree at point
     (define-key map (kbd "RET") #'orchard-open-at-point)
     (define-key map (kbd "c") #'orchard-claude-at-point)
+    (define-key map (kbd "A") #'orchard-claude-analyze-at-point)  ; Claude + /analyze
     (define-key map (kbd "m") #'orchard-magit-at-point)
     (define-key map (kbd "d") #'orchard-dired-at-point)
     (define-key map (kbd "t") #'orchard-test-at-point)
@@ -405,7 +406,8 @@ Returns alist with keys:
             ;; Otherwise just failed UAT
             (push (cons issue wt) uat-failed)))
          ;; P1 with fix deployed (staging newer than comment) - skip, awaiting re-test
-         (has-p1-label
+         ;; Only hide if there WAS a staging deployment (otherwise it's new work)
+         ((and has-p1-label (orchard--get-staging-merge-time issue-num))
           nil) ; Don't show - fix deployed, awaiting UAT re-test
          ;; Claude is WAITING for input - very high priority
          ((eq claude-status 'waiting)
