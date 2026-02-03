@@ -496,7 +496,8 @@ Returns alist with keys:
 (defun orchard--issue-priority (issue)
   "Extract priority number from ISSUE labels (P1=1, P2=2, etc).
 Returns 99 if no priority label found (sorts to end)."
-  (let ((labels (alist-get 'labels issue)))
+  ;; Labels come as vectors from JSON, convert to list for cl-loop
+  (let ((labels (append (alist-get 'labels issue) nil)))
     (or (cl-loop for label in labels
                  for name = (if (stringp label) label (alist-get 'name label))
                  when (and name (string-match "^P\\([1-5]\\)$" name))
