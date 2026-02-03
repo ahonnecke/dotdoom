@@ -138,11 +138,21 @@ else
     info "  Warning: pre-commit not found, skipping hook installation"
 fi
 
-# Setup Claude settings symlink
+# Setup Claude settings and commands symlinks
 if [[ -n "$SETTINGS_FILE" && -f "$SETTINGS_FILE" ]]; then
     info "Setting up Claude settings..."
     mkdir -p "$WORKTREE_PATH/.claude"
     ln -sf "$SETTINGS_FILE" "$WORKTREE_PATH/.claude/settings.local.json"
+
+    # Symlink commands directory
+    COMMANDS_DIR=$(dirname "$SETTINGS_FILE")/../.claude/commands
+    if [[ -d "$COMMANDS_DIR" ]]; then
+        info "Setting up Claude commands..."
+        mkdir -p "$WORKTREE_PATH/.claude/commands"
+        for cmd in "$COMMANDS_DIR"/*.md; do
+            [[ -f "$cmd" ]] && ln -sf "$cmd" "$WORKTREE_PATH/.claude/commands/$(basename "$cmd")"
+        done
+    fi
 fi
 
 # Write issue link
