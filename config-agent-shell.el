@@ -267,12 +267,64 @@ Looks for buffers with Claude Code prompt or *agent:* naming."
             (local-set-key (kbd "C-c c") #'agent-shell-cmd-clear)
             (local-set-key (kbd "C-c C") #'agent-shell-cmd-compact)
             (local-set-key (kbd "C-c m") #'agent-shell-cmd-model)
-            (local-set-key (kbd "C-c $") #'agent-shell-cmd-cost)))
+            (local-set-key (kbd "C-c $") #'agent-shell-cmd-cost)
+            ;; Buffer-wide permission response keys (work from anywhere in buffer)
+            (local-set-key (kbd "y") #'agent-shell-permission-allow)
+            (local-set-key (kbd "n") #'agent-shell-permission-reject)
+            (local-set-key (kbd "!") #'agent-shell-permission-always)))
 
-;; Auto-send initial greeting after agent starts
-;; Claude needs a kick to display its welcome - send "hi" after startup
-(defun agent-shell--send-greeting ()
-  "Send greeting to wake up Claude agent."
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Buffer-wide Permission Response
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun agent-shell--find-permission-button (key-char)
+  "Find a permission button in buffer that responds to KEY-CHAR.
+Returns the position of the button, or nil."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((found nil))
+      (while (and (not found) (< (point) (point-max)))
+        (let* ((keymap (get-text-property (point) 'keymap))
+               (binding (when keymap (lookup-key keymap (kbd key-char)))))
+          (if (and binding (commandp binding))
+              (setq found (point))
+            (goto-char (or (next-single-property-change (point) 'keymap)
+                           (point-max))))))
+      found)))
+
+(defun agent-shell--invoke-permission-key (key-char fallback-char)
+  "Invoke permission button for KEY-CHAR, or insert FALLBACK-CHAR if none pending."
+  (if-let ((pos (agent-shell--find-permission-button key-char)))
+      (save-excursion
+        (goto-char pos)
+        (let ((keymap (get-text-property (point) 'keymap)))
+          (when-let ((cmd (lookup-key keymap (kbd key-char))))
+            (call-interactively cmd))))
+    ;; No permission button found - insert the character normally
+    (insert fallback-char)))
+
+(defun agent-shell-permission-allow ()
+  "Allow the pending permission (press y anywhere in buffer)."
+  (interactive)
+  (agent-shell--invoke-permission-key "y" "y"))
+
+(defun agent-shell-permission-reject ()
+  "Reject the pending permission (press n anywhere in buffer)."
+  (interactive)
+  (agent-shell--invoke-permission-key "n" "n"))
+
+(defun agent-shell-permission-always ()
+  "Always allow this permission (press ! anywhere in buffer)."
+  (interactive)
+  (agent-shell--invoke-permission-key "!" "!"))
+
+;; Auto-send session context after agent starts
+;; Runs session-context script and sends output so Claude has full context immediately
+(defvar agent-shell--pending-worktree nil
+  "Worktree path for the agent being started.")
+
+(defun agent-shell--send-session-context ()
+  "Send session context to Claude agent on startup."
   (run-at-time 1.5 nil
                (lambda ()
                  (when-let ((buf (seq-find
@@ -280,12 +332,19 @@ Looks for buffers with Claude Code prompt or *agent:* naming."
                                     (string-match-p "\\*agent:\\|Claude Code" (buffer-name b)))
                                   (buffer-list))))
                    (with-current-buffer buf
-                     (goto-char (point-max))
-                     (insert "wake up dozy bitch")
-                     (ignore-errors (shell-maker-submit)))))))
+                     (let* ((worktree (or agent-shell--pending-worktree default-directory))
+                            (context (shell-command-to-string
+                                      (format "/home/ahonnecke/src/.crewcapableai.shared/bin/session-context %s"
+                                              (shell-quote-argument worktree)))))
+                       (goto-char (point-max))
+                       (insert context)
+                       (ignore-errors (shell-maker-submit))
+                       (setq agent-shell--pending-worktree nil)))))))
 
 (advice-add 'agent-shell-anthropic-start-claude-code :after
-            (lambda (&rest _) (agent-shell--send-greeting)))
+            (lambda (&rest _)
+              (setq agent-shell--pending-worktree default-directory)
+              (agent-shell--send-session-context)))
 
 (provide 'config-agent-shell)
 ;;; config-agent-shell.el ends here

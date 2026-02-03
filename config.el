@@ -218,6 +218,7 @@
 (load "~/.doom.d/config-workspace")
 (load "~/.doom.d/config-claude")
 (load "~/.doom.d/config-claude-modeline")  ; Global Claude status in modeline
+(load "~/.doom.d/config-agent-shell")      ; ACP-based Claude (non-vterm alternative)
 (load "~/.doom.d/config-monet")  ; Claude IDE integration (selection sharing, diagnostics)
 (load "~/.doom.d/config-casual")  ; Transient menus for built-in modes
 (load "~/.doom.d/config-ghq")

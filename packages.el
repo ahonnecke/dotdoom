@@ -58,9 +58,18 @@
 (package! region-bindings-mode)
 (package! crux)
 
-;; Claude Code CLI integration
+;; Claude Code CLI integration (vterm-based, has issues with hooks)
 (package! claude-code
   :recipe (:host github :repo "stevemolitor/claude-code.el"))
+
+;; Agent Shell: Native comint-based LLM agent interface (non-vterm)
+;; Uses ACP (Agent Client Protocol) - cleaner than vterm
+(package! shell-maker
+  :recipe (:host github :repo "xenodium/shell-maker"))
+(package! acp
+  :recipe (:host github :repo "xenodium/acp.el"))
+(package! agent-shell
+  :recipe (:host github :repo "xenodium/agent-shell"))
 
 ;; ghq repo management
 (package! ghq

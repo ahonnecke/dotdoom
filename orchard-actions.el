@@ -289,16 +289,7 @@ Returns list of (worktree . session-info) pairs."
                  'orchard-worktree wt)))
             session-items "")))))))
 
-(defun orchard--section-visible-p (section)
-  "Return t if SECTION should be visible based on current view."
-  (pcase orchard--current-view
-    ('all t)
-    ('working (memq section '(uat-urgent uat-failed ready-to-deploy claude-waiting current needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
-    ('next (memq section '(claude-waiting current backlog)))
-    ('qa (eq section 'qa-verify))
-    ('progress (memq section '(claude-waiting needs-analysis in-flight stale-work pr-failing pr-review pr-approved)))
-    ('recent (eq section 'recent-sessions))
-    (_ t)))
+;; NOTE: orchard--section-visible-p is defined in orchard-dashboard.el (canonical)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Section Collapsing
@@ -1136,6 +1127,13 @@ Uses external script for git operations (testable, reusable)."
   (interactive "sExperiment name: ")
   (let ((desc (read-string "Description (optional): ")))
     (orchard--create-branch "EXPERIMENT" name desc)))
+
+(defun orchard-new-research (name)
+  "Create new RESEARCH/NAME branch for debugging, demos, or investigations.
+These branches are for throwaway work that won't become a PR."
+  (interactive "sResearch name: ")
+  (let ((desc (read-string "Description (optional): ")))
+    (orchard--create-branch "RESEARCH" name desc)))
 
 ;; Legacy aliases
 (defalias 'orchard-new-fix 'orchard-new-bugfix)

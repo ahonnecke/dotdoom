@@ -83,89 +83,65 @@
 
 (defvar orchard-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; Suppress inherited bindings that interfere with navigation
     (suppress-keymap map t)
-    ;; Help
-    (define-key map (kbd "?") #'orchard-dispatch)
-    ;; Create branches (uppercase = create, unique first char for TAB completion)
-    (define-key map (kbd "F") #'orchard-new-feature)
-    (define-key map (kbd "B") #'orchard-new-bugfix)
-    (define-key map (kbd "C") #'orchard-new-chore)
-    (define-key map (kbd "R") #'orchard-new-refactor)
-    (define-key map (kbd "D") #'orchard-new-docs)
-    (define-key map (kbd "E") #'orchard-new-experiment)
-    ;; Legacy shortcuts (lowercase, will be removed eventually)
-    (define-key map (kbd "f") #'orchard-filter-menu)
-    ;; Open/interact with worktree at point
-    (define-key map (kbd "RET") #'orchard-open-at-point)
-    (define-key map (kbd "c") #'orchard-claude-at-point)
-    (define-key map (kbd "A") #'orchard-claude-analyze-at-point)  ; Claude + /analyze
-    (define-key map (kbd "m") #'orchard-magit-at-point)
-    (define-key map (kbd "d") #'orchard-dired-at-point)
-    (define-key map (kbd "t") #'orchard-test-at-point)
-    (define-key map (kbd "l") #'orchard-list-claudes)
-    (define-key map (kbd "W") #'orchard-tile-claudes)   ; tile claude windows 2x2
-    (define-key map (kbd "Z") #'orchard-resume-sessions) ; resume saved sessions
-    (define-key map (kbd "X") #'orchard--clear-previous-sessions) ; clear previous sessions
-    (define-key map (kbd "i") #'orchard-show-at-point)  ; show full info
-    ;; GitHub Issues
-    (define-key map (kbd "I") #'orchard-issue-start)
-    (define-key map (kbd "o") #'orchard-issue-browse)
-    (define-key map (kbd "#") #'orchard-find-issue)
-    (define-key map (kbd "!") #'orchard-resolve-issue)
-    (define-key map (kbd "s") #'orchard-toggle-staging-issues)
-    (define-key map (kbd "/") #'orchard-filter-by-text)   ; free text search (vim convention)
-    (define-key map (kbd "L") #'orchard-filter-by-label)  ; L = Label filter
-    (define-key map (kbd "\\") #'orchard-clear-filters)   ; clear all filters
-    ;; Lifecycle actions
-    (define-key map (kbd "N") #'orchard-next-step)
-    (define-key map (kbd "r") #'orchard-mark-pr-ready)  ; toggle PR-ready status
-    (define-key map (kbd "u") #'orchard-push-at-point)
-    (define-key map (kbd "P") #'orchard-pr-at-point)
-    (define-key map (kbd "S-m") #'orchard-merge-pr-at-point)  ; Shift-M = merge PR
-    (define-key map (kbd "-") #'orchard-hide-at-point)
-    (define-key map (kbd "H") #'orchard-show-hidden)
-    (define-key map (kbd "a") #'orchard-archive-at-point)
-    ;; Port management
-    (define-key map (kbd "+") #'orchard-allocate-port)
-    (define-key map (kbd "_") #'orchard-release-port)
-    ;; Research
-    (define-key map (kbd "T") #'orchard-research-open)
-    ;; Filtering and views
-    (define-key map (kbd "v w") #'orchard-view-working)
-    (define-key map (kbd "v a") #'orchard-view-all)
-    (define-key map (kbd "v n") #'orchard-view-next)
-    (define-key map (kbd "v p") #'orchard-view-progress)
-    (define-key map (kbd "v q") #'orchard-view-qa)
-    (define-key map (kbd "v r") #'orchard-view-recent)
-    ;; Section collapsing
-    (define-key map (kbd "TAB") #'orchard-toggle-section)
-    (define-key map (kbd "<tab>") #'orchard-toggle-section)
-    ;; Navigation
+
+    ;; ═══ ESSENTIAL: What you actually use ═══
+    ;; Search/Find
+    (define-key map (kbd "/") #'orchard-filter-by-text)   ; search by text
+    (define-key map (kbd "#") #'orchard-find-issue)       ; jump to issue number
+    (define-key map (kbd "\\") #'orchard-clear-filters)   ; clear search
+
+    ;; Refresh
+    (define-key map (kbd "g") #'orchard-refresh)          ; quick refresh
+    (define-key map (kbd "G") #'orchard-force-refresh)    ; full refresh from GitHub
+
+    ;; Open/Work (at point)
+    (define-key map (kbd "RET") #'orchard-open-at-point)  ; default action (claude)
+    (define-key map (kbd "c") #'orchard-claude-at-point)  ; open claude
+    (define-key map (kbd "m") #'orchard-magit-at-point)   ; open magit
+    (define-key map (kbd "o") #'orchard-issue-browse)     ; open in browser
+
+    ;; PR Lifecycle
+    (define-key map (kbd "M") #'orchard-merge-pr-at-point) ; merge PR
+    (define-key map (kbd "P") #'orchard-pr-at-point)       ; create PR
+
+    ;; Sessions
+    (define-key map (kbd "z") #'orchard-resume-sessions)   ; resume saved sessions
+    (define-key map (kbd "Z") #'orchard--clear-previous-sessions)
+    (define-key map (kbd "l") #'orchard-list-claudes)      ; list all claude sessions
+
+    ;; Create branches (from issue or scratch)
+    (define-key map (kbd "I") #'orchard-issue-start)       ; start from GitHub issue
+    (define-key map (kbd "E") #'orchard-new-experiment)    ; experiment/demo branch
+    (define-key map (kbd "X") #'orchard-new-research)      ; research/debug branch
+
+    ;; ═══ NAVIGATION ═══
     (define-key map (kbd "n") #'orchard-next-item)
     (define-key map (kbd "p") #'orchard-prev-item)
-    (define-key map (kbd "j") #'orchard-next-item)
-    (define-key map (kbd "k") #'orchard-prev-item)
-    (define-key map (kbd "C-n") #'orchard-next-item)
-    (define-key map (kbd "C-p") #'orchard-prev-item)
-    (define-key map (kbd "<down>") #'orchard-next-item)
-    (define-key map (kbd "<up>") #'orchard-prev-item)
-    ;; Cleanup
-    (define-key map (kbd "K") #'orchard-cleanup)
-    (define-key map (kbd "C-c C-c") #'orchard-cleanup-dry-run)
-    (define-key map (kbd "M") #'orchard-cleanup-merged)
-    (define-key map (kbd "C-c m") #'orchard-cleanup-merged-dry-run)
-    ;; Sync
-    (define-key map (kbd "S") #'orchard-sync)
-    (define-key map (kbd "O") #'orchard-cleanup-orphans)
-    ;; Refresh and quit
-    (define-key map (kbd "g") #'orchard-refresh)
-    (define-key map (kbd "r") #'orchard-refresh)
-    (define-key map (kbd "G") #'orchard-force-refresh)
+    (define-key map (kbd "TAB") #'orchard-toggle-section)
+    (define-key map (kbd "<tab>") #'orchard-toggle-section)
+
+    ;; ═══ LESS COMMON ═══
+    (define-key map (kbd "?") #'orchard-dispatch)          ; help/all commands
+    (define-key map (kbd "d") #'orchard-dired-at-point)
+    (define-key map (kbd "s") #'orchard-toggle-staging-issues)
+    (define-key map (kbd "A") #'orchard-archive-at-point)  ; archive done items
+    (define-key map (kbd "K") #'orchard-cleanup)           ; cleanup stale
     (define-key map (kbd "q") #'quit-window)
-    (define-key map (kbd "Q") #'orchard-quit-all)
     map)
-  "Keymap for orchard-mode.")
+  "Keymap for orchard-mode.
+
+Essential keys:
+  /        Search issues by text
+  #        Jump to issue by number
+  g/G      Refresh (quick/full)
+  RET/c    Open Claude for item
+  m        Open Magit for item
+  M        Merge PR at point
+  z        Resume saved sessions
+  I        Start work from GitHub issue
+  E        New experiment branch
+  X        New research branch")
 
 (define-derived-mode orchard-mode special-mode "Orchard"
   "Major mode for Orchard worktree dashboard.
@@ -513,6 +489,27 @@ Returns alist with keys:
    worktrees))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Priority Sorting
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--issue-priority (issue)
+  "Extract priority number from ISSUE labels (P1=1, P2=2, etc).
+Returns 99 if no priority label found (sorts to end)."
+  (let ((labels (alist-get 'labels issue)))
+    (or (cl-loop for label in labels
+                 for name = (if (stringp label) label (alist-get 'name label))
+                 when (and name (string-match "^P\\([1-5]\\)$" name))
+                 return (string-to-number (match-string 1 name)))
+        99)))
+
+(defun orchard--sort-by-priority (issue-pairs)
+  "Sort ISSUE-PAIRS by priority label (P1 first, P5 last, no-priority at end)."
+  (sort (copy-sequence issue-pairs)
+        (lambda (a b)
+          (< (orchard--issue-priority (car a))
+             (orchard--issue-priority (car b))))))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Issue and Worktree Formatting
 ;;; ════════════════════════════════════════════════════════════════════════════
 
@@ -696,9 +693,8 @@ WORKTREES is the list of current worktrees."
   "Format the Orchard dashboard with issue-centric layout."
   ;; Load previous sessions on first dashboard open
   (orchard--load-previous-sessions)
-  ;; Fetch staging once per refresh (not per-issue)
-  (unless orchard--inhibit-cache-refresh
-    (orchard--ensure-staging-fetched))
+  ;; Ensure all caches are fresh (single coherent refresh)
+  (orchard--ensure-all-caches)
   (let* ((worktrees (orchard--get-worktrees))
          (current (orchard--current-worktree))
          (current-path (when current (alist-get 'path current)))
@@ -875,14 +871,14 @@ WORKTREES is the list of current worktrees."
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
                      ready-to-deploy ""))))
-     ;; CURRENT - active today or recent issues
+     ;; CURRENT - active today or recent issues (sorted by priority)
      (when (and current (orchard--section-visible-p 'current))
        (concat
         (orchard--format-section-header "⚡ CURRENT" (length current) "active today" 'current)
         (unless (orchard--section-collapsed-p 'current)
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
-                     current ""))))
+                     (orchard--sort-by-priority current) ""))))
      ;; NEEDS ANALYSIS - has worktree, no plan
      (when (and needs-analysis (orchard--section-visible-p 'needs-analysis))
        (concat
@@ -1169,7 +1165,7 @@ Use this to see the complete issue title without truncation."
   "Return t if SECTION should be visible based on current view."
   (pcase orchard--current-view
     ('all t)
-    ('working (memq section '(uat-urgent claude-waiting uat-failed current needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
+    ('working (memq section '(uat-urgent claude-waiting uat-failed ready-to-deploy current needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
     ('next (memq section '(uat-urgent claude-waiting uat-failed current backlog)))
     ('qa (memq section '(uat-urgent qa-verify uat-failed)))  ; P1/UAT failures show in QA view too
     ('progress (memq section '(uat-urgent claude-waiting uat-failed needs-analysis in-flight stale-work pr-failing pr-review pr-approved)))

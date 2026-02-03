@@ -1,6 +1,18 @@
 #!/bin/bash
 # Safe Claude hook wrapper with timeout
 # Falls back gracefully if emacsclient is unavailable
+#
+# BUG (2026-01-29): The emacsclient call below passes $json_input as a
+# positional arg, but emacsclient treats post-eval args as FILES to open,
+# not function parameters. The JSON never reaches the elisp function.
+# If the elisp returns anything non-nil, Claude interprets it as rejection.
+#
+# FIX OPTIONS:
+# 1. Remove PreToolUse hook from settings (applied)
+# 2. Embed escaped JSON in the --eval string itself
+# 3. Use stdin piping with elisp shell-command-to-string
+#
+# See: ~/.doom.d/CLAUDE-HOOKS.md
 
 TIMEOUT_SECS=2
 hook_type="$1"

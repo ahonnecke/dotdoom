@@ -361,46 +361,34 @@ Returns plist with :category, :issue, :worktree, :gh-state, :pr-state, etc."
   "Buffer-local variable storing issue state for status buffer.")
 
 (defun orchard-find-issue (issue-num)
-  "Find and display status for ISSUE-NUM.
-Shows category, GitHub state, worktree info, and visibility."
+  "Find ISSUE-NUM and open Claude for it.
+Creates worktree if needed, otherwise opens existing."
   (interactive "nIssue number: ")
-  (let* ((state (orchard--get-issue-state issue-num))
-         (buf (get-buffer-create "*Orchard Issue Status*")))
-    (with-current-buffer buf
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (insert (orchard--format-issue-state state))
-        (insert "\n")
-        (insert (make-string 40 ?─) "\n")
-        (insert "Actions:\n")
-        (insert "  [o] Open in browser\n")
-        (insert "  [g] Go to issue in dashboard\n")
-        (when (plist-get state :worktree)
-          (insert "  [c] Open Claude for worktree\n")
-          (insert "  [m] Open Magit for worktree\n"))
-        (insert "  [r] Resolve/fix issues\n")
-        (insert "  [q] Close\n")
-        ;; Store state for actions
-        (setq orchard--issue-state state))
-      (setq buffer-read-only t)
-      (local-set-key (kbd "q") #'quit-window)
-      (local-set-key (kbd "o") (lambda () (interactive)
-                                 (let ((repo (orchard--get-repo-root)))
-                                   (browse-url (format "%s/issues/%d"
-                                                       (string-trim (shell-command-to-string
-                                                                     (format "cd %s && gh repo view --json url -q .url" repo)))
-                                                       (plist-get orchard--issue-state :issue-num))))))
-      (local-set-key (kbd "g") (lambda () (interactive)
-                                 (orchard-goto-issue (plist-get orchard--issue-state :issue-num))))
-      (local-set-key (kbd "c") (lambda () (interactive)
-                                 (when-let ((wt (plist-get orchard--issue-state :worktree)))
-                                   (orchard--start-claude-with-resume (alist-get 'path wt)))))
-      (local-set-key (kbd "m") (lambda () (interactive)
-                                 (when-let ((wt (plist-get orchard--issue-state :worktree)))
-                                   (magit-status (alist-get 'path wt)))))
-      (local-set-key (kbd "r") (lambda () (interactive)
-                                 (orchard-resolve-issue (plist-get orchard--issue-state :issue-num)))))
-    (pop-to-buffer buf)))
+  (let* ((worktrees (orchard--get-worktrees))
+         (wt (orchard--find-worktree-for-issue issue-num worktrees)))
+    (if wt
+        ;; Has worktree - open Claude
+        (progn
+          (message "Opening Claude for #%d..." issue-num)
+          (orchard--start-claude-backend (alist-get 'path wt)))
+      ;; No worktree - create one
+      (let* ((issues (orchard--get-open-issues))
+             (issue (cl-find-if (lambda (i) (= (alist-get 'number i) issue-num)) issues)))
+        (if issue
+            (let* ((title (alist-get 'title issue))
+                   (labels (alist-get 'labels issue))
+                   (inferred-type (orchard--infer-branch-type-from-labels labels))
+                   (branch-type (completing-read
+                                 (format "Branch type for #%d (default %s): " issue-num inferred-type)
+                                 '("FEATURE" "BUGFIX" "CHORE" "REFACTOR" "DOCS" "EXPERIMENT" "TEST")
+                                 nil t nil nil inferred-type))
+                   (branch-name (format "%d-%s"
+                                        issue-num
+                                        (orchard--normalize-branch-name title)))
+                   (description (format "#%d: %s" issue-num title)))
+              (message "Creating branch for #%d: %s..." issue-num title)
+              (orchard--create-branch branch-type branch-name description issue-num))
+          (user-error "Issue #%d not found in open issues" issue-num))))))
 
 (defun orchard-goto-issue (issue-num)
   "Jump to ISSUE-NUM in the orchard dashboard."

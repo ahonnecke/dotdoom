@@ -588,6 +588,16 @@ Called once per refresh cycle, not per-issue."
           (call-process "git" nil nil nil "fetch" "upstream" "staging" "--quiet")
           (setq orchard--staging-fetched-time (current-time)))))))
 
+(defun orchard--ensure-all-caches ()
+  "Ensure all caches are fresh for dashboard refresh.
+Call this once at the start of dashboard formatting to avoid
+piecemeal cache refreshes and ensure coherent state."
+  (unless orchard--inhibit-cache-refresh
+    (orchard--ensure-staging-fetched)
+    (orchard--ensure-merged-cache)
+    (orchard--ensure-issues-cache)
+    (orchard--ensure-pr-status-cache)))
+
 (defun orchard--get-staging-merge-time (issue-number)
   "Get the timestamp of the most recent merge to staging for ISSUE-NUMBER.
 Returns an Emacs time value, or nil if no merge found.

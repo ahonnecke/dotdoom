@@ -381,12 +381,10 @@ Simple heuristic: looks for > or ❯ at end of buffer content."
   "Setup shared Claude settings and commands symlinks in WORKTREE-PATH."
   (when (or orchard-shared-claude-settings orchard-shared-claude-commands)
     (let ((claude-dir (expand-file-name ".claude" worktree-path))
-          (commands-dir (expand-file-name ".claude/commands" worktree-path)))
-      ;; Ensure directories exist
+          (commands-link (expand-file-name ".claude/commands" worktree-path)))
+      ;; Ensure .claude directory exists
       (unless (file-directory-p claude-dir)
         (make-directory claude-dir t))
-      (unless (file-directory-p commands-dir)
-        (make-directory commands-dir t))
       ;; Setup settings.local.json symlink
       (when orchard-shared-claude-settings
         (let ((settings-file (expand-file-name "settings.local.json" claude-dir)))
@@ -394,14 +392,16 @@ Simple heuristic: looks for > or ❯ at end of buffer content."
             (delete-file settings-file))
           (when (file-exists-p orchard-shared-claude-settings)
             (make-symbolic-link orchard-shared-claude-settings settings-file))))
-      ;; Setup command symlinks
+      ;; Setup commands directory symlink (link whole directory, not individual files)
       (when (and orchard-shared-claude-commands
                  (file-directory-p orchard-shared-claude-commands))
-        (dolist (cmd-file (directory-files orchard-shared-claude-commands t "\\.md$"))
-          (let ((target (expand-file-name (file-name-nondirectory cmd-file) commands-dir)))
-            (when (file-exists-p target)
-              (delete-file target))
-            (make-symbolic-link cmd-file target)))))))
+        ;; Remove existing commands (file, directory, or symlink)
+        (when (or (file-exists-p commands-link) (file-symlink-p commands-link))
+          (if (and (file-directory-p commands-link) (not (file-symlink-p commands-link)))
+              (delete-directory commands-link t)
+            (delete-file commands-link)))
+        ;; Create symlink to shared commands directory
+        (make-symbolic-link orchard-shared-claude-commands commands-link)))))
 
 (defun orchard-sync-claude-commands ()
   "Re-sync Claude commands for all worktrees.
