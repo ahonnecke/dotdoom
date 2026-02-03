@@ -269,52 +269,23 @@ Looks for buffers with Claude Code prompt or *agent:* naming."
             (local-set-key (kbd "C-c m") #'agent-shell-cmd-model)
             (local-set-key (kbd "C-c $") #'agent-shell-cmd-cost)))
 
-;; Auto-send initial greeting after agent is ready
-(defvar agent-shell--greet-timer nil
-  "Timer for checking agent readiness.")
-
-(defun agent-shell--check-ready-and-greet ()
-  "Check if agent is ready (shows 'Ready' in buffer) and send greeting."
-  (when-let ((buf (agent-shell--get-buffer)))
-    (with-current-buffer buf
-      (save-excursion
-        (goto-char (point-max))
-        ;; Look for "Ready" in last ~500 chars
-        (let ((search-start (max (point-min) (- (point-max) 500))))
-          (if (search-backward "Ready" search-start t)
-              ;; Ready found - send greeting and cancel timer
-              (progn
-                (when agent-shell--greet-timer
-                  (cancel-timer agent-shell--greet-timer)
-                  (setq agent-shell--greet-timer nil))
-                (run-at-time 0.5 nil
-                             (lambda ()
-                               (when-let ((b (agent-shell--get-buffer)))
-                                 (with-current-buffer b
-                                   ;; Use shell-maker's submit, not comint
-                                   (goto-char (point-max))
-                                   (insert "hi")
-                                   (shell-maker-submit))))))
-            ;; Not ready yet - timer will retry
-            nil))))))
-
-(defun agent-shell--start-ready-check ()
-  "Start checking for agent readiness."
-  ;; Cancel any existing timer
-  (when agent-shell--greet-timer
-    (cancel-timer agent-shell--greet-timer))
-  ;; Start checking every 0.5s, give up after 30s
-  (setq agent-shell--greet-timer
-        (run-at-time 2 0.5 #'agent-shell--check-ready-and-greet))
-  ;; Auto-cancel after 30 seconds
-  (run-at-time 30 nil
+;; Auto-send initial greeting after agent starts
+;; Claude needs a kick to display its welcome - send "hi" after startup
+(defun agent-shell--send-greeting ()
+  "Send greeting to wake up Claude agent."
+  (run-at-time 3 nil
                (lambda ()
-                 (when agent-shell--greet-timer
-                   (cancel-timer agent-shell--greet-timer)
-                   (setq agent-shell--greet-timer nil)))))
+                 (when-let ((buf (seq-find
+                                  (lambda (b)
+                                    (string-match-p "\\*agent:\\|Claude Code" (buffer-name b)))
+                                  (buffer-list))))
+                   (with-current-buffer buf
+                     (goto-char (point-max))
+                     (insert "hi")
+                     (ignore-errors (shell-maker-submit)))))))
 
 (advice-add 'agent-shell-anthropic-start-claude-code :after
-            (lambda (&rest _) (agent-shell--start-ready-check)))
+            (lambda (&rest _) (agent-shell--send-greeting)))
 
 (provide 'config-agent-shell)
 ;;; config-agent-shell.el ends here
