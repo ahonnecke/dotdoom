@@ -281,7 +281,7 @@ Looks for buffers with Claude Code prompt or *agent:* naming."
                                   (buffer-list))))
                    (with-current-buffer buf
                      (goto-char (point-max))
-                     (insert "hi")
+                     (insert "wake up dozy bitch")
                      (ignore-errors (shell-maker-submit)))))))
 
 (advice-add 'agent-shell-anthropic-start-claude-code :after
