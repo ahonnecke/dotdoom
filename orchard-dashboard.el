@@ -351,9 +351,9 @@ Returns alist with keys:
   claude-waiting  - Claude buffer is waiting for input (HIGHEST PRIORITY)
   uat-failed      - Has P1 label (failed UAT, needs revisiting)
   ready-to-deploy - Merged to dev but not on staging yet
-  current         - Issues with activity today or active Claude
+  next-up         - Issues active today with NO worktree (not started)
   needs-analysis  - Has worktree but no plan file
-  in-flight       - Has plan or Claude session, no PR
+  in-flight       - Has worktree, no PR (work in progress)
   stale-work      - Has plan but no activity in 3+ days
   pr-failing      - Has PR with CI failing
   pr-review       - Has PR, CI passing, needs review
@@ -361,7 +361,7 @@ Returns alist with keys:
   qa-verify       - PR merged or has [production] label, issue still open
   done            - Ready to archive
   backlog         - Older issues without worktrees"
-  (let (uat-urgent claude-waiting uat-failed ready-to-deploy current needs-analysis in-flight stale-work pr-failing pr-review pr-approved qa-verify done backlog)
+  (let (uat-urgent claude-waiting uat-failed ready-to-deploy next-up needs-analysis in-flight stale-work pr-failing pr-review pr-approved qa-verify done backlog)
     (dolist (issue issues)
       (let* ((issue-num (alist-get 'number issue))
              (wt (orchard--find-worktree-for-issue issue-num worktrees))
@@ -397,9 +397,9 @@ Returns alist with keys:
          ;; No worktree
          ((not wt)
           (cond
-           ;; Active today - show in CURRENT
+           ;; Active today - show in NEXT UP (not started yet)
            (active-today
-            (push (cons issue nil) current))
+            (push (cons issue nil) next-up))
            ;; Not active today - backlog
            (t
             (push (cons issue nil) backlog))))
@@ -427,9 +427,6 @@ Returns alist with keys:
                 (push (cons issue wt) pr-approved))
                (t
                 (push (cons issue wt) pr-review))))
-             ;; Active today - CURRENT (highest priority for work items)
-             (active-today
-              (push (cons issue wt) current))
              ;; Has plan but no PR - check if stale (no activity in 3+ days)
              (has-plan
               (let* ((session-info (orchard--get-worktree-session-info path))
@@ -448,7 +445,11 @@ Returns alist with keys:
              ;; Has saved Claude session - in flight (work in progress)
              (has-saved-session
               (push (cons issue wt) in-flight))
-             ;; No plan, no Claude - needs analysis
+             ;; Has worktree but no plan, no Claude - needs analysis
+             ;; (but still "in flight" if active today)
+             (active-today
+              (push (cons issue wt) in-flight))
+             ;; No plan, no Claude, not active - needs analysis
              (t
               (push (cons issue wt) needs-analysis))))))))
     ;; Get archivable worktrees for DONE section
@@ -468,7 +469,7 @@ Returns alist with keys:
       (claude-waiting . ,(nreverse claude-waiting))
       (uat-failed . ,(nreverse uat-failed))
       (ready-to-deploy . ,(nreverse ready-to-deploy))
-      (current . ,(nreverse current))
+      (next-up . ,(nreverse next-up))
       (needs-analysis . ,(nreverse needs-analysis))
       (in-flight . ,(nreverse in-flight))
       (stale-work . ,(nreverse stale-work))
@@ -754,7 +755,7 @@ WORKTREES is the list of current worktrees."
          (claude-waiting (alist-get 'claude-waiting categories))
          (uat-failed (alist-get 'uat-failed categories))
          (ready-to-deploy (alist-get 'ready-to-deploy categories))
-         (current (alist-get 'current categories))
+         (next-up (alist-get 'next-up categories))
          (needs-analysis (alist-get 'needs-analysis categories))
          (in-flight (alist-get 'in-flight categories))
          (stale-work (alist-get 'stale-work categories))
@@ -871,14 +872,14 @@ WORKTREES is the list of current worktrees."
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
                      ready-to-deploy ""))))
-     ;; CURRENT - active today or recent issues (sorted by priority)
-     (when (and current (orchard--section-visible-p 'current))
+     ;; NEXT UP - active today but no worktree (not started yet)
+     (when (and next-up (orchard--section-visible-p 'next-up))
        (concat
-        (orchard--format-section-header "⚡ CURRENT" (length current) "active today" 'current)
-        (unless (orchard--section-collapsed-p 'current)
+        (orchard--format-section-header "📋 NEXT UP" (length next-up) "not started" 'next-up)
+        (unless (orchard--section-collapsed-p 'next-up)
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
-                     (orchard--sort-by-priority current) ""))))
+                     (orchard--sort-by-priority next-up) ""))))
      ;; NEEDS ANALYSIS - has worktree, no plan
      (when (and needs-analysis (orchard--section-visible-p 'needs-analysis))
        (concat
@@ -964,7 +965,7 @@ WORKTREES is the list of current worktrees."
      (when (orchard--section-visible-p 'research)
        (orchard--format-research-section))
      ;; Empty state
-     (when (and (null uat-urgent) (null claude-waiting) (null uat-failed) (null current) (null needs-analysis) (null in-flight)
+     (when (and (null uat-urgent) (null claude-waiting) (null uat-failed) (null next-up) (null needs-analysis) (null in-flight)
                 (null stale-work) (null pr-failing) (null pr-review) (null pr-approved)
                 (null qa-verify) (null done) (null backlog) (null orphan-worktrees)
                 (not (eq orchard--current-view 'recent)))
@@ -1165,8 +1166,8 @@ Use this to see the complete issue title without truncation."
   "Return t if SECTION should be visible based on current view."
   (pcase orchard--current-view
     ('all t)
-    ('working (memq section '(uat-urgent claude-waiting uat-failed ready-to-deploy current needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
-    ('next (memq section '(uat-urgent claude-waiting uat-failed current backlog)))
+    ('working (memq section '(uat-urgent claude-waiting uat-failed ready-to-deploy next-up needs-analysis in-flight stale-work pr-failing pr-review pr-approved unlinked)))
+    ('next (memq section '(uat-urgent claude-waiting uat-failed next-up backlog)))
     ('qa (memq section '(uat-urgent qa-verify uat-failed)))  ; P1/UAT failures show in QA view too
     ('progress (memq section '(uat-urgent claude-waiting uat-failed needs-analysis in-flight stale-work pr-failing pr-review pr-approved)))
     ('recent (eq section 'recent-sessions))
