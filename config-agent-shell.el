@@ -273,7 +273,7 @@ Looks for buffers with Claude Code prompt or *agent:* naming."
 ;; Claude needs a kick to display its welcome - send "hi" after startup
 (defun agent-shell--send-greeting ()
   "Send greeting to wake up Claude agent."
-  (run-at-time 3 nil
+  (run-at-time 1.5 nil
                (lambda ()
                  (when-let ((buf (seq-find
                                   (lambda (b)
