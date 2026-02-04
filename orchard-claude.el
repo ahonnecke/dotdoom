@@ -1052,7 +1052,7 @@ Returns list of paths or nil."
 If in a Claude buffer, resize this window.
 Otherwise, resize the most recent Claude window."
   (interactive)
-  (let ((claude-win (if (orchard--claude-buffer-p (current-buffer))
+  (let ((claude-win (if (string-prefix-p "*claude:" (buffer-name))
                         (selected-window)
                       (get-buffer-window
                        (car (orchard--get-claude-buffers))))))
