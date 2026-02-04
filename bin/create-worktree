@@ -145,7 +145,8 @@ if [[ -n "$SETTINGS_FILE" && -f "$SETTINGS_FILE" ]]; then
     ln -sf "$SETTINGS_FILE" "$WORKTREE_PATH/.claude/settings.local.json"
 
     # Symlink entire commands directory (not individual files)
-    COMMANDS_DIR=$(dirname "$SETTINGS_FILE")/../.claude/commands
+    # settings.local.json is in the shared root, commands is in .claude/commands
+    COMMANDS_DIR=$(dirname "$SETTINGS_FILE")/.claude/commands
     if [[ -d "$COMMANDS_DIR" ]]; then
         info "Setting up Claude commands..."
         ln -sf "$COMMANDS_DIR" "$WORKTREE_PATH/.claude/commands"
