@@ -410,8 +410,10 @@ Returns alist with keys:
                  (branch (alist-get 'branch wt))
                  (has-plan (or (file-exists-p (expand-file-name ".plan.md" path))
                                (file-exists-p (expand-file-name ".test-plan.md" path))))
-                 (has-pr (file-exists-p (expand-file-name ".pr-url" path)))
-                 (pr-status (when has-pr (orchard--get-pr-status branch)))
+                 ;; Check both .pr-url file AND GitHub PR cache
+                 (has-pr-file (file-exists-p (expand-file-name ".pr-url" path)))
+                 (pr-status (orchard--get-pr-status branch))
+                 (has-pr (or has-pr-file pr-status))
                  (ci-status (when pr-status (plist-get pr-status :ci-status)))
                  (review (when pr-status (plist-get pr-status :review-decision))))
             (cond
