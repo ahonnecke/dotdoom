@@ -622,6 +622,8 @@ Creates worktree if needed, otherwise opens existing."
   (define-key ashton-mode-map (kbd "C-c O h") #'orchard-new-chore)
   ;; Claude management
   (define-key ashton-mode-map (kbd "C-c O l") #'orchard-list-claudes)
+  (define-key ashton-mode-map (kbd "C-c O w") #'orchard-fix-claude-window-width)
+  (define-key ashton-mode-map (kbd "C-c O =") #'orchard-balance-claude-windows)
   ;; GitHub Issues
   (define-key ashton-mode-map (kbd "C-c O I") #'orchard-issue-start-prompt)
   ;; M-m cycles magit/claude everywhere

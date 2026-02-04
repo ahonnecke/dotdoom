@@ -19,7 +19,7 @@
 ;;
 ;; Support both agent-shell (ACP, preferred) and claude-code.el (vterm, fallback)
 
-(defcustom orchard-claude-backend 'agent-shell
+(defcustom orchard-claude-backend 'claude-code
   "Which Claude backend to use.
 - `auto': Try agent-shell first, fall back to claude-code.el
 - `agent-shell': Use agent-shell (ACP protocol, comint-based)
@@ -1037,6 +1037,41 @@ Returns list of paths or nil."
               #'orchard--claude-command-completion nil t)))
 
 (add-hook 'shell-maker-mode-hook #'orchard--setup-agent-shell-keys)
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Window Management
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defcustom orchard-claude-window-width 100
+  "Preferred width for Claude windows."
+  :type 'integer
+  :group 'orchard)
+
+(defun orchard-fix-claude-window-width ()
+  "Resize current Claude window to preferred width.
+If in a Claude buffer, resize this window.
+Otherwise, resize the most recent Claude window."
+  (interactive)
+  (let ((claude-win (if (orchard--claude-buffer-p (current-buffer))
+                        (selected-window)
+                      (get-buffer-window
+                       (car (orchard--get-claude-buffers))))))
+    (if claude-win
+        (progn
+          (with-selected-window claude-win
+            (let ((delta (- orchard-claude-window-width (window-width))))
+              (when (not (zerop delta))
+                (window-resize claude-win delta t))))
+          (message "Claude window width set to %d" orchard-claude-window-width))
+      (message "No Claude window found"))))
+
+(defun orchard-balance-claude-windows ()
+  "Balance all Claude windows evenly."
+  (interactive)
+  (let ((claude-bufs (orchard--get-claude-buffers)))
+    (when claude-bufs
+      (balance-windows)
+      (message "Balanced %d Claude windows" (length claude-bufs)))))
 
 (provide 'orchard-claude)
 ;;; orchard-claude.el ends here
