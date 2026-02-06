@@ -413,6 +413,23 @@ Then configure team in `config-slack.el`:
 
 From any buffer, `C-c M s p` posts today's standup to Slack.
 
+### Issue Status to Slack
+
+Post issue updates to `#development-notes` with threading (one thread per issue):
+
+```bash
+# From a worktree (auto-detects issue from .github-issue or branch):
+slack-issue-thread "Starting implementation"
+
+# With explicit issue number:
+slack-issue-thread --issue 864 "Completed initial investigation"
+```
+
+**Claude command**: `/issue-status [message]`
+
+Uses bot token from `~/src/homelab/llm-automations/configs/.env`.
+Thread mappings stored in `~/.slack-issue-threads.json`.
+
 ---
 
 ## GHQ + Worktree Management (NEW)
