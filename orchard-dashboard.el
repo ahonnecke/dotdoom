@@ -731,12 +731,26 @@ WORKTREES is the list of current worktrees."
                                             (lambda (i) (orchard--issue-has-exact-label-p i orchard--label-filter))
                                             issues)))
                             (when orchard--text-filter
-                              (setq issues (cl-remove-if-not
-                                            (lambda (i)
-                                              (let ((title (or (alist-get 'title i) "")))
-                                                (string-match-p (regexp-quote orchard--text-filter)
-                                                                title)))
-                                            issues)))
+                              ;; Use search API to find issues (including closed)
+                              (let ((search-results (orchard--search-issues orchard--text-filter)))
+                                (if search-results
+                                    ;; Use search results, dedupe with open issues
+                                    (let ((seen-numbers (make-hash-table :test 'eq)))
+                                      (dolist (i search-results)
+                                        (puthash (alist-get 'number i) i seen-numbers))
+                                      ;; Also include any open issues that match by title
+                                      (dolist (i issues)
+                                        (let ((title (or (alist-get 'title i) "")))
+                                          (when (string-match-p (regexp-quote orchard--text-filter) title)
+                                            (puthash (alist-get 'number i) i seen-numbers))))
+                                      (setq issues (hash-table-values seen-numbers)))
+                                  ;; Fallback: filter open issues by title
+                                  (setq issues (cl-remove-if-not
+                                                (lambda (i)
+                                                  (let ((title (or (alist-get 'title i) "")))
+                                                    (string-match-p (regexp-quote orchard--text-filter)
+                                                                    title)))
+                                                issues)))))
                             (setq issues (cl-remove-if
                                           (lambda (i) (orchard--issue-hidden-p (alist-get 'number i)))
                                           issues))

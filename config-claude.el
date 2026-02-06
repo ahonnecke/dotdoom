@@ -142,12 +142,14 @@ Use this instead of claude-code to ensure Claude opens HERE."
   (interactive)
   (when (and (claude-buffer-p)
              (derived-mode-p 'vterm-mode)
-             (fboundp 'vterm--set-size))
+             (fboundp 'vterm--set-size)
+             (boundp 'vterm--term)
+             vterm--term)
     (let* ((win (get-buffer-window (current-buffer)))
            (width (when win (window-width win)))
            (height (when win (window-height win))))
       (when (and width height)
-        (vterm--set-size height width)
+        (vterm--set-size vterm--term height width)
         (message "Reset vterm size")))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════

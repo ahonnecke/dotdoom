@@ -471,6 +471,37 @@ Auto-refreshes cache if stale or empty (unless inhibited)."
   (when (vectorp orchard--issues-cache)
     (append orchard--issues-cache nil)))  ; Convert vector to list
 
+(defvar orchard--search-results-cache nil
+  "Cache of search results: (search-term timestamp . results).")
+
+(defun orchard--search-issues (search-term)
+  "Search issues (including closed) matching SEARCH-TERM.
+Returns list of issues with number, title, labels, state, url, etc.
+Results are cached for 2 minutes to avoid repeated API calls."
+  (let* ((cached orchard--search-results-cache)
+         (cached-term (car cached))
+         (cached-time (cadr cached))
+         (cached-results (cddr cached))
+         (cache-fresh (and cached-time
+                           (equal cached-term search-term)
+                           (< (float-time (time-subtract (current-time) cached-time))
+                              120))))  ; 2 min cache
+    (if cache-fresh
+        cached-results
+      (let ((repo-root (orchard--get-repo-root)))
+        (when repo-root
+          (let ((default-directory repo-root))
+            (condition-case nil
+                (let* ((cmd (format "gh issue list --state all --search %s --limit 50 --json number,title,labels,assignees,url,state,createdAt,updatedAt,closedAt 2>/dev/null"
+                                    (shell-quote-argument search-term)))
+                       (output (shell-command-to-string cmd))
+                       (json (ignore-errors (json-read-from-string output)))
+                       (results (when (vectorp json) (append json nil))))
+                  (setq orchard--search-results-cache
+                        (cons search-term (cons (current-time) results)))
+                  results)
+              (error nil))))))))
+
 (defun orchard--refresh-closed-issues-cache ()
   "Refresh the closed issues cache from GitHub.
 Only fetches recently closed issues for archival detection."
