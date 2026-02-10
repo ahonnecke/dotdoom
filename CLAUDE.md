@@ -311,8 +311,8 @@ View: working (f for filter menu)
 
 | Binding | Function | Description |
 |---------|----------|-------------|
-| `RET` | Open Claude | For issue/worktree at point |
-| `I` | Start from issue | Creates worktree linked to GitHub issue |
+| `RET` | Open Claude | For issue/worktree at point (auto-resumes) |
+| `I` | Start from issue | Creates worktree + runs `/issue-analyse` |
 | `m` | Open magit | For worktree at point |
 | `c` | Open Claude | Same as RET |
 | `d` | Open dired | For worktree at point |
@@ -362,6 +362,42 @@ On next startup:
 - Sessions remain visible until dismissed so you can resume work
 
 This helps answer "what was I working on?" after restarting Emacs.
+
+### Smart Window Management
+
+Window selection preserves Claude buffers and keeps orchard visible:
+
+1. **Orchard stays left** - Dashboard always remains in leftmost window
+2. **Prefer duplicate orchard** - If another window shows orchard, use that
+3. **Preserve Claude** - Never replace a running Claude buffer
+4. **Split rightmost** - If all windows show Claude, split the rightmost one
+
+### Auto-Resume Behavior
+
+When pressing `RET` on a worktree/issue:
+- Opens Claude in best available window
+- Automatically sends `/resume` command
+- Selects most recent session (presses Enter after 1.5s)
+
+When pressing `I` on an issue (new worktree):
+- Creates worktree from issue
+- Opens Claude immediately
+- Runs `/issue-analyse` to prime Claude with issue context
+
+### Status Indicators
+
+| Icon | Meaning |
+|------|---------|
+| `🔀PR` (blue) | PR exists for this issue |
+| `✓` (green) | Worktree exists, no PR yet |
+| `⏳WAIT` | Claude waiting for input |
+| `[label]` | GitHub labels (colored) |
+
+### Performance Notes
+
+GitHub data is cached with TTL. Dashboard refresh behavior:
+- `g` - Quick refresh using cached data
+- `G` - Force refresh from GitHub API
 
 ---
 
