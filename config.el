@@ -185,6 +185,7 @@
 (load "~/.doom.d/config-ripgrep")
 
 ;; Additional useful configs
+(load "~/.doom.d/config-visual-focus")  ; Beacon + winpulse + hl-line focus
 (load "~/.doom.d/config-windmove")
 (load "~/.doom.d/config-tabs")
 (load "~/.doom.d/config-browse")

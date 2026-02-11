@@ -131,3 +131,8 @@
 
 ;; Request: HTTP client library for API calls (used by magit AI commit)
 (package! request)
+
+;; Visual focus: Make active window/cursor obvious
+(package! beacon)  ; Flash cursor on scroll/window switch
+(package! winpulse  ; Pulse window border on switch (xenodium)
+  :recipe (:host github :repo "xenodium/winpulse"))
