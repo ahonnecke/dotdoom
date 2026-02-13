@@ -474,19 +474,38 @@ can leave it mismatched. This tells vterm the correct size."
                          (vterm--set-size h w))))))))
 
 (defun orchard--place-claude-buffer (claude-buf)
-  "Arrange windows: Orchard left, CLAUDE-BUF right. Select Claude.
-Uses only low-level set-window-buffer/select-window to avoid
-display-buffer-alist interference.  Safe to call from timers."
+  "Display CLAUDE-BUF in a window without destroying existing layout.
+Prefers: 1) window already showing this buffer, 2) a non-Orchard,
+non-Claude window, 3) split the Orchard window rightward.
+Never calls `delete-other-windows' so other Claudes/files stay visible."
   (when (buffer-live-p claude-buf)
-    (let ((orchard-buf (get-buffer "*Orchard*")))
-      ;; Reset to clean state: one window with Orchard
-      (delete-other-windows)
-      (when orchard-buf
-        (set-window-buffer (selected-window) orchard-buf))
-      ;; Split right, put Claude there, select it
-      (let ((claude-win (split-window nil nil 'right)))
-        (set-window-buffer claude-win claude-buf)
-        (select-window claude-win)))))
+    (let* ((existing-win (get-buffer-window claude-buf))
+           (orchard-win (get-buffer-window "*Orchard*"))
+           ;; Find a window that isn't Orchard and isn't a different Claude
+           (reusable-win
+            (cl-find-if
+             (lambda (win)
+               (let ((buf (window-buffer win)))
+                 (and (not (eq win orchard-win))
+                      (not (eq buf claude-buf))
+                      (not (string-prefix-p "*claude:" (buffer-name buf))))))
+             (window-list nil 'no-mini))))
+      (cond
+       ;; Already displayed — just select it
+       (existing-win
+        (select-window existing-win))
+       ;; Reuse a non-Orchard, non-Claude window
+       (reusable-win
+        (set-window-buffer reusable-win claude-buf)
+        (select-window reusable-win))
+       ;; Only Orchard (or only Claude windows) — split Orchard rightward
+       (orchard-win
+        (let ((claude-win (split-window orchard-win nil 'right)))
+          (set-window-buffer claude-win claude-buf)
+          (select-window claude-win)))
+       ;; No Orchard visible — just use current window
+       (t
+        (set-window-buffer (selected-window) claude-buf))))))
 
 (defun orchard--start-claude-with-resume (path &optional command)
   "Start Claude for PATH and arrange Orchard left, Claude right.
@@ -505,8 +524,8 @@ If COMMAND is non-nil, send it to Claude after initialization."
       (let ((default-directory path))
         (cl-letf (((symbol-function 'claude-code--directory) (lambda () path)))
           (claude-code))
-        ;; claude-code placed the buffer somewhere (likely replacing Orchard
-        ;; in a single-window frame).  Reconstruct: Orchard left, Claude right.
+        ;; claude-code placed the buffer somewhere — move it to a good window
+        ;; without destroying existing layout.
         (let ((claude-buf (orchard--claude-buffer-for-path path)))
           (if claude-buf
               (orchard--place-claude-buffer claude-buf)

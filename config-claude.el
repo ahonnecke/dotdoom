@@ -58,14 +58,14 @@
   ;; then same window - NEVER take over other Claude windows
   (defun claude--display-buffer-prefer-empty (buffer alist)
     "Display BUFFER in an empty window if available.
-Empty means: *scratch*, *Messages*, or dashboard buffers."
+Empty means: *scratch*, *Messages*, or internal buffers.
+Never takes over *Orchard* — the dashboard must stay visible."
     (let ((empty-window
            (cl-find-if
             (lambda (win)
               (let ((buf-name (buffer-name (window-buffer win))))
                 (or (string= buf-name "*scratch*")
                     (string= buf-name "*Messages*")
-                    (string= buf-name "*Orchard*")
                     (string= buf-name "*doom*")
                     (string-prefix-p " " buf-name)))) ; internal buffers
             (window-list nil 'no-mini))))
