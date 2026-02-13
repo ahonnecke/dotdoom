@@ -499,9 +499,9 @@ If COMMAND is non-nil, send it to Claude after initialization."
           (when command
             (orchard--send-command-to-claude existing-claude 0.5 command)))
       ;; New Claude session.  claude-code will pop-to-buffer → vterm-mode →
-      ;; (conditionally) delete-window → display-window-fn.  With our upstream
-      ;; fix, delete-window is safe on sole windows.  We just need to call
-      ;; claude-code, then arrange the layout.
+      ;; delete-window → display-window-fn.  We have a local patch in
+      ;; claude-code.el guarding delete-window with one-window-p (not yet
+      ;; upstreamed).  We call claude-code, then arrange the layout.
       (let ((default-directory path))
         (cl-letf (((symbol-function 'claude-code--directory) (lambda () path)))
           (claude-code))
@@ -617,41 +617,6 @@ Prioritizes sessions that are waiting for input."
                (if (> (length all-claudes) 4)
                    (format " (%d more available)" (- (length all-claudes) 4))
                  "")))))
-
-(defun orchard-debug-windows ()
-  "Debug window state - run this BEFORE starting Claude to see what orchard sees."
-  (interactive)
-  (let* ((windows (window-list nil 'no-mini))
-         (leftmost (orchard--leftmost-window))
-         (non-leftmost (cl-remove leftmost windows)))
-    (with-output-to-temp-buffer "*orchard-window-debug*"
-      (princ "=== WINDOW STATE ===\n\n")
-      (princ (format "Total windows: %d\n" (length windows)))
-      (princ (format "Frame width: %d\n\n" (frame-width)))
-      (dolist (win windows)
-        (let* ((buf (window-buffer win))
-               (buf-name (buffer-name buf))
-               (edges (window-edges win))
-               (width (window-width win))
-               (height (window-height win))
-               (is-leftmost (eq win leftmost))
-               (is-reusable (orchard--window-reusable-p win))
-               (is-claude (orchard--window-showing-claude-p win))
-               (is-orchard (orchard--window-showing-orchard-p win)))
-          (princ (format "Window: %s\n" win))
-          (princ (format "  Buffer: %s\n" buf-name))
-          (princ (format "  Size: %dx%d (WxH)\n" width height))
-          (princ (format "  Edges: %s\n" edges))
-          (princ (format "  Flags: %s%s%s%s\n"
-                         (if is-leftmost "LEFTMOST " "")
-                         (if is-reusable "REUSABLE " "")
-                         (if is-claude "CLAUDE " "")
-                         (if is-orchard "ORCHARD " "")))
-          (princ "\n")))
-      (princ "=== BEST WINDOW SELECTION ===\n")
-      (let ((best (orchard--find-best-window)))
-        (princ (format "orchard--find-best-window returns: %s\n" best))
-        (princ (format "  showing: %s\n" (buffer-name (window-buffer best))))))))
 
 (defun orchard-debug-claude-status ()
   "Show diagnostic info for all Claude buffers and issue mappings.
