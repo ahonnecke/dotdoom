@@ -992,6 +992,30 @@ To read package source: `M-x find-library RET magit RET`
 
 ---
 
+## Troubleshooting - Known Gotchas
+
+### Claude CLI exits with code 1 / "cannot be launched inside another session"
+
+**Symptom**: `claude-code` creates a vterm buffer that immediately dies. `vterm--sentinel` kills the buffer. Timer errors: "Selecting deleted buffer" x16. Looks like a window management problem but ISN'T.
+
+**Root cause**: The `CLAUDECODE` environment variable is set (inherited from the parent terminal running Claude Code). Claude CLI detects this and refuses to start.
+
+**Fix**: `(setenv "CLAUDECODE" nil)` in `config-claude.el` (inside `after! vterm`). This strips the var before spawning child Claude processes.
+
+**Diagnosis approach**: When a vterm buffer disappears immediately, check the process exit code FIRST. Use `set-process-sentinel` to catch `exited abnormally with code N`. Don't chase window management until you've confirmed the process survives.
+
+### claude-code.el delete-window on sole window
+
+**Symptom**: Error "Attempt to delete minibuffer or sole ordinary window" when starting Claude from a single-window frame (e.g., Orchard splash screen).
+
+**Root cause**: `claude-code--term-make` unconditionally calls `(delete-window (get-buffer-window buffer))` after starting vterm. With only one window, this errors.
+
+**Fix**: Patched upstream in `~/.emacs.d/.local/straight/repos/claude-code.el/claude-code.el` — wrapped in `(when (not (one-window-p 'nomini)) ...)`. Note: also deleted the `.elc` and `.eln` compiled versions so the source edit takes effect.
+
+**Warning**: `doom sync` or package updates will overwrite this patch. Re-apply or upstream the fix.
+
+---
+
 ## Development Rules (Added after broken session 2026-01-26)
 
 **CRITICAL: When editing config-orchard.el or any large elisp file:**
