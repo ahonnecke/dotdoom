@@ -68,9 +68,7 @@ Prefers agent-shell over claude-code when auto-detecting."
       ('agent-shell
        (orchard--start-agent-shell path command))
       ('claude-code
-       (if command
-           (orchard--start-claude-with-command path command)
-         (orchard--start-claude-with-resume path))))))
+       (orchard--start-claude-with-resume path command)))))
 
 (defun orchard--start-agent-shell (path &optional command)
   "Start agent-shell for PATH, optionally running COMMAND after init.
@@ -79,8 +77,10 @@ Automatically uses --continue to resume the most recent session in PATH."
   (let ((default-directory path)
         ;; Add --continue to resume sessions, --permission-mode dontAsk to reduce prompts
         (agent-shell-anthropic-claude-command '("claude-code-acp" "--continue" "--permission-mode" "dontAsk")))
-    ;; Start agent-shell - let it handle its own window
-    (agent-shell-anthropic-start-claude-code)
+    ;; Override agent-shell-cwd so it uses our worktree path
+    ;; instead of projectile-project-root (which returns the Orchard project)
+    (cl-letf (((symbol-function 'agent-shell-cwd) (lambda () (expand-file-name path))))
+      (agent-shell-anthropic-start-claude-code))
     ;; Send command after Claude initializes (needs time to start)
     (when command
       (run-at-time 4 nil
@@ -473,36 +473,48 @@ can leave it mismatched. This tells vterm the correct size."
                              (w (- (window-width win) 2)))
                          (vterm--set-size h w))))))))
 
-(defun orchard--start-claude-with-resume (path)
-  "Start Claude for PATH in current window. Does NOT auto-resume."
+(defun orchard--place-claude-buffer (claude-buf)
+  "Arrange windows: Orchard left, CLAUDE-BUF right. Select Claude.
+Uses only low-level set-window-buffer/select-window to avoid
+display-buffer-alist interference.  Safe to call from timers."
+  (when (buffer-live-p claude-buf)
+    (let ((orchard-buf (get-buffer "*Orchard*")))
+      ;; Reset to clean state: one window with Orchard
+      (delete-other-windows)
+      (when orchard-buf
+        (set-window-buffer (selected-window) orchard-buf))
+      ;; Split right, put Claude there, select it
+      (let ((claude-win (split-window nil nil 'right)))
+        (set-window-buffer claude-win claude-buf)
+        (select-window claude-win)))))
+
+(defun orchard--start-claude-with-resume (path &optional command)
+  "Start Claude for PATH and arrange Orchard left, Claude right.
+If COMMAND is non-nil, send it to Claude after initialization."
   (orchard--ensure-claude-loaded)
   (let ((existing-claude (orchard--claude-buffer-for-path path)))
     (if existing-claude
-        ;; Claude exists - just switch to it in current window
-        (switch-to-buffer existing-claude)
-      ;; Start new Claude - brute force window preservation
-      (let* ((target-win (selected-window))
-             (win-config (current-window-configuration))
-             (buffers-before (buffer-list))
-             (default-directory path))
-        ;; Start Claude - let it do whatever crazy window stuff it wants
-        (claude-code)
-        ;; Find the new Claude buffer
-        (let ((new-claude (cl-find-if
-                           (lambda (buf)
-                             (and (string-prefix-p "*claude:" (buffer-name buf))
-                                  (not (memq buf buffers-before))))
-                           (buffer-list))))
-          ;; Restore our window layout
-          (set-window-configuration win-config)
-          ;; Now put Claude in the window we wanted
-          (when new-claude
-            (set-window-buffer target-win new-claude)
-            (select-window target-win)
-            ;; Fix vterm size to match window (Claude queried size before restore)
-            (orchard--fix-claude-size new-claude target-win)
-            ;; Register for session persistence
-            (orchard--register-claude-buffer path)))))))
+        (progn
+          (orchard--place-claude-buffer existing-claude)
+          (when command
+            (orchard--send-command-to-claude existing-claude 0.5 command)))
+      ;; New Claude session.  claude-code will pop-to-buffer → vterm-mode →
+      ;; (conditionally) delete-window → display-window-fn.  With our upstream
+      ;; fix, delete-window is safe on sole windows.  We just need to call
+      ;; claude-code, then arrange the layout.
+      (let ((default-directory path))
+        (cl-letf (((symbol-function 'claude-code--directory) (lambda () path)))
+          (claude-code))
+        ;; claude-code placed the buffer somewhere (likely replacing Orchard
+        ;; in a single-window frame).  Reconstruct: Orchard left, Claude right.
+        (let ((claude-buf (orchard--claude-buffer-for-path path)))
+          (if claude-buf
+              (orchard--place-claude-buffer claude-buf)
+            (message "orchard: claude-code did not create a buffer")))
+        (orchard--register-claude-buffer path)
+        (when command
+          (when-let ((claude-buf (orchard--claude-buffer-for-path path)))
+            (orchard--send-command-to-claude claude-buf 3 command)))))))
 
 (defun orchard--send-resume-to-claude (claude-buf delay)
   "Send /resume and Enter to CLAUDE-BUF after DELAY seconds."
@@ -527,39 +539,6 @@ can leave it mismatched. This tells vterm the correct size."
                    (with-current-buffer claude-buf
                      (vterm-send-string command)
                      (vterm-send-return))))))
-
-(defun orchard--start-claude-with-command (path command)
-  "Start Claude for PATH in current window and run COMMAND after initialization."
-  (orchard--ensure-claude-loaded)
-  (let ((existing-claude (orchard--claude-buffer-for-path path)))
-    (if existing-claude
-        ;; Claude exists - switch to it and send command
-        (progn
-          (switch-to-buffer existing-claude)
-          (orchard--send-command-to-claude existing-claude 0.5 command))
-      ;; Start new Claude with window preservation
-      (let* ((target-win (selected-window))
-             (win-config (current-window-configuration))
-             (buffers-before (buffer-list))
-             (default-directory path))
-        (claude-code)
-        (let ((new-claude (cl-find-if
-                           (lambda (buf)
-                             (and (string-prefix-p "*claude:" (buffer-name buf))
-                                  (not (memq buf buffers-before))))
-                           (buffer-list))))
-          ;; Restore window layout
-          (set-window-configuration win-config)
-          (when new-claude
-            (set-window-buffer target-win new-claude)
-            (select-window target-win)
-            ;; Fix vterm size
-            (orchard--fix-claude-size new-claude target-win)
-            ;; Send command after init
-            (run-at-time 3 nil
-                         (lambda ()
-                           (when (buffer-live-p new-claude)
-                             (orchard--send-command-to-claude new-claude 0 command))))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Listing and Debugging

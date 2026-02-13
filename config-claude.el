@@ -49,6 +49,11 @@
   ;; NEVER delete other windows when starting Claude
   (setq claude-code-no-delete-other-windows t)
 
+  ;; Strip CLAUDECODE env var so nested sessions work.
+  ;; When Emacs is launched FROM a Claude Code terminal, child claude
+  ;; processes refuse to start ("cannot be launched inside another session").
+  (setenv "CLAUDECODE" nil)
+
   ;; Global display rule: Claude buffers prefer empty windows,
   ;; then same window - NEVER take over other Claude windows
   (defun claude--display-buffer-prefer-empty (buffer alist)
@@ -146,11 +151,16 @@ Use this instead of claude-code to ensure Claude opens HERE."
              (boundp 'vterm--term)
              vterm--term)
     (let* ((win (get-buffer-window (current-buffer)))
-           (width (when win (window-width win)))
+           (width (when win (1- (window-width win))))
            (height (when win (window-height win))))
       (when (and width height)
-        (vterm--set-size vterm--term height width)
-        (message "Reset vterm size")))))
+        (when (bound-and-true-p vterm-copy-mode)
+          (vterm-copy-mode -1))
+        (let ((inhibit-read-only t))
+          (vterm--set-size vterm--term height width)
+          (vterm-send-string "\033[2J")
+          (vterm-send-key "l" nil nil t))
+        (message "Reset vterm: %dx%d" width height)))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Debugging - Hang diagnosis
