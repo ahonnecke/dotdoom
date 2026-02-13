@@ -48,4 +48,4 @@
     (smerge-mode -1)) ;; Disable smerge-mode when Hydra closes
 
   ;; Bind the toggle key to start smerge-mode manually
-  (global-set-key (kbd "C-x g m") #'my/smerge-session))
+  (global-set-key (kbd "C-c g m") #'my/smerge-session))

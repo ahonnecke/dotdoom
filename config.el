@@ -7,7 +7,7 @@
 ;; Some functionality uses this to identify you, e.g. GPG configuration, email
 ;; clients, file templates and snippets. It is optional.
 (setq user-full-name "Ashton Honnecke"
-      user-mail-address "ashton@pixelstub.com")
+      user-mail-address "ashton@novemberuniform.com")
 
 ;; Doom exposes five (optional) variables for controlling fonts in Doom:
 ;;
@@ -237,6 +237,7 @@
 (load "~/.doom.d/config-crewcapable-services") ; Vercel/Supabase layer for crewcapable
 
 ;;(load "~/.doom.d/config-jolly-brancher")
+(load "~/.doom.d/config-notmuch")
 ;;Load my ash-mode binding last
 (load "~/.doom.d/config-bindings")
 (load "~/.doom.d/config-cheatsheet")  ; C-c ? for help
@@ -259,6 +260,5 @@
           (internal-border-width . 2)))
   (vertico-posframe-mode 1))
 
-;; Open Orchard on startup
-(setq inhibit-startup-screen t
-      initial-buffer-choice #'orchard)
+;; Fast startup — use C-c O O to open Orchard when needed
+(setq inhibit-startup-screen nil)
