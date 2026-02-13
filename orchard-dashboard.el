@@ -325,6 +325,49 @@ BRANCH is used to look up PR status from cache."
         (t (propertize "wip" 'face '(:foreground "#5C6370"))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;; Milestone Bar
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun orchard--format-milestone-bar ()
+  "Format a compact milestone bar showing available milestones with counts.
+Each milestone is clickable (RET filters to it)."
+  (let ((milestones (orchard--get-all-milestones)))
+    (when milestones
+      (concat
+       (propertize "  🎯 " 'face 'font-lock-comment-face)
+       (mapconcat
+        (lambda (ms)
+          (let* ((title (car ms))
+                 (count (cdr ms))
+                 (active (and orchard--milestone-filter
+                              (string-equal-ignore-case title orchard--milestone-filter)))
+                 (face (if active
+                           '(:foreground "#C678DD" :weight bold :underline t)
+                         '(:foreground "#C678DD"))))
+            (propertize (format "%s (%d)" title count)
+                        'face face
+                        'orchard-milestone title
+                        'help-echo (format "RET to filter by %s" title))))
+        milestones
+        (propertize "  " 'face 'default))
+       (when orchard--milestone-filter
+         (concat "  " (propertize "[\\] clear" 'face 'font-lock-comment-face)))
+       "\n"))))
+
+(defun orchard-milestone-at-point ()
+  "Filter by milestone at point, or clear if already active."
+  (interactive)
+  (when-let ((title (get-text-property (point) 'orchard-milestone)))
+    (if (and orchard--milestone-filter
+             (string-equal-ignore-case title orchard--milestone-filter))
+        (progn
+          (setq orchard--milestone-filter nil)
+          (message "Milestone filter cleared"))
+      (setq orchard--milestone-filter title)
+      (message "Filtering by milestone: %s" title))
+    (orchard-refresh)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Section Headers and Categorization
 ;;; ════════════════════════════════════════════════════════════════════════════
 
@@ -373,17 +416,21 @@ Returns alist with keys:
              (has-p1-label (orchard--issue-has-exact-label-p issue "P1"))
              (active-today (orchard--issue-active-today-p issue)))
         (cond
-         ;; P1 issues - only show if last comment > last staging deploy
-         ;; (meaning UAT failed and no fix has been deployed yet)
-         ((and has-p1-label (orchard--p1-needs-dev-attention-p issue))
+         ;; P1 issues - only check UAT status if staging data is loaded
+         ;; (staging data loads on force-refresh G, not initial open)
+         ((and has-p1-label
+               orchard--staging-fetched-time
+               (orchard--p1-needs-dev-attention-p issue))
           (if (orchard--issue-needs-urgent-attention-p issue)
               ;; Recent UAT comment = highest priority
               (push (cons issue wt) uat-urgent)
             ;; Otherwise just failed UAT
             (push (cons issue wt) uat-failed)))
          ;; P1 with fix deployed (staging newer than comment) - skip, awaiting re-test
-         ;; Only hide if there WAS a staging deployment (otherwise it's new work)
-         ((and has-p1-label (orchard--get-staging-merge-time issue-num))
+         ;; Only check if staging data is loaded
+         ((and has-p1-label
+               orchard--staging-fetched-time
+               (orchard--get-staging-merge-time issue-num))
           nil) ; Don't show - fix deployed, awaiting UAT re-test
          ;; Claude is WAITING for input - very high priority
          ((eq claude-status 'waiting)
@@ -392,7 +439,9 @@ Returns alist with keys:
          (has-production-label
           (push (cons issue wt) qa-verify))
          ;; Merged to dev but not on staging - ready to deploy
-         ((orchard--issue-ready-to-deploy-p issue-num)
+         ;; Only check if merged data is loaded (loads on G)
+         ((and orchard--merged-branches-cache
+               (orchard--issue-ready-to-deploy-p issue-num))
           (push (cons issue wt) ready-to-deploy))
          ;; No worktree
          ((not wt)
@@ -455,7 +504,9 @@ Returns alist with keys:
              (t
               (push (cons issue wt) needs-analysis))))))))
     ;; Get archivable worktrees for DONE section
-    (unless orchard--inhibit-cache-refresh
+    ;; Only when merged data is loaded (loads on G, not initial open)
+    (when (and (not orchard--inhibit-cache-refresh)
+               orchard--merged-branches-cache)
       (when (fboundp 'orchard--get-archivable-worktrees)
         (dolist (wt (orchard--get-archivable-worktrees))
           (let* ((branch (alist-get 'branch wt))
@@ -548,7 +599,7 @@ Returns 99 if no priority label found (sorts to end)."
          (wt (cdr issue-wt-pair))
          (number (alist-get 'number issue))
          (title (alist-get 'title issue))
-         (labels (alist-get 'labels issue))
+         (labels (append (alist-get 'labels issue) nil))
          (closed (alist-get 'closed issue))
          (icon (orchard--issue-type-icon labels))
          (wt-path (when wt (alist-get 'path wt)))
@@ -558,6 +609,11 @@ Returns 99 if no priority label found (sorts to end)."
          (needs-attention (memq claude-status '(waiting idle)))
          (workflow (if wt (orchard--format-workflow-indicator stage wt-branch) ""))
          (session-indicator (if wt-path (orchard--format-session-indicator wt-path) ""))
+         (milestone (alist-get 'milestone issue))
+         (milestone-str (if milestone
+                            (propertize (format " [%s]" (alist-get 'title milestone))
+                                        'face '(:foreground "#C678DD" :weight bold))
+                          ""))
          (label-str (orchard--format-labels labels))
          (attention-prefix (if needs-attention
                                (propertize ">>>" 'face '(:foreground "#E06C75" :weight bold))
@@ -578,6 +634,7 @@ Returns 99 if no priority label found (sorts to end)."
                                   'face 'orchard-issue-title)
                       merged-badge
                       closed-badge
+                      milestone-str
                       session-indicator
                       label-str
                       "\n")))
@@ -697,8 +754,9 @@ WORKTREES is the list of current worktrees."
   "Format the Orchard dashboard with issue-centric layout."
   ;; Load previous sessions on first dashboard open
   (orchard--load-previous-sessions)
-  ;; Ensure all caches are fresh (single coherent refresh)
-  (orchard--ensure-all-caches)
+  ;; Ensure essential caches (issues + open PRs) for fast render.
+  ;; Staging/merged/closed load on force-refresh (G).
+  (orchard--ensure-essential-caches)
   (let* ((worktrees (orchard--get-worktrees))
          (current (orchard--current-worktree))
          (current-path (when current (alist-get 'path current)))
@@ -729,6 +787,10 @@ WORKTREES is the list of current worktrees."
                             (when orchard--label-filter
                               (setq issues (cl-remove-if-not
                                             (lambda (i) (orchard--issue-has-exact-label-p i orchard--label-filter))
+                                            issues)))
+                            (when orchard--milestone-filter
+                              (setq issues (cl-remove-if-not
+                                            (lambda (i) (orchard--issue-has-milestone-p i orchard--milestone-filter))
                                             issues)))
                             (when orchard--text-filter
                               ;; Use search API to find issues (including closed)
@@ -813,6 +875,9 @@ WORKTREES is the list of current worktrees."
      (when orchard--label-filter
        (propertize (format "  🏷 %s" orchard--label-filter)
                    'face '(:foreground "#61AFEF" :weight bold)))
+     (when orchard--milestone-filter
+       (propertize (format "  🎯 %s" orchard--milestone-filter)
+                   'face '(:foreground "#C678DD" :weight bold)))
      (when (and (> staging-count 0) orchard--hide-staging-issues)
        (propertize (format "  (%d staging hidden)" staging-count)
                    'face 'font-lock-comment-face))
@@ -840,6 +905,8 @@ WORKTREES is the list of current worktrees."
      (propertize "[?]" 'face 'orchard-key)
      (propertize " Help" 'face 'font-lock-comment-face)
      "\n"
+     ;; Milestone bar
+     (orchard--format-milestone-bar)
      ;; Sections - Workflow pipeline order
      ;; PREVIOUSLY ACTIVE - sessions from last Emacs session (shows until dismissed)
      (when previous-sessions
@@ -1057,7 +1124,7 @@ Use this to see the complete issue title without truncation."
       (let* ((number (alist-get 'number issue))
              (title (alist-get 'title issue))
              (url (alist-get 'url issue))
-             (labels (alist-get 'labels issue))
+             (labels (append (alist-get 'labels issue) nil))
              (label-names (mapcar (lambda (l) (alist-get 'name l)) labels)))
         (message "#%d: %s%s%s"
                  number
@@ -1375,17 +1442,22 @@ This is the main entry point for the worktree manager."
     buf))
 
 (defun orchard-force-refresh ()
-  "Force refresh with fresh data from GitHub (bypasses cache)."
+  "Force refresh with fresh data from GitHub (bypasses all caches).
+Loads everything: staging, merged, closed, issues, PRs."
   (interactive)
   (setq orchard--worktrees-cache nil
         orchard--worktrees-cache-time nil
         orchard--issues-cache nil
         orchard--issues-cache-time nil
         orchard--pr-status-cache nil
-        orchard--pr-status-cache-time nil)
-  (orchard--refresh-merged-cache)
-  (orchard--refresh-closed-issues-cache)
-  (orchard--refresh-pr-status-cache)
+        orchard--pr-status-cache-time nil
+        orchard--merged-branches-cache nil
+        orchard--merged-branches-cache-time nil
+        orchard--closed-issues-cache nil
+        orchard--closed-issues-cache-time nil
+        orchard--staging-fetched-time nil)
+  (let ((orchard--inhibit-cache-refresh nil))
+    (orchard--ensure-all-caches))
   (orchard-refresh)
   (message "Orchard refreshed with fresh data"))
 

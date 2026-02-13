@@ -356,6 +356,9 @@ Alist of (issue-number . closed-at) pairs.")
 (defvar orchard--label-filter nil
   "When non-nil, only show issues with this label (exact match).")
 
+(defvar orchard--milestone-filter nil
+  "When non-nil, only show issues with this milestone title (exact match).")
+
 (defvar orchard--text-filter nil
   "When non-nil, only show issues/branches matching this text (case-insensitive).")
 
@@ -377,14 +380,14 @@ BACKLOG is collapsed by default.")
 
 (defun orchard--issue-has-label-p (issue label-pattern)
   "Return t if ISSUE has a label matching LABEL-PATTERN (case-insensitive)."
-  (let ((labels (alist-get 'labels issue)))
+  (let ((labels (append (alist-get 'labels issue) nil)))
     (cl-some (lambda (l)
                (string-match-p label-pattern (downcase (or (alist-get 'name l) ""))))
              labels)))
 
 (defun orchard--issue-has-exact-label-p (issue label-name)
   "Return t if ISSUE has a label with exact LABEL-NAME (case-insensitive)."
-  (let ((labels (alist-get 'labels issue)))
+  (let ((labels (append (alist-get 'labels issue) nil)))
     (cl-some (lambda (l)
                (string-equal (downcase (or (alist-get 'name l) ""))
                             (downcase label-name)))
@@ -403,6 +406,23 @@ BACKLOG is collapsed by default.")
         (puthash (alist-get 'name label) t labels-set)))
     (sort (hash-table-keys labels-set) #'string<)))
 
+(defun orchard--issue-has-milestone-p (issue milestone-title)
+  "Return t if ISSUE has a milestone matching MILESTONE-TITLE (case-insensitive)."
+  (when-let ((ms (alist-get 'milestone issue)))
+    (string-equal-ignore-case (or (alist-get 'title ms) "") milestone-title)))
+
+(defun orchard--get-all-milestones ()
+  "Get alist of (milestone-title . issue-count) from cached issues.
+Sorted alphabetically by title."
+  (let ((ms-counts (make-hash-table :test 'equal)))
+    (dolist (issue (orchard--get-open-issues))
+      (when-let ((ms (alist-get 'milestone issue)))
+        (when-let ((title (alist-get 'title ms)))
+          (puthash title (1+ (or (gethash title ms-counts) 0)) ms-counts))))
+    (let (result)
+      (maphash (lambda (k v) (push (cons k v) result)) ms-counts)
+      (sort result (lambda (a b) (string< (car a) (car b)))))))
+
 (defun orchard--refresh-issues-cache ()
   "Refresh the open issues cache from GitHub.
 Fetches recent issues plus ALL P1-labeled issues (high priority)."
@@ -412,11 +432,11 @@ Fetches recent issues plus ALL P1-labeled issues (high priority)."
         (condition-case err
             (let* (;; Fetch recent open issues (sorted by updated)
                    (recent-output (shell-command-to-string
-                                   "gh issue list --state open --limit 50 --json number,title,labels,assignees,url,createdAt,updatedAt 2>/dev/null"))
+                                   "gh issue list --state open --limit 50 --json number,title,labels,assignees,url,createdAt,updatedAt,milestone 2>/dev/null"))
                    (recent-json (ignore-errors (json-read-from-string recent-output)))
                    ;; Fetch ALL P1 issues separately (they're high priority, don't want to miss any)
                    (p1-output (shell-command-to-string
-                               "gh issue list --state open --label P1 --limit 100 --json number,title,labels,assignees,url,createdAt,updatedAt 2>/dev/null"))
+                               "gh issue list --state open --label P1 --limit 100 --json number,title,labels,assignees,url,createdAt,updatedAt,milestone 2>/dev/null"))
                    (p1-json (ignore-errors (json-read-from-string p1-output)))
                    ;; Merge: P1 issues first, then recent (deduped)
                    (p1-list (when (vectorp p1-json) (append p1-json nil)))
@@ -492,7 +512,7 @@ Results are cached for 2 minutes to avoid repeated API calls."
         (when repo-root
           (let ((default-directory repo-root))
             (condition-case nil
-                (let* ((cmd (format "gh issue list --state all --search %s --limit 50 --json number,title,labels,assignees,url,state,createdAt,updatedAt,closedAt 2>/dev/null"
+                (let* ((cmd (format "gh issue list --state all --search %s --limit 50 --json number,title,labels,assignees,url,state,createdAt,updatedAt,closedAt,milestone 2>/dev/null"
                                     (shell-quote-argument search-term)))
                        (output (shell-command-to-string cmd))
                        (json (ignore-errors (json-read-from-string output)))
@@ -619,15 +639,24 @@ Called once per refresh cycle, not per-issue."
           (call-process "git" nil nil nil "fetch" "upstream" "staging" "--quiet")
           (setq orchard--staging-fetched-time (current-time)))))))
 
+(defun orchard--ensure-essential-caches ()
+  "Ensure essential caches (issues + open PRs) for fast dashboard render.
+Only loads what's needed for core sections: CLAUDE WAITING, NEXT UP,
+IN FLIGHT, STALE, PR *, BACKLOG, UNLINKED."
+  (unless orchard--inhibit-cache-refresh
+    (orchard--ensure-issues-cache)
+    (orchard--ensure-pr-status-cache)))
+
 (defun orchard--ensure-all-caches ()
-  "Ensure all caches are fresh for dashboard refresh.
-Call this once at the start of dashboard formatting to avoid
-piecemeal cache refreshes and ensure coherent state."
+  "Ensure ALL caches including staging/merged/closed.
+Called by force-refresh (G) for complete dashboard with
+UAT FAILED, READY TO DEPLOY, QA/VERIFY, and DONE sections."
   (unless orchard--inhibit-cache-refresh
     (orchard--ensure-staging-fetched)
     (orchard--ensure-merged-cache)
     (orchard--ensure-issues-cache)
-    (orchard--ensure-pr-status-cache)))
+    (orchard--ensure-pr-status-cache)
+    (orchard--ensure-closed-issues-cache)))
 
 (defun orchard--get-staging-merge-time (issue-number)
   "Get the timestamp of the most recent merge to staging for ISSUE-NUMBER.

@@ -376,7 +376,7 @@ Creates worktree if needed, otherwise opens existing."
              (issue (cl-find-if (lambda (i) (= (alist-get 'number i) issue-num)) issues)))
         (if issue
             (let* ((title (alist-get 'title issue))
-                   (labels (alist-get 'labels issue))
+                   (labels (append (alist-get 'labels issue) nil))
                    (inferred-type (orchard--infer-branch-type-from-labels labels))
                    (branch-type (completing-read
                                  (format "Branch type for #%d (default %s): " issue-num inferred-type)

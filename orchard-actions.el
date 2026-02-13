@@ -46,6 +46,7 @@
 (declare-function ghq--load-port-registry "config-ghq")
 (declare-function ghq--save-port-registry "config-ghq")
 (declare-function testicular-start "config-testicular")
+(declare-function orchard-milestone-at-point "orchard-dashboard")
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Dashboard Actions - Open/Navigate
@@ -53,10 +54,13 @@
 
 (defun orchard-open-at-point ()
   "Open item at point with Claude and auto-resume.
+If on a milestone, toggle milestone filter.
 If on a worktree, open Claude for it.
 If on an issue, start a branch (or jump to existing) and open Claude."
   (interactive)
   (cond
+   ((get-text-property (point) 'orchard-milestone)
+    (orchard-milestone-at-point))
    ((orchard--get-worktree-at-point)
     (let* ((wt (orchard--get-worktree-at-point))
            (path (alist-get 'path wt))
@@ -350,11 +354,28 @@ Prompts for a label from the available labels in cached issues."
         (message "Filtering by label: %s" label)
         (orchard-refresh)))))
 
+(defun orchard-filter-by-milestone ()
+  "Filter issues by milestone.
+Prompts for a milestone from the available milestones in cached issues."
+  (interactive)
+  (let ((milestones (orchard--get-all-milestones)))
+    (if (null milestones)
+        (message "No milestones found in cached issues")
+      (let* ((choices (mapcar (lambda (m)
+                                (format "%s (%d)" (car m) (cdr m)))
+                              milestones))
+             (selection (completing-read "Filter by milestone: " choices nil t))
+             (title (car (nth (cl-position selection choices :test #'string=) milestones))))
+        (setq orchard--milestone-filter title)
+        (message "Filtering by milestone: %s" title)
+        (orchard-refresh)))))
+
 (defun orchard-clear-filters ()
-  "Clear all filters (text and label)."
+  "Clear all filters (text, label, and milestone)."
   (interactive)
   (setq orchard--label-filter nil
-        orchard--text-filter nil)
+        orchard--text-filter nil
+        orchard--milestone-filter nil)
   (message "All filters cleared")
   (orchard-refresh))
 
@@ -407,6 +428,7 @@ Toggle off if already marked. Automatically clears when PR is created."
   ["Filters"
    ("/" "Search (free text)" orchard-filter-by-text)
    ("L" "Filter by label" orchard-filter-by-label)
+   ("m" "Filter by milestone" orchard-filter-by-milestone)
    ("\\" "Clear all filters" orchard-clear-filters)
    ("s" "Toggle staging" orchard-toggle-staging-issues)]
   ["Hidden"
@@ -1084,56 +1106,61 @@ Uses external script for git operations (testable, reusable)."
         (user-error "Worktree not created at: %s" worktree-path))
       ;; Run post-create hook (Emacs-specific)
       (run-hook-with-args 'orchard-post-create-hook worktree-path)
-      ;; Open Claude (uses agent-shell or claude-code.el based on backend)
-      (orchard--start-claude-backend worktree-path)
-      ;; Refresh dashboard
+      ;; Refresh dashboard (caller is responsible for opening Claude)
       (when-let ((buf (get-buffer "*Orchard*")))
         (with-current-buffer buf (orchard-refresh)))
-      (message "✨ Created %s" full-branch)
+      (message "Created %s" full-branch)
       worktree-path)))
 
 (defun orchard-new-feature (name)
   "Create new FEATURE/NAME branch."
   (interactive "sFeature name: ")
   (let ((desc (read-string "Description (optional): ")))
-    (orchard--create-branch "FEATURE" name desc)))
+    (when-let ((path (orchard--create-branch "FEATURE" name desc)))
+      (orchard--start-claude-backend path))))
 
 (defun orchard-new-bugfix (name)
   "Create new BUGFIX/NAME branch."
   (interactive "sBugfix name: ")
   (let ((desc (read-string "Description (optional): ")))
-    (orchard--create-branch "BUGFIX" name desc)))
+    (when-let ((path (orchard--create-branch "BUGFIX" name desc)))
+      (orchard--start-claude-backend path))))
 
 (defun orchard-new-chore (name)
   "Create new CHORE/NAME branch."
   (interactive "sChore name: ")
   (let ((desc (read-string "Description (optional): ")))
-    (orchard--create-branch "CHORE" name desc)))
+    (when-let ((path (orchard--create-branch "CHORE" name desc)))
+      (orchard--start-claude-backend path))))
 
 (defun orchard-new-refactor (name)
   "Create new REFACTOR/NAME branch."
   (interactive "sRefactor name: ")
   (let ((desc (read-string "Description (optional): ")))
-    (orchard--create-branch "REFACTOR" name desc)))
+    (when-let ((path (orchard--create-branch "REFACTOR" name desc)))
+      (orchard--start-claude-backend path))))
 
 (defun orchard-new-docs (name)
   "Create new DOCS/NAME branch."
   (interactive "sDocs name: ")
   (let ((desc (read-string "Description (optional): ")))
-    (orchard--create-branch "DOCS" name desc)))
+    (when-let ((path (orchard--create-branch "DOCS" name desc)))
+      (orchard--start-claude-backend path))))
 
 (defun orchard-new-experiment (name)
   "Create new EXPERIMENT/NAME branch."
   (interactive "sExperiment name: ")
   (let ((desc (read-string "Description (optional): ")))
-    (orchard--create-branch "EXPERIMENT" name desc)))
+    (when-let ((path (orchard--create-branch "EXPERIMENT" name desc)))
+      (orchard--start-claude-backend path))))
 
 (defun orchard-new-research (name)
   "Create new RESEARCH/NAME branch for debugging, demos, or investigations.
 These branches are for throwaway work that won't become a PR."
   (interactive "sResearch name: ")
   (let ((desc (read-string "Description (optional): ")))
-    (orchard--create-branch "RESEARCH" name desc)))
+    (when-let ((path (orchard--create-branch "RESEARCH" name desc)))
+      (orchard--start-claude-backend path))))
 
 ;; Legacy aliases
 (defalias 'orchard-new-fix 'orchard-new-bugfix)
@@ -1165,7 +1192,7 @@ Opens Claude with auto-resume after creation or when jumping to existing."
   (if-let ((issue (orchard--get-issue-at-point)))
       (let* ((number (alist-get 'number issue))
              (title (alist-get 'title issue))
-             (labels (alist-get 'labels issue))
+             (labels (append (alist-get 'labels issue) nil))
              (worktrees (orchard--get-worktrees)))
         ;; Check if already has worktree FIRST
         (if (orchard--issue-has-worktree-p number worktrees)
@@ -1173,7 +1200,7 @@ Opens Claude with auto-resume after creation or when jumping to existing."
             (when-let ((wt (orchard--find-worktree-for-issue number)))
               (message "Opening Claude for #%d..." number)
               (orchard--start-claude-backend (alist-get 'path wt)))
-          ;; No worktree - proceed with creation (which now opens Claude)
+          ;; No worktree - create branch, then open Claude explicitly
           (let* ((inferred-type (orchard--infer-branch-type-from-labels labels))
                  (branch-type (completing-read
                                (format "Branch type for #%d (default %s): " number inferred-type)
@@ -1184,8 +1211,10 @@ Opens Claude with auto-resume after creation or when jumping to existing."
                                       (orchard--normalize-branch-name title)))
                  (description (format "#%d: %s" number title)))
             (message "Starting branch for issue #%d: %s..." number title)
-            (orchard--create-branch branch-type branch-name description number)
-            (message "Created %s/%s linked to issue #%d" branch-type branch-name number))))
+            (let ((wt-path (orchard--create-branch branch-type branch-name description number)))
+              (when wt-path
+                (message "Opening Claude for #%d..." number)
+                (orchard--start-claude-backend wt-path))))))
     (user-error "No issue at point")))
 
 (defun orchard-issue-start-prompt ()
