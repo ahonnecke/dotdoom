@@ -109,6 +109,7 @@
     (define-key map (kbd "z") #'orchard-resume-sessions)   ; resume saved sessions
     (define-key map (kbd "Z") #'orchard--clear-previous-sessions)
     (define-key map (kbd "l") #'orchard-list-claudes)      ; list all claude sessions
+    (define-key map (kbd "W") #'orchard-tile-claudes)      ; tile up to 4 claudes
 
     ;; Create branches (from issue or scratch)
     (define-key map (kbd "I") #'orchard-issue-start)       ; start from GitHub issue

@@ -566,19 +566,11 @@ If COMMAND is non-nil, send it to Claude after initialization."
           (pop-to-buffer buf))))))
 
 (defun orchard-tile-claudes ()
-  "Tile up to 4 Claude windows in a 2x2 grid.
-Prioritizes sessions that are waiting for input."
+  "Tile up to 4 Claude windows in a 2x2 grid, oldest first.
+Uses buffer-list order reversed so oldest sessions appear first."
   (interactive)
-  (let* ((all-claudes (orchard--get-claude-buffers))
-         ;; Sort: waiting first, then by buffer name
-         (sorted (sort (copy-sequence all-claudes)
-                       (lambda (a b)
-                         (let ((a-waiting (orchard--claude-waiting-p a))
-                               (b-waiting (orchard--claude-waiting-p b)))
-                           (or (and a-waiting (not b-waiting))
-                               (and (eq a-waiting b-waiting)
-                                    (string< (buffer-name a) (buffer-name b))))))))
-         (claudes (seq-take sorted 4))
+  (let* ((all-claudes (nreverse (orchard--get-claude-buffers)))
+         (claudes (seq-take all-claudes 4))
          (count (length claudes)))
     (cond
      ((= count 0)
