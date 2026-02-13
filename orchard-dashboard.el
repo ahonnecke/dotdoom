@@ -396,8 +396,8 @@ Returns alist with keys:
   uat-failed      - Has P1 label (failed UAT, needs revisiting)
   ready-to-deploy - Merged to dev but not on staging yet
   next-up         - Issues active today with NO worktree (not started)
-  needs-analysis  - Has worktree but no plan file
-  in-flight       - Has worktree, no PR (work in progress)
+  needs-analysis  - Has worktree but no commits ahead of upstream (analyzed only)
+  in-flight       - Has worktree with commits, no PR (work in progress)
   stale-work      - Has plan but no activity in 3+ days
   pr-failing      - Has PR with CI failing
   pr-review       - Has PR, CI passing, needs review
@@ -458,6 +458,7 @@ Returns alist with keys:
           (let* ((stage (alist-get 'stage wt))
                  (path (alist-get 'path wt))
                  (branch (alist-get 'branch wt))
+                 (ahead (or (alist-get 'ahead wt) 0))
                  (has-plan (or (file-exists-p (expand-file-name ".plan.md" path))
                                (file-exists-p (expand-file-name ".test-plan.md" path))))
                  ;; Check both .pr-url file AND GitHub PR cache
@@ -465,7 +466,9 @@ Returns alist with keys:
                  (pr-status (orchard--get-pr-status branch))
                  (has-pr (or has-pr-file pr-status))
                  (ci-status (when pr-status (plist-get pr-status :ci-status)))
-                 (review (when pr-status (plist-get pr-status :review-decision))))
+                 (review (when pr-status (plist-get pr-status :review-decision)))
+                 ;; Real work = commits ahead of upstream
+                 (has-real-work (> ahead 0)))
             (cond
              ;; PR merged - QA/verify
              ((eq stage 'merged)
@@ -491,17 +494,14 @@ Returns alist with keys:
                 (if stale
                     (push (cons issue wt) stale-work)
                   (push (cons issue wt) in-flight))))
-             ;; Active Claude (not waiting) - in flight
+             ;; Active Claude (not waiting) - in flight regardless of commits
              ((eq claude-status 'active)
               (push (cons issue wt) in-flight))
-             ;; Has saved Claude session - in flight (work in progress)
-             (has-saved-session
+             ;; Has commits ahead — real work done, in flight
+             (has-real-work
               (push (cons issue wt) in-flight))
-             ;; Has worktree but no plan, no Claude - needs analysis
-             ;; (but still "in flight" if active today)
-             (active-today
-              (push (cons issue wt) in-flight))
-             ;; No plan, no Claude, not active - needs analysis
+             ;; No commits ahead — worktree exists but no code written yet
+             ;; (analysis ran, but implementation hasn't started)
              (t
               (push (cons issue wt) needs-analysis))))))))
     ;; Get archivable worktrees for DONE section
@@ -968,7 +968,7 @@ WORKTREES is the list of current worktrees."
      ;; NEEDS ANALYSIS - has worktree, no plan
      (when (and needs-analysis (orchard--section-visible-p 'needs-analysis))
        (concat
-        (orchard--format-section-header "📋 NEEDS ANALYSIS" (length needs-analysis) "no plan" 'needs-analysis)
+        (orchard--format-section-header "📋 ANALYZED" (length needs-analysis) "worktree, no commits" 'needs-analysis)
         (unless (orchard--section-collapsed-p 'needs-analysis)
           (mapconcat (lambda (pair)
                        (orchard--format-issue-with-branch pair current-path))
