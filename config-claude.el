@@ -159,12 +159,11 @@ then sends clear-screen + redraw to the terminal."
                    (boundp 'vterm--process)
                    vterm--process
                    (process-live-p vterm--process))
-          (let ((result (vterm--window-adjust-process-window-size
-                         vterm--process (list win))))
+          (vterm--window-adjust-process-window-size vterm--process (list win))
             ;; Clear screen and redraw after resize
             (vterm-send-string "\033[2J")
             (vterm-send-key "l" nil nil t)
-            (message "Reset vterm: %dx%d" (or (car result) "?") (or (cdr result) "?"))))))))
+            (message "Reset vterm: %dx%d" (window-body-width win) (window-body-height win))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Debugging - Hang diagnosis
