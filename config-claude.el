@@ -144,22 +144,28 @@ Use this instead of claude-code to ensure Claude opens HERE."
 
 (defun claude-reset-window ()
   "Reset current Claude window - fixes garbled display after resize.
-Sets the PTY to match the window, then sends SIGWINCH so the TUI re-renders."
+Physically shrinks the window by 1 col then restores it, which triggers
+vterm's natural resize pipeline (the same path as dragging a window border)."
   (interactive)
   (when (and (claude-buffer-p)
              (derived-mode-p 'vterm-mode))
-    (let ((win (get-buffer-window (current-buffer))))
+    (let ((win (get-buffer-window (current-buffer)))
+          (buf (current-buffer)))
       (when win
         (when (bound-and-true-p vterm-copy-mode)
           (vterm-copy-mode -1))
-        (let* ((width (- (window-body-width win) (vterm--get-margin-width)))
-               (height (window-body-height win))
-               (pid (process-id vterm--process)))
-          ;; Set the PTY size to match the window
-          (vterm--set-size vterm--term height width)
-          ;; Send SIGWINCH directly so Claude Code re-renders
-          (signal-process pid 'SIGWINCH)
-          (message "Reset vterm: %dx%d (SIGWINCH sent)" width height))))))
+        ;; Shrink window by 1 col to force a real resize event
+        (window-resize win -1 t)
+        ;; Restore after a beat — vterm sees a size change both times
+        (run-at-time 0.2 nil
+                     (lambda ()
+                       (when (and (window-live-p win)
+                                  (buffer-live-p buf)
+                                  (eq (window-buffer win) buf))
+                         (window-resize win 1 t)
+                         (message "Reset vterm: %dx%d"
+                                  (window-body-width win)
+                                  (window-body-height win)))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Debugging - Hang diagnosis
