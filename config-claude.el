@@ -160,10 +160,10 @@ then sends clear-screen + redraw to the terminal."
                    vterm--process
                    (process-live-p vterm--process))
           (vterm--window-adjust-process-window-size vterm--process (list win))
-            ;; Clear screen and redraw after resize
-            (vterm-send-string "\033[2J")
-            (vterm-send-key "l" nil nil t)
-            (message "Reset vterm: %dx%d" (window-body-width win) (window-body-height win))))))))
+          ;; Clear screen and redraw after resize
+          (vterm-send-string "\033[2J")
+          (vterm-send-key "l" nil nil t)
+          (message "Reset vterm: %dx%d" (window-body-width win) (window-body-height win)))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Debugging - Hang diagnosis
