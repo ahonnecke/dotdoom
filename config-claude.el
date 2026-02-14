@@ -144,26 +144,22 @@ Use this instead of claude-code to ensure Claude opens HERE."
 
 (defun claude-reset-window ()
   "Reset current Claude window - fixes garbled display after resize.
-Uses vterm's own resize function for correct margin/line-number handling,
-then sends clear-screen + redraw to the terminal."
+Sets the PTY to match the window, then sends SIGWINCH so the TUI re-renders."
   (interactive)
   (when (and (claude-buffer-p)
              (derived-mode-p 'vterm-mode))
     (let ((win (get-buffer-window (current-buffer))))
       (when win
-        ;; Exit copy mode if active (vterm resize is no-op in copy mode)
         (when (bound-and-true-p vterm-copy-mode)
           (vterm-copy-mode -1))
-        ;; Use vterm's own resize to get dimensions right
-        (when (and (fboundp 'vterm--window-adjust-process-window-size)
-                   (boundp 'vterm--process)
-                   vterm--process
-                   (process-live-p vterm--process))
-          (vterm--window-adjust-process-window-size vterm--process (list win))
-          ;; Clear screen and redraw after resize
-          (vterm-send-string "\033[2J")
-          (vterm-send-key "l" nil nil t)
-          (message "Reset vterm: %dx%d" (window-body-width win) (window-body-height win)))))))
+        (let* ((width (- (window-body-width win) (vterm--get-margin-width)))
+               (height (window-body-height win))
+               (pid (process-id vterm--process)))
+          ;; Set the PTY size to match the window
+          (vterm--set-size vterm--term height width)
+          ;; Send SIGWINCH directly so Claude Code re-renders
+          (signal-process pid 'SIGWINCH)
+          (message "Reset vterm: %dx%d (SIGWINCH sent)" width height))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Debugging - Hang diagnosis
