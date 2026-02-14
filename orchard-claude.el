@@ -458,9 +458,10 @@ Keeps Claude in background - no window shown."
     claude-buf))
 
 (defun orchard--fix-claude-size (buf win)
-  "Fix Claude BUF size to match WIN dimensions.
-Claude Code queries terminal size at startup, but our window restoration
-can leave it mismatched. This tells vterm the correct size."
+  "Fix Claude BUF terminal size to match WIN body dimensions.
+vterm reads size at vterm-mode init (during pop-to-buffer in a temp window).
+After we move the buffer to its final window, the size is wrong.
+This corrects it using window-body-width/height (excludes fringes/margins)."
   (run-at-time 0.3 nil
                (lambda ()
                  (when (and (buffer-live-p buf)
@@ -468,9 +469,8 @@ can leave it mismatched. This tells vterm the correct size."
                             (eq (window-buffer win) buf))
                    (with-current-buffer buf
                      (when (fboundp 'vterm--set-size)
-                       ;; Subtract 2 from width for safety margin
-                       (let ((h (window-height win))
-                             (w (- (window-width win) 2)))
+                       (let ((h (window-body-height win))
+                             (w (window-body-width win)))
                          (vterm--set-size h w))))))))
 
 (defun orchard--place-claude-buffer (claude-buf)
@@ -508,8 +508,10 @@ Never calls `delete-other-windows' so other Claudes/files stay visible."
         (set-window-buffer (selected-window) claude-buf))))))
 
 (defun orchard--start-claude-with-resume (path &optional command)
-  "Start Claude for PATH and arrange Orchard left, Claude right.
-If COMMAND is non-nil, send it to Claude after initialization."
+  "Start Claude for PATH and display in a good window.
+If COMMAND is non-nil, send it to Claude after initialization.
+Suppresses upstream window placement (pop-to-buffer, display-window-fn)
+to prevent double window takeover, then places buffer ourselves."
   (orchard--ensure-claude-loaded)
   (let ((existing-claude (orchard--claude-buffer-for-path path)))
     (if existing-claude
@@ -517,18 +519,26 @@ If COMMAND is non-nil, send it to Claude after initialization."
           (orchard--place-claude-buffer existing-claude)
           (when command
             (orchard--send-command-to-claude existing-claude 0.5 command)))
-      ;; New Claude session.  claude-code will pop-to-buffer → vterm-mode →
-      ;; delete-window → display-window-fn.  We have a local patch in
-      ;; claude-code.el guarding delete-window with one-window-p (not yet
-      ;; upstreamed).  We call claude-code, then arrange the layout.
-      (let ((default-directory path))
-        (cl-letf (((symbol-function 'claude-code--directory) (lambda () path)))
+      ;; New Claude session.
+      ;; claude-code--term-make calls pop-to-buffer (window takeover #1),
+      ;; then claude-code--start calls display-window-fn (takeover #2).
+      ;; We suppress both so we control placement.
+      (let ((default-directory path)
+            (orig-config (current-window-configuration)))
+        (cl-letf (((symbol-function 'claude-code--directory) (lambda () path))
+                  ;; Suppress display-window-fn — we'll place it ourselves.
+                  (claude-code-display-window-fn (lambda (_buf) nil)))
           (claude-code))
-        ;; claude-code placed the buffer somewhere — move it to a good window
-        ;; without destroying existing layout.
+        ;; Restore window config to undo pop-to-buffer damage, then place.
+        (set-window-configuration orig-config)
         (let ((claude-buf (orchard--claude-buffer-for-path path)))
           (if claude-buf
-              (orchard--place-claude-buffer claude-buf)
+              (progn
+                (orchard--place-claude-buffer claude-buf)
+                ;; Fix vterm size to match final window (vterm sized itself
+                ;; during pop-to-buffer which was a different window).
+                (when-let ((win (get-buffer-window claude-buf)))
+                  (orchard--fix-claude-size claude-buf win)))
             (message "orchard: claude-code did not create a buffer")))
         (orchard--register-claude-buffer path)
         (when command
