@@ -458,20 +458,22 @@ Keeps Claude in background - no window shown."
     claude-buf))
 
 (defun orchard--fix-claude-size (buf win)
-  "Fix Claude BUF terminal size to match WIN body dimensions.
+  "Fix Claude BUF terminal size to match WIN dimensions.
 vterm reads size at vterm-mode init (during pop-to-buffer in a temp window).
 After we move the buffer to its final window, the size is wrong.
-This corrects it using window-body-width/height (excludes fringes/margins)."
+Triggers vterm's own resize logic so margin/line-number adjustments are correct."
   (run-at-time 0.3 nil
                (lambda ()
                  (when (and (buffer-live-p buf)
                             (window-live-p win)
                             (eq (window-buffer win) buf))
                    (with-current-buffer buf
-                     (when (fboundp 'vterm--set-size)
-                       (let ((h (window-body-height win))
-                             (w (window-body-width win)))
-                         (vterm--set-size h w))))))))
+                     (when (and (fboundp 'vterm--window-adjust-process-window-size)
+                                (boundp 'vterm--process)
+                                vterm--process
+                                (process-live-p vterm--process))
+                       (vterm--window-adjust-process-window-size
+                        vterm--process (list win))))))))
 
 (defun orchard--place-claude-buffer (claude-buf)
   "Display CLAUDE-BUF in a window without destroying existing layout.
@@ -574,7 +576,9 @@ to prevent double window takeover, then places buffer ourselves."
 ;;; ════════════════════════════════════════════════════════════════════════════
 
 (defun orchard-list-claudes ()
-  "List all Claude sessions. Shows [WAITING] for those needing input."
+  "List all Claude sessions and display selected one.
+Shows [WAITING] for those needing input. Places buffer via
+`orchard--place-claude-buffer' to avoid clobbering windows."
   (interactive)
   (let ((claudes (orchard--get-claude-buffers)))
     (if (null claudes)
@@ -592,11 +596,14 @@ to prevent double window takeover, then places buffer ourselves."
                                          (mapcar #'car choices)
                                          nil t)))
         (when-let ((buf (cdr (assoc selection choices))))
-          (pop-to-buffer buf))))))
+          (orchard--place-claude-buffer buf)
+          ;; Fix terminal size after placement
+          (when-let ((win (get-buffer-window buf)))
+            (orchard--fix-claude-size buf win)))))))
 
 (defun orchard-tile-claudes ()
-  "Tile up to 4 Claude windows in a 2x2 grid, oldest first.
-Uses buffer-list order reversed so oldest sessions appear first."
+  "Tile up to 4 Claude windows in vertical splits, oldest first.
+Takes over the full frame. Use `g' in Orchard to return."
   (interactive)
   (let* ((all-claudes (nreverse (orchard--get-claude-buffers)))
          (claudes (seq-take all-claudes 4))
@@ -604,40 +611,63 @@ Uses buffer-list order reversed so oldest sessions appear first."
     (cond
      ((= count 0)
       (message "No Claude sessions running"))
-     ((= count 1)
-      (delete-other-windows)
-      (switch-to-buffer (car claudes)))
-     ((= count 2)
-      (delete-other-windows)
-      (switch-to-buffer (car claudes))
-      (split-window-right)
-      (other-window 1)
-      (switch-to-buffer (cadr claudes))
-      (other-window 1)
-      (balance-windows))
      (t
-      ;; 3 or 4 claudes: 2x2 grid
       (delete-other-windows)
-      (switch-to-buffer (car claudes))
-      (split-window-right)
-      (split-window-below)
-      (other-window 1)
-      (switch-to-buffer (nth 1 claudes))
-      (other-window 1)
-      (split-window-below)
-      (switch-to-buffer (nth 2 claudes))
-      (other-window 1)
-      (when (nth 3 claudes)
-        (switch-to-buffer (nth 3 claudes)))
-      (other-window 1)
-      (balance-windows)))
-    (when (> count 0)
+      (set-window-buffer (selected-window) (car claudes))
+      (dotimes (i (1- count))
+        (let ((new-win (split-window nil nil 'right)))
+          (set-window-buffer new-win (nth (1+ i) claudes))))
+      (balance-windows)
+      ;; Fix terminal sizes in all tiled windows
+      (dolist (buf claudes)
+        (when-let ((win (get-buffer-window buf)))
+          (orchard--fix-claude-size buf win)))
       (message "Tiled %d Claude session%s%s"
                count
                (if (= count 1) "" "s")
                (if (> (length all-claudes) 4)
-                   (format " (%d more available)" (- (length all-claudes) 4))
-                 "")))))
+                   (format " (%d more, use > to step)" (- (length all-claudes) 4))
+                 ""))))))
+
+(defvar orchard--claude-step-index 0
+  "Current index in the Claude step-through list.")
+
+(defun orchard-next-claude ()
+  "Step to the next Claude session (oldest first).
+Shows one Claude at a time in a non-Orchard window.
+Displays N/total and status in the message."
+  (interactive)
+  (let* ((all-claudes (nreverse (orchard--get-claude-buffers)))
+         (count (length all-claudes)))
+    (cond
+     ((= count 0)
+      (message "No Claude sessions running"))
+     (t
+      ;; Wrap index
+      (when (>= orchard--claude-step-index count)
+        (setq orchard--claude-step-index 0))
+      (let* ((buf (nth orchard--claude-step-index all-claudes))
+             (status (orchard--claude-status buf))
+             (status-str (pcase status
+                           ('waiting " [WAITING]")
+                           ('active " [ACTIVE]")
+                           (_ " [IDLE]"))))
+        (orchard--place-claude-buffer buf)
+        (when-let ((win (get-buffer-window buf)))
+          (orchard--fix-claude-size buf win))
+        (message "%d/%d %s%s"
+                 (1+ orchard--claude-step-index) count
+                 (buffer-name buf) status-str)
+        (setq orchard--claude-step-index (1+ orchard--claude-step-index)))))))
+
+(defun orchard-prev-claude ()
+  "Step to the previous Claude session."
+  (interactive)
+  (let ((count (length (orchard--get-claude-buffers))))
+    (when (> count 0)
+      (setq orchard--claude-step-index
+            (mod (- orchard--claude-step-index 2) count))
+      (orchard-next-claude))))
 
 (defun orchard-debug-claude-status ()
   "Show diagnostic info for all Claude buffers and issue mappings.
