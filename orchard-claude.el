@@ -425,9 +425,9 @@ Returns the Claude buffer."
         (original-window (selected-window))
         (original-config (current-window-configuration))
         new-claude-buf)
-    ;; Start Claude - it will try to display but we'll fix that
+    ;; Start Claude with --continue to auto-resume most recent session
     (save-window-excursion
-      (claude-code))
+      (claude-code-continue))
     ;; Find the new Claude buffer
     (setq new-claude-buf
           (cl-find-if
@@ -522,6 +522,7 @@ to prevent double window takeover, then places buffer ourselves."
           (when command
             (orchard--send-command-to-claude existing-claude 0.5 command)))
       ;; New Claude session.
+      ;; Use --continue to auto-resume the most recent session in this dir.
       ;; claude-code--term-make calls pop-to-buffer (window takeover #1),
       ;; then claude-code--start calls display-window-fn (takeover #2).
       ;; We suppress both so we control placement.
@@ -530,7 +531,7 @@ to prevent double window takeover, then places buffer ourselves."
         (cl-letf (((symbol-function 'claude-code--directory) (lambda () path))
                   ;; Suppress display-window-fn — we'll place it ourselves.
                   (claude-code-display-window-fn (lambda (_buf) nil)))
-          (claude-code))
+          (claude-code-continue))
         ;; Restore window config to undo pop-to-buffer damage, then place.
         (set-window-configuration orig-config)
         (let ((claude-buf (orchard--claude-buffer-for-path path)))
