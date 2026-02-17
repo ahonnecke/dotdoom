@@ -387,7 +387,8 @@ Creates worktree if needed, otherwise opens existing."
                                         (orchard--normalize-branch-name title)))
                    (description (format "#%d: %s" issue-num title)))
               (message "Creating branch for #%d: %s..." issue-num title)
-              (orchard--create-branch branch-type branch-name description issue-num))
+              (when-let ((path (orchard--create-branch branch-type branch-name description issue-num)))
+                (orchard--start-claude-backend path)))
           (user-error "Issue #%d not found in open issues" issue-num))))))
 
 (defun orchard-goto-issue (issue-num)

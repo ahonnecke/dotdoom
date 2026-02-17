@@ -525,11 +525,22 @@ If COMMAND is non-nil, send it to Claude after initialization."
       ;; orchard--place-claude-buffer (direct window manipulation, no
       ;; display-buffer-alist).
       (let ((default-directory path))
+        ;; Temporarily disable envrc to prevent synchronous direnv blocking
+        ;; during buffer creation.  envrc will activate naturally when the
+        ;; user interacts with the Claude buffer.
         (cl-letf (((symbol-function 'claude-code--directory) (lambda () path))
                   (claude-code-display-window-fn (lambda (_buf) nil)))
-          (condition-case err
-              (claude-code-continue)
-            (error (message "orchard: claude-code-continue error: %s" err))))
+          (let ((envrc-mode-was-on (and (boundp 'envrc-global-mode)
+                                        envrc-global-mode)))
+            (when envrc-mode-was-on
+              (envrc-global-mode -1))
+            (unwind-protect
+                (condition-case err
+                    (claude-code)
+                  (quit (message "orchard: claude-code start interrupted"))
+                  (error (message "orchard: claude-code start error: %s" err)))
+              (when envrc-mode-was-on
+                (envrc-global-mode 1)))))
         ;; Buffer exists now but may be hidden or may have replaced Orchard.
         (let ((claude-buf (orchard--claude-buffer-for-path path)))
           (if (not claude-buf)

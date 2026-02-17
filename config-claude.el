@@ -151,9 +151,9 @@ Use this instead of claude-code to ensure Claude opens HERE."
 
 (defun claude-reset-window ()
   "Reset current Claude window - fixes garbled display after resize.
-Physically shrinks the window by 1 col then restores it, which triggers
-vterm's natural resize pipeline (the same path as dragging a window border).
-If not in a Claude buffer, finds the nearest visible one."
+Three-stage reset: (1) dramatic resize to force vterm's size pipeline,
+(2) direct vterm--redraw to fix Emacs-side rendering, (3) Ctrl+L to
+force Claude's TUI to repaint.  Works from any buffer."
   (interactive)
   (let* ((buf (cond
                ;; In a Claude buffer already
@@ -173,18 +173,31 @@ If not in a Claude buffer, finds the nearest visible one."
       (with-current-buffer buf
         (when (bound-and-true-p vterm-copy-mode)
           (vterm-copy-mode -1)))
-      ;; Shrink window by 1 col to force a real resize event
-      (window-resize win -1 t)
-      ;; Restore after a beat — vterm sees a size change both times
-      (run-at-time 0.2 nil
-                   (lambda ()
-                     (when (and (window-live-p win)
-                                (buffer-live-p buf)
-                                (eq (window-buffer win) buf))
-                       (window-resize win 1 t)
-                       (message "Reset vterm: %dx%d"
-                                (window-body-width win)
-                                (window-body-height win))))))))
+      ;; Stage 1: dramatic resize (10 cols) to force full re-layout
+      (let ((shrink (min 10 (- (window-body-width win) 20))))
+        (when (> shrink 0)
+          (window-resize win (- shrink) t)
+          ;; Stage 2: restore size + redraw + Ctrl+L after vterm processes the resize
+          (run-at-time 0.3 nil
+                       (lambda ()
+                         (when (and (window-live-p win)
+                                    (buffer-live-p buf)
+                                    (eq (window-buffer win) buf))
+                           ;; Restore original width
+                           (window-resize win shrink t)
+                           ;; Force vterm's Emacs-side redraw
+                           (with-current-buffer buf
+                             (when (and (boundp 'vterm--term) vterm--term)
+                               (let ((inhibit-read-only t))
+                                 (vterm--redraw vterm--term)))
+                             ;; Stage 3: send Ctrl+L to Claude's TUI to repaint
+                             (when (and (boundp 'vterm--process)
+                                        vterm--process
+                                        (process-live-p vterm--process))
+                               (vterm-send-key "l" nil nil t)))
+                           (message "Reset vterm: %dx%d"
+                                    (window-body-width win)
+                                    (window-body-height win))))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Debugging - Hang diagnosis
