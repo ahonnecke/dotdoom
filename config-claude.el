@@ -54,6 +54,13 @@
   ;; processes refuse to start ("cannot be launched inside another session").
   (setenv "CLAUDECODE" nil)
 
+  ;; Prevent vterm from killing Claude buffers when the process exits/restarts.
+  ;; Claude CLI can restart after permissions dialogs, context compaction, etc.
+  ;; Without this, the vterm sentinel kills the buffer on process exit.
+  (add-hook 'claude-code-start-hook
+            (lambda ()
+              (setq-local vterm-kill-buffer-on-exit nil)))
+
   ;; Global display rule: Claude buffers prefer empty windows,
   ;; then same window - NEVER take over other Claude windows
   (defun claude--display-buffer-prefer-empty (buffer alist)
@@ -145,27 +152,39 @@ Use this instead of claude-code to ensure Claude opens HERE."
 (defun claude-reset-window ()
   "Reset current Claude window - fixes garbled display after resize.
 Physically shrinks the window by 1 col then restores it, which triggers
-vterm's natural resize pipeline (the same path as dragging a window border)."
+vterm's natural resize pipeline (the same path as dragging a window border).
+If not in a Claude buffer, finds the nearest visible one."
   (interactive)
-  (when (and (claude-buffer-p)
-             (derived-mode-p 'vterm-mode))
-    (let ((win (get-buffer-window (current-buffer)))
-          (buf (current-buffer)))
-      (when win
+  (let* ((buf (cond
+               ;; In a Claude buffer already
+               ((and (claude-buffer-p) (derived-mode-p 'vterm-mode))
+                (current-buffer))
+               ;; Find a visible Claude buffer
+               (t (cl-some (lambda (w)
+                             (let ((b (window-buffer w)))
+                               (when (and (string-prefix-p "*claude:" (buffer-name b))
+                                          (with-current-buffer b
+                                            (derived-mode-p 'vterm-mode)))
+                                 b)))
+                           (window-list nil 'no-mini)))))
+         (win (when buf (get-buffer-window buf))))
+    (if (not win)
+        (message "No visible Claude window to reset")
+      (with-current-buffer buf
         (when (bound-and-true-p vterm-copy-mode)
-          (vterm-copy-mode -1))
-        ;; Shrink window by 1 col to force a real resize event
-        (window-resize win -1 t)
-        ;; Restore after a beat — vterm sees a size change both times
-        (run-at-time 0.2 nil
-                     (lambda ()
-                       (when (and (window-live-p win)
-                                  (buffer-live-p buf)
-                                  (eq (window-buffer win) buf))
-                         (window-resize win 1 t)
-                         (message "Reset vterm: %dx%d"
-                                  (window-body-width win)
-                                  (window-body-height win)))))))))
+          (vterm-copy-mode -1)))
+      ;; Shrink window by 1 col to force a real resize event
+      (window-resize win -1 t)
+      ;; Restore after a beat — vterm sees a size change both times
+      (run-at-time 0.2 nil
+                   (lambda ()
+                     (when (and (window-live-p win)
+                                (buffer-live-p buf)
+                                (eq (window-buffer win) buf))
+                       (window-resize win 1 t)
+                       (message "Reset vterm: %dx%d"
+                                (window-body-width win)
+                                (window-body-height win))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Debugging - Hang diagnosis
@@ -777,9 +796,43 @@ Shows only slash commands with documentation."
   (define-key vterm-mode-map (kbd "C-c /") #'claude-complete-slash)
   (define-key vterm-mode-map (kbd "C-c TAB") #'claude-complete)
   (define-key vterm-mode-map (kbd "M-/") #'claude-complete)
-  ;; s-z as quick shortcut for same function as C-c c z
-  ;; Bind in ashton-mode-map (global) so it works in vterm
-  (define-key ashton-mode-map (kbd "s-z") #'claude-code-toggle-read-only-mode))
+  ;; C-z as quick shortcut for read-only toggle (replaces suspend-frame)
+  ;; Direct toggle avoids claude-code--with-buffer's buffer-finding logic
+  ;; which prompts with an instance list when directory doesn't match.
+  (defun claude-toggle-copy-mode ()
+    "Toggle vterm-copy-mode in the current Claude buffer.
+Bypasses claude-code--with-buffer to avoid instance selection prompt."
+    (interactive)
+    (cond
+     ;; In a Claude vterm buffer — toggle directly
+     ((and (derived-mode-p 'vterm-mode) (claude-buffer-p))
+      (if (bound-and-true-p vterm-copy-mode)
+          (progn (vterm-copy-mode -1)
+                 (setq-local cursor-type nil)
+                 (message "Claude copy mode OFF"))
+        (vterm-copy-mode 1)
+        (setq-local cursor-type t)
+        (message "Claude copy mode ON")))
+     ;; Not in a Claude buffer — find a visible one and switch to it
+     (t
+      (if-let ((claude-win
+                (cl-find-if
+                 (lambda (w)
+                   (with-current-buffer (window-buffer w)
+                     (and (derived-mode-p 'vterm-mode)
+                          (claude-buffer-p))))
+                 (window-list nil 'no-mini))))
+          (progn
+            (select-window claude-win)
+            (if (bound-and-true-p vterm-copy-mode)
+                (progn (vterm-copy-mode -1)
+                       (setq-local cursor-type nil)
+                       (message "Claude copy mode OFF"))
+              (vterm-copy-mode 1)
+              (setq-local cursor-type t)
+              (message "Claude copy mode ON")))
+        (message "No Claude buffer visible")))))
+  (define-key ashton-mode-map (kbd "C-z") #'claude-toggle-copy-mode))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Yank Last Response - Copy Claude's output to clipboard

@@ -511,9 +511,7 @@ Never calls `delete-other-windows' so other Claudes/files stay visible."
 
 (defun orchard--start-claude-with-resume (path &optional command)
   "Start Claude for PATH and display in a good window.
-If COMMAND is non-nil, send it to Claude after initialization.
-Suppresses upstream window placement (pop-to-buffer, display-window-fn)
-to prevent double window takeover, then places buffer ourselves."
+If COMMAND is non-nil, send it to Claude after initialization."
   (orchard--ensure-claude-loaded)
   (let ((existing-claude (orchard--claude-buffer-for-path path)))
     (if existing-claude
@@ -522,27 +520,37 @@ to prevent double window takeover, then places buffer ourselves."
           (when command
             (orchard--send-command-to-claude existing-claude 0.5 command)))
       ;; New Claude session.
-      ;; Use --continue to auto-resume the most recent session in this dir.
-      ;; claude-code--term-make calls pop-to-buffer (window takeover #1),
-      ;; then claude-code--start calls display-window-fn (takeover #2).
-      ;; We suppress both so we control placement.
-      (let ((default-directory path)
-            (orig-config (current-window-configuration)))
+      ;; claude-code--term-make does: pop-to-buffer → vterm-mode → delete-window
+      ;; We suppress display and handle placement ourselves via
+      ;; orchard--place-claude-buffer (direct window manipulation, no
+      ;; display-buffer-alist).
+      (let ((default-directory path))
         (cl-letf (((symbol-function 'claude-code--directory) (lambda () path))
-                  ;; Suppress display-window-fn — we'll place it ourselves.
                   (claude-code-display-window-fn (lambda (_buf) nil)))
-          (claude-code-continue))
-        ;; Restore window config to undo pop-to-buffer damage, then place.
-        (set-window-configuration orig-config)
+          (condition-case err
+              (claude-code-continue)
+            (error (message "orchard: claude-code-continue error: %s" err))))
+        ;; Buffer exists now but may be hidden or may have replaced Orchard.
         (let ((claude-buf (orchard--claude-buffer-for-path path)))
-          (if claude-buf
-              (progn
-                (orchard--place-claude-buffer claude-buf)
-                ;; Fix vterm size to match final window (vterm sized itself
-                ;; during pop-to-buffer which was a different window).
-                (when-let ((win (get-buffer-window claude-buf)))
-                  (orchard--fix-claude-size claude-buf win)))
-            (message "orchard: claude-code did not create a buffer")))
+          (if (not claude-buf)
+              (message "orchard: claude-code did not create a buffer")
+            ;; Prevent buffer death if Claude CLI process exits/restarts
+            ;; (e.g. after permissions dialog).  Same pattern as aidermacs.
+            (with-current-buffer claude-buf
+              (setq-local vterm-kill-buffer-on-exit nil))
+            ;; If Claude landed in the Orchard window, restore Orchard first
+            ;; so that orchard--place-claude-buffer can split properly.
+            (let ((orchard-buf (get-buffer "*Orchard*")))
+              (when (and orchard-buf
+                         (not (get-buffer-window orchard-buf))
+                         (get-buffer-window claude-buf))
+                ;; Orchard is invisible but Claude is visible — Claude
+                ;; replaced Orchard.  Put Orchard back and hide Claude.
+                (set-window-buffer (get-buffer-window claude-buf) orchard-buf)))
+            ;; Place Claude in the right window (splits Orchard if needed)
+            (orchard--place-claude-buffer claude-buf)
+            (when-let ((win (get-buffer-window claude-buf)))
+              (orchard--fix-claude-size claude-buf win))))
         (orchard--register-claude-buffer path)
         (when command
           (when-let ((claude-buf (orchard--claude-buffer-for-path path)))
