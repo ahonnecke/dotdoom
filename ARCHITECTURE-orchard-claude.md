@@ -42,7 +42,7 @@ window management strategies.
                    orchard--place-claude-buffer │
                                                │
                               ┌─────────────── │ ─── Upstream ────────────┐
-                              │  claude-code-continue                     │
+                              │  claude-code (plain, no --continue)       │
                               │    → claude-code--start                   │
                               │      → claude-code--term-make             │
                               │        → pop-to-buffer (WINDOW SIDE-FX)  │
@@ -148,12 +148,22 @@ the second display attempt in `claude-code--start`. It does NOT suppress the
 `pop-to-buffer` inside `claude-code--term-make` — that must happen for vterm
 to get correct dimensions.
 
-After `claude-code-continue` returns:
-1. Check if Claude displaced Orchard (Claude visible, Orchard not)
-2. If so, restore Orchard to its window
-3. Call `orchard--place-claude-buffer` for proper placement
-4. Call `orchard--fix-claude-size` to fix vterm dimensions (they were read
+Before calling `claude-code`, envrc-global-mode is temporarily disabled to
+prevent direnv from blocking synchronously (which triggers a `quit` signal
+that aborts the entire startup).
+
+After `claude-code` returns:
+1. Re-enable envrc if it was on
+2. Check if Claude displaced Orchard (Claude visible, Orchard not)
+3. If so, restore Orchard to its window
+4. Call `orchard--place-claude-buffer` for proper placement
+5. Call `orchard--fix-claude-size` to fix vterm dimensions (they were read
    from the temporary pop-to-buffer window, not the final one)
+
+**Why `claude-code` not `claude-code-continue`**: The `--continue` flag fails
+with "No conversation found to continue" on fresh worktrees. Plain `claude-code`
+starts a clean session. For existing sessions, the buffer-exists branch handles
+re-display without restarting the CLI.
 
 ---
 
@@ -313,7 +323,11 @@ No automated tests exist. When modifying this subsystem, manually verify:
 ### Scenario 5: claude-reset-window
 1. Have Claude visible with garbled display
 2. From Orchard window, run `M-x claude-reset-window`
-3. **Expected**: Finds nearest visible Claude, resizes it. Works from any buffer.
+3. **Expected**: Finds nearest visible Claude. Three-stage reset:
+   - Stage 1: shrink window by 10 cols (forces vterm size pipeline)
+   - Stage 2: restore width + `vterm--redraw` (fixes Emacs-side rendering)
+   - Stage 3: send Ctrl+L to process (forces Claude's TUI repaint)
+4. **Expected**: Display un-garbles. Message shows new dimensions.
 
 ### Scenario 6: C-z copy mode
 1. Have Claude visible
@@ -338,13 +352,26 @@ No automated tests exist. When modifying this subsystem, manually verify:
    can exit. The hook in config-claude.el handles this, but defensive code in
    orchard-claude.el sets it redundantly.
 
-4. **After calling `claude-code-continue`, always check if Orchard was
+4. **After calling `claude-code`, always check if Orchard was
    displaced**. The `pop-to-buffer` inside `claude-code--term-make` can replace
    Orchard with Claude depending on `display-buffer-alist` evaluation.
 
 5. **`orchard--fix-claude-size` must run AFTER final placement**, not after
-   `claude-code-continue`. vterm reads dimensions from whichever window it was
+   `claude-code`. vterm reads dimensions from whichever window it was
    in during `pop-to-buffer`, which is NOT the final window.
+
+7. **Never use `claude-code-continue` from Orchard**. The `--continue` flag
+   fails on fresh worktrees ("No conversation found to continue"). Use plain
+   `claude-code` for new sessions; the existing-buffer branch handles re-display.
+
+8. **Disable envrc around `claude-code` calls**. envrc/direnv runs synchronously
+   and can emit a `quit` signal that aborts the entire startup flow. Temporarily
+   disable `envrc-global-mode`, call `claude-code`, restore in `unwind-protect`.
+
+9. **`orchard-find-issue` must start Claude after branch creation**. The
+   `orchard--create-branch` function returns the worktree path — pass it to
+   `orchard--start-claude-backend`. (Regression: was missing, causing branch to
+   create but Claude never to open.)
 
 6. **Test from a single-window frame**. Most regressions only manifest when
    Orchard is the sole window (startup state). Multi-window scenarios are
