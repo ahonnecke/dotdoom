@@ -41,21 +41,26 @@ window management strategies.
                               │                │
                    orchard--place-claude-buffer │
                                                │
+                              orchard--get-claude-target-window
+                              (split Orchard or reuse non-Claude window)
+                                               │
+                              let-bind orchard--target-window
+                              disable envrc
+                                               │
                               ┌─────────────── │ ─── Upstream ────────────┐
                               │  claude-code (plain, no --continue)       │
                               │    → claude-code--start                   │
                               │      → claude-code--term-make             │
-                              │        → pop-to-buffer (WINDOW SIDE-FX)  │
-                              │        → vterm-mode (STARTS PROCESS)      │
-                              │        → delete-window (HIDES BUFFER)     │
-                              │      → display-window-fn (SUPPRESSED)     │
+                              │        → pop-to-buffer (INTERCEPTED →    │
+                              │          set-window-buffer to target)     │
+                              │        → vterm-mode (correct dimensions!) │
+                              │        → delete-window (INTERCEPTED →    │
+                              │          no-op)                           │
+                              │      → display-window-fn (returns win)   │
                               └───────────────────────────────────────────┘
                                                │
-                              detect if Claude replaced Orchard
-                              restore Orchard if needed
-                                               │
-                              orchard--place-claude-buffer
-                              orchard--fix-claude-size
+                              set vterm-kill-buffer-on-exit nil
+                              register buffer. Done.
 ```
 
 ---
@@ -66,12 +71,13 @@ These MUST hold after any Orchard→Claude operation completes:
 
 | # | Invariant | Enforced by |
 |---|-----------|-------------|
-| W1 | **Orchard stays visible in leftmost window** | `orchard--start-claude-with-resume` restores Orchard if Claude displaced it |
-| W2 | **Claude never replaces Orchard permanently** | Same as W1 — detected by checking `(not (get-buffer-window "*Orchard*"))` |
-| W3 | **Claude never replaces another Claude** | `orchard--place-claude-buffer` skips windows with `*claude:` buffers |
-| W4 | **New Claude gets a split, not a takeover** | `orchard--place-claude-buffer` splits Orchard rightward when no reusable window exists |
+| W1 | **Orchard stays visible in leftmost window** | Advice intercepts `pop-to-buffer` — Orchard's window is never touched |
+| W2 | **Claude never replaces Orchard permanently** | `orchard--get-claude-target-window` skips Orchard's window |
+| W3 | **Claude never replaces another Claude** | `orchard--get-claude-target-window` skips `*claude:` windows |
+| W4 | **New Claude gets a split, not a takeover** | `orchard--get-claude-target-window` splits Orchard rightward when no reusable window exists |
 | W5 | **vterm-kill-buffer-on-exit is nil for all Claude buffers** | `claude-code-start-hook` in config-claude.el; also set redundantly in `orchard--start-claude-with-resume` |
-| W6 | **display-buffer-alist is bypassed for Orchard-initiated Claude** | `orchard--place-claude-buffer` uses `set-window-buffer` directly; `cl-letf` suppresses `claude-code-display-window-fn` |
+| W6 | **display-buffer-alist is bypassed for Orchard-initiated Claude** | Advice replaces `pop-to-buffer` with `set-window-buffer`; `display-window-fn` returns existing window |
+| W7 | **vterm gets correct dimensions from the start** | Advice ensures vterm-mode runs in the final target window, not a temporary one |
 
 ### Why W5 matters
 
@@ -140,30 +146,54 @@ This means:
 2. `delete-window` removes whichever window Claude landed in
 3. Claude buffer exists but is hidden
 
-### How Orchard handles this
+### How Orchard handles this — `:around` advice (current approach)
 
-`orchard--start-claude-with-resume` uses `cl-letf` to override
-`claude-code-display-window-fn` to `(lambda (_buf) nil)`, which suppresses
-the second display attempt in `claude-code--start`. It does NOT suppress the
-`pop-to-buffer` inside `claude-code--term-make` — that must happen for vterm
-to get correct dimensions.
+Instead of cleaning up after upstream's window mess, Orchard **intercepts it
+at the source** with `:around` advice on `claude-code--term-make`.
 
-Before calling `claude-code`, envrc-global-mode is temporarily disabled to
-prevent direnv from blocking synchronously (which triggers a `quit` signal
-that aborts the entire startup).
+```elisp
+;; orchard-claude.el
+(defvar orchard--target-window nil)  ; dynamic binding
 
-After `claude-code` returns:
-1. Re-enable envrc if it was on
-2. Check if Claude displaced Orchard (Claude visible, Orchard not)
-3. If so, restore Orchard to its window
-4. Call `orchard--place-claude-buffer` for proper placement
-5. Call `orchard--fix-claude-size` to fix vterm dimensions (they were read
-   from the temporary pop-to-buffer window, not the final one)
+(defun orchard--around-term-make (orig-fn backend buffer-name program &optional switches)
+  (if (and orchard--target-window (window-live-p orchard--target-window) (eq backend 'vterm))
+      (cl-letf (((symbol-function 'pop-to-buffer)
+                 (lambda (buf &rest _)
+                   (set-window-buffer orchard--target-window buf)
+                   (select-window orchard--target-window) buf))
+                ((symbol-function 'delete-window)
+                 (lambda (&optional _win) nil)))
+        (funcall orig-fn backend buffer-name program switches))
+    (funcall orig-fn backend buffer-name program switches)))
+```
+
+When `orchard--target-window` is set (Orchard flow):
+- `pop-to-buffer` → replaced with `set-window-buffer` to our pre-chosen window
+- `delete-window` → no-op (buffer stays visible)
+- vterm reads correct dimensions from the final window
+- No post-hoc displacement detection or size fix needed
+
+When `orchard--target-window` is nil (non-Orchard, e.g., `C-c c c`):
+- Original function runs unchanged
+
+The flow in `orchard--start-claude-with-resume`:
+1. `orchard--get-claude-target-window` creates/finds the right window
+2. Dynamic-bind `orchard--target-window` to that window
+3. Disable envrc (prevents direnv blocking during vterm-mode)
+4. Call `claude-code` — advice intercepts `pop-to-buffer`
+5. `claude-code-display-window-fn` returns existing window (so upstream sets params)
+6. Re-enable envrc after 2s delay
+7. Set `vterm-kill-buffer-on-exit` nil and register. Done.
 
 **Why `claude-code` not `claude-code-continue`**: The `--continue` flag fails
 with "No conversation found to continue" on fresh worktrees. Plain `claude-code`
 starts a clean session. For existing sessions, the buffer-exists branch handles
 re-display without restarting the CLI.
+
+**Why this fixes HR garbling**: vterm reads `(window-body-width)` during
+`vterm-mode` init. Previously it read from `pop-to-buffer`'s temporary window.
+Now it reads from the final target window. Claude draws HRs matching the
+actual width → no garbling.
 
 ---
 
@@ -340,38 +370,33 @@ No automated tests exist. When modifying this subsystem, manually verify:
 
 ## 11. Regression Prevention Rules
 
-1. **Never use `pop-to-buffer` for Orchard-initiated Claude display**.
+1. **The advice on `claude-code--term-make` is the primary defense**.
+   `orchard--around-term-make` intercepts `pop-to-buffer` and `delete-window`
+   when `orchard--target-window` is set. If this advice is removed or the
+   dynamic variable isn't bound, all the old window-fighting bugs return.
+
+2. **Never use `pop-to-buffer` for Orchard-initiated Claude display**.
    Use `set-window-buffer` or `orchard--place-claude-buffer`. The
    `display-buffer-alist` machinery is unpredictable.
-
-2. **Never use `set-window-configuration` to restore layout after starting
-   Claude**. vterm's process is tied to the window it was created in. Restoring
-   a saved config can orphan the process or create zombie buffers.
 
 3. **Always set `vterm-kill-buffer-on-exit` to nil** before Claude's process
    can exit. The hook in config-claude.el handles this, but defensive code in
    orchard-claude.el sets it redundantly.
 
-4. **After calling `claude-code`, always check if Orchard was
-   displaced**. The `pop-to-buffer` inside `claude-code--term-make` can replace
-   Orchard with Claude depending on `display-buffer-alist` evaluation.
-
-5. **`orchard--fix-claude-size` must run AFTER final placement**, not after
-   `claude-code`. vterm reads dimensions from whichever window it was
-   in during `pop-to-buffer`, which is NOT the final window.
-
-7. **Never use `claude-code-continue` from Orchard**. The `--continue` flag
+4. **Never use `claude-code-continue` from Orchard**. The `--continue` flag
    fails on fresh worktrees ("No conversation found to continue"). Use plain
    `claude-code` for new sessions; the existing-buffer branch handles re-display.
 
-8. **Disable envrc around `claude-code` calls**. envrc/direnv runs synchronously
+5. **Disable envrc around `claude-code` calls**. envrc/direnv runs synchronously
    and can emit a `quit` signal that aborts the entire startup flow. Temporarily
-   disable `envrc-global-mode`, call `claude-code`, restore in `unwind-protect`.
+   disable `envrc-global-mode`, call `claude-code`, restore via deferred timer.
 
-9. **`orchard-find-issue` must start Claude after branch creation**. The
+6. **`orchard-find-issue` must start Claude after branch creation**. The
    `orchard--create-branch` function returns the worktree path — pass it to
-   `orchard--start-claude-backend`. (Regression: was missing, causing branch to
-   create but Claude never to open.)
+   `orchard--start-claude-backend`.
+
+7. **Test from a single-window frame**. Most regressions only manifest when
+   Orchard is the sole window (startup state).
 
 6. **Test from a single-window frame**. Most regressions only manifest when
    Orchard is the sole window (startup state). Multi-window scenarios are
