@@ -17,6 +17,9 @@
 ;;   C-c c a - Jump to last action (what did Claude do?)
 ;;   C-c c S - Show summary of recent activity
 ;;   C-c c R - Review last output (read-only + scroll to start)
+;;   C-c c ] - Next Claude buffer (cycle forward)
+;;   C-c c [ - Previous Claude buffer (cycle backward)
+;;   C-c c l - List all Claude buffers (pick one)
 ;;
 ;; Debugging & Session Management (C-c c d prefix):
 ;;   C-c c d d - Quick debug state (message)
@@ -135,7 +138,103 @@ Use this instead of claude-code to ensure Claude opens HERE."
   (define-key ashton-mode-map (kbd "C-c c ?") #'claude-jump-to-last-question)
   (define-key ashton-mode-map (kbd "C-c c a") #'claude-jump-to-last-action)
   (define-key ashton-mode-map (kbd "C-c c S") #'claude-summary)
-  (define-key ashton-mode-map (kbd "C-c c R") #'claude-review-last-output))
+  (define-key ashton-mode-map (kbd "C-c c R") #'claude-review-last-output)
+  (define-key ashton-mode-map (kbd "C-c c ]") #'claude-next-buffer)
+  (define-key ashton-mode-map (kbd "C-c c [") #'claude-prev-buffer)
+  (define-key ashton-mode-map (kbd "C-c c l") #'claude-list-buffers))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Claude Buffer Cycling - quickly triage multiple Claude sessions
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun claude--get-all-buffers ()
+  "Return all live Claude buffers, sorted by name."
+  (sort (cl-remove-if-not
+         (lambda (buf)
+           (and (buffer-live-p buf)
+                (string-prefix-p "*claude:" (buffer-name buf))))
+         (buffer-list))
+        (lambda (a b) (string< (buffer-name a) (buffer-name b)))))
+
+(defun claude--cycle-buffer (direction)
+  "Cycle to the next (DIRECTION=1) or previous (DIRECTION=-1) Claude buffer.
+Shows the buffer in the current window if already in a Claude buffer,
+otherwise finds the nearest visible Claude window and cycles there."
+  (let* ((all (claude--get-all-buffers))
+         (count (length all)))
+    (cond
+     ((= count 0) (message "No Claude buffers"))
+     ((= count 1) (let ((buf (car all)))
+                    (if (eq buf (current-buffer))
+                        (message "Only one Claude buffer: %s" (buffer-name buf))
+                      (set-window-buffer (selected-window) buf)
+                      (message "[1/1] %s" (buffer-name buf)))))
+     (t
+      ;; Find which Claude buffer is currently showing
+      (let* ((current (cond
+                       ;; In a Claude buffer
+                       ((string-prefix-p "*claude:" (buffer-name))
+                        (current-buffer))
+                       ;; Find visible Claude buffer
+                       (t (cl-some (lambda (w)
+                                     (let ((b (window-buffer w)))
+                                       (when (string-prefix-p "*claude:" (buffer-name b))
+                                         b)))
+                                   (window-list nil 'no-mini)))))
+             (idx (when current (cl-position current all)))
+             (next-idx (if idx
+                           (mod (+ idx direction) count)
+                         0))
+             (next-buf (nth next-idx all))
+             ;; Find the window to use
+             (target-win (cond
+                          ((string-prefix-p "*claude:" (buffer-name))
+                           (selected-window))
+                          ((get-buffer-window current)
+                           (get-buffer-window current))
+                          (t (selected-window)))))
+        (set-window-buffer target-win next-buf)
+        (select-window target-win)
+        ;; Exit copy mode if active so user can type immediately
+        (with-current-buffer next-buf
+          (when (bound-and-true-p vterm-copy-mode)
+            (vterm-copy-mode -1)))
+        (message "[%d/%d] %s" (1+ next-idx) count (buffer-name next-buf)))))))
+
+(defun claude-next-buffer ()
+  "Switch to the next Claude buffer.  C-c c ] to cycle forward."
+  (interactive)
+  (claude--cycle-buffer 1))
+
+(defun claude-prev-buffer ()
+  "Switch to the previous Claude buffer.  C-c c [ to cycle backward."
+  (interactive)
+  (claude--cycle-buffer -1))
+
+(defun claude-list-buffers ()
+  "Show all Claude buffers and pick one to switch to."
+  (interactive)
+  (let ((all (claude--get-all-buffers)))
+    (if (null all)
+        (message "No Claude buffers")
+      (let* ((choices (mapcar (lambda (buf)
+                                (cons (buffer-name buf) buf))
+                              all))
+             (selected (completing-read "Claude buffer: " choices nil t))
+             (buf (cdr (assoc selected choices))))
+        (when buf
+          (let ((win (or (get-buffer-window buf)
+                         (cl-some (lambda (w)
+                                    (when (string-prefix-p "*claude:"
+                                                           (buffer-name (window-buffer w)))
+                                      w))
+                                  (window-list nil 'no-mini))
+                         (selected-window))))
+            (set-window-buffer win buf)
+            (select-window win)
+            (with-current-buffer buf
+              (when (bound-and-true-p vterm-copy-mode)
+                (vterm-copy-mode -1)))))))))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Window Resize Handling - DISABLED (too much monitoring)
