@@ -396,8 +396,5 @@ No automated tests exist. When modifying this subsystem, manually verify:
    `orchard--start-claude-backend`.
 
 7. **Test from a single-window frame**. Most regressions only manifest when
-   Orchard is the sole window (startup state).
-
-6. **Test from a single-window frame**. Most regressions only manifest when
    Orchard is the sole window (startup state). Multi-window scenarios are
    more forgiving because `delete-window` has somewhere to fall back to.

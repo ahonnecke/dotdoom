@@ -134,7 +134,7 @@ Use this instead of claude-code to ensure Claude opens HERE."
   (define-key ashton-mode-map (kbd "C-c c r") #'claude-code-send-region)
   (define-key ashton-mode-map (kbd "C-c c b") #'claude-code-send-buffer)
   (define-key ashton-mode-map (kbd "C-c c t") #'claude-code-toggle)
-  (define-key ashton-mode-map (kbd "C-c c m") #'claude-code-transient-menu)
+  (define-key ashton-mode-map (kbd "C-c c m") #'claude-code-transient)
   (define-key ashton-mode-map (kbd "C-c c y") #'claude-code-yes)
   (define-key ashton-mode-map (kbd "C-c c n") #'claude-code-no)
   (define-key ashton-mode-map (kbd "C-c c k") #'claude-code-kill)

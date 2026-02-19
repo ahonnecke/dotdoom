@@ -90,6 +90,7 @@
     (define-key map (kbd "/") #'orchard-filter-by-text)   ; search by text
     (define-key map (kbd "#") #'orchard-find-issue)       ; jump to issue number
     (define-key map (kbd "\\") #'orchard-clear-filters)   ; clear search
+    (define-key map (kbd "f") #'orchard-filter-menu)      ; filter/view transient
 
     ;; Refresh
     (define-key map (kbd "g") #'orchard-refresh)          ; quick refresh
@@ -99,24 +100,31 @@
     (define-key map (kbd "RET") #'orchard-open-at-point)  ; default action (claude)
     (define-key map (kbd "c") #'orchard-claude-at-point)  ; open claude
     (define-key map (kbd "m") #'orchard-magit-at-point)   ; open magit
+    (define-key map (kbd "d") #'orchard-dired-at-point)   ; open dired
     (define-key map (kbd "o") #'orchard-issue-browse)     ; open in browser
+    (define-key map (kbd "t") #'orchard-test-at-point)    ; run tests
 
-    ;; PR Lifecycle
+    ;; Lifecycle
+    (define-key map (kbd "u") #'orchard-push-at-point)    ; push branch
+    (define-key map (kbd "P") #'orchard-pr-at-point)      ; create PR
     (define-key map (kbd "M") #'orchard-merge-pr-at-point) ; merge PR
-    (define-key map (kbd "P") #'orchard-pr-at-point)       ; create PR
+    (define-key map (kbd "-") #'orchard-hide-at-point)    ; hide item
+    (define-key map (kbd "H") #'orchard-show-hidden)      ; show hidden
+    (define-key map (kbd "A") #'orchard-archive-at-point) ; archive done items
+    (define-key map (kbd "D") #'orchard-delete-at-point)  ; delete worktree+branch
 
     ;; Sessions
-    (define-key map (kbd "z") #'orchard-resume-sessions)   ; resume saved sessions
+    (define-key map (kbd "z") #'orchard-resume-sessions)  ; resume saved sessions
     (define-key map (kbd "Z") #'orchard--clear-previous-sessions)
-    (define-key map (kbd "l") #'orchard-list-claudes)      ; list all claude sessions
-    (define-key map (kbd "W") #'orchard-tile-claudes)      ; tile up to 4 claudes
-    (define-key map (kbd ">") #'orchard-next-claude)       ; step through claudes
-    (define-key map (kbd "<") #'orchard-prev-claude)       ; step back through claudes
+    (define-key map (kbd "l") #'orchard-list-claudes)     ; list all claude sessions
+    (define-key map (kbd "W") #'orchard-tile-claudes)     ; tile up to 4 claudes
+    (define-key map (kbd ">") #'orchard-next-claude)      ; step through claudes
+    (define-key map (kbd "<") #'orchard-prev-claude)      ; step back through claudes
 
     ;; Create branches (from issue or scratch)
-    (define-key map (kbd "I") #'orchard-issue-start)       ; start from GitHub issue
-    (define-key map (kbd "E") #'orchard-new-experiment)    ; experiment/demo branch
-    (define-key map (kbd "X") #'orchard-new-research)      ; research/debug branch
+    (define-key map (kbd "I") #'orchard-issue-start)      ; start from GitHub issue
+    (define-key map (kbd "E") #'orchard-new-experiment)   ; experiment/demo branch
+    (define-key map (kbd "X") #'orchard-new-research)     ; research/debug branch
 
     ;; ═══ NAVIGATION ═══
     (define-key map (kbd "n") #'orchard-next-item)
@@ -125,26 +133,26 @@
     (define-key map (kbd "<tab>") #'orchard-toggle-section)
 
     ;; ═══ LESS COMMON ═══
-    (define-key map (kbd "?") #'orchard-dispatch)          ; help/all commands
-    (define-key map (kbd "d") #'orchard-dired-at-point)
+    (define-key map (kbd "?") #'orchard-dispatch)         ; help/all commands
     (define-key map (kbd "s") #'orchard-toggle-staging-issues)
-    (define-key map (kbd "A") #'orchard-archive-at-point)  ; archive done items
-    (define-key map (kbd "K") #'orchard-cleanup)           ; cleanup stale
+    (define-key map (kbd "K") #'orchard-cleanup)          ; cleanup stale
     (define-key map (kbd "q") #'quit-window)
+    (define-key map (kbd "Q") #'orchard-quit-all)         ; quit + kill claudes
     map)
   "Keymap for orchard-mode.
 
 Essential keys:
+  RET/c    Open Claude for item at point
+  m        Open Magit for item
+  d        Open Dired for item
   /        Search issues by text
   #        Jump to issue by number
+  f        Filter/view menu
   g/G      Refresh (quick/full)
-  RET/c    Open Claude for item
-  m        Open Magit for item
-  M        Merge PR at point
-  z        Resume saved sessions
   I        Start work from GitHub issue
-  E        New experiment branch
-  X        New research branch")
+  u/P/M    Push / Create PR / Merge PR
+  l        List all Claude sessions
+  ?        Full command menu")
 
 (define-derived-mode orchard-mode special-mode "Orchard"
   "Major mode for Orchard worktree dashboard.

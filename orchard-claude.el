@@ -416,47 +416,6 @@ Use this when you add new commands to the shared directory."
           (cl-incf synced))))
     (message "Synced Claude commands for %d worktrees" synced)))
 
-(defun orchard--start-background-claude (path)
-  "Start Claude in PATH without displaying it.
-Returns the Claude buffer."
-  (orchard--ensure-claude-loaded)
-  (let ((default-directory path)
-        (buffers-before (buffer-list))
-        (original-window (selected-window))
-        (original-config (current-window-configuration))
-        new-claude-buf)
-    ;; Start Claude with --continue to auto-resume most recent session
-    (save-window-excursion
-      (claude-code-continue))
-    ;; Find the new Claude buffer
-    (setq new-claude-buf
-          (cl-find-if
-           (lambda (buf)
-             (and (string-prefix-p "*claude:" (buffer-name buf))
-                  (not (memq buf buffers-before))))
-           (buffer-list)))
-    ;; Restore window configuration and hide Claude from all windows
-    (set-window-configuration original-config)
-    (when new-claude-buf
-      ;; Make sure Claude isn't displayed anywhere
-      (dolist (win (get-buffer-window-list new-claude-buf nil t))
-        (delete-window win)))
-    new-claude-buf))
-
-(defun orchard--start-background-claude-with-command (path command)
-  "Start Claude in PATH and run COMMAND (e.g., '/refine-ticket 42').
-Keeps Claude in background - no window shown."
-  (let ((claude-buf (orchard--start-background-claude path)))
-    (when claude-buf
-      ;; Send command after startup delay (Claude needs time to initialize)
-      (run-at-time 3 nil
-                   (lambda ()
-                     (when (buffer-live-p claude-buf)
-                       (with-current-buffer claude-buf
-                         (vterm-send-string command)
-                         (vterm-send-return))))))
-    claude-buf))
-
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Window Intercept — prevent upstream pop-to-buffer from fighting Orchard
 ;;; ════════════════════════════════════════════════════════════════════════════

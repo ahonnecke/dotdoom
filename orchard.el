@@ -554,50 +554,42 @@ Creates worktree if needed, otherwise opens existing."
 (transient-define-prefix orchard-dispatch ()
   "Orchard command menu."
   ["Orchard - Worktree Manager"
-   ["Create (TAB-completable)"
-    ("F" "Feature (FEATURE/)" orchard-new-feature)
-    ("B" "Bugfix (BUGFIX/)" orchard-new-bugfix)
-    ("C" "Chore (CHORE/)" orchard-new-chore)
-    ("R" "Refactor (REFACTOR/)" orchard-new-refactor)
-    ("D" "Docs (DOCS/)" orchard-new-docs)
-    ("E" "Experiment (EXPERIMENT/)" orchard-new-experiment)]
-   ["GitHub Issues"
-    ("I" "Start from issue" orchard-issue-start)
-    ("o" "Open issue in browser" orchard-issue-browse)
-    ("#" "Find issue by number" orchard-find-issue)
-    ("!" "Diagnose/resolve issue" orchard-resolve-issue)
-    ("i" "Pick issue (prompt)" orchard-issue-start-prompt)
-    ("/" "Search (free text)" orchard-filter-by-text)
-    ("L" "Filter by label" orchard-filter-by-label)
-    ("\\" "Clear all filters" orchard-clear-filters)
-    ("s" "Toggle staging issues" orchard-toggle-staging-issues)]
-   ["At Point"
-    ("RET" "Open in column" orchard-open-at-point)
-    ("m" "Magit" orchard-magit-at-point)
+   ["Open at Point"
+    ("RET" "Open (Claude)" orchard-open-at-point)
     ("c" "Claude" orchard-claude-at-point)
+    ("m" "Magit" orchard-magit-at-point)
     ("d" "Dired" orchard-dired-at-point)
-    ("t" "Test (testicular)" orchard-test-at-point)
-    ("T" "Update test results" orchard-update-test-results)
-    ("`" "Commands (commando)" orchard-commando-at-point)]
+    ("o" "Browser" orchard-issue-browse)
+    ("t" "Test" orchard-test-at-point)]
    ["Lifecycle"
-    ("N" "Next step" orchard-next-step)
-    ("u" "Push (upload)" orchard-push-at-point)
+    ("u" "Push branch" orchard-push-at-point)
     ("P" "Create PR" orchard-pr-at-point)
-    ("S-m" "Merge PR" orchard-merge-pr-at-point)
+    ("M" "Merge PR" orchard-merge-pr-at-point)
     ("-" "Hide (dismiss)" orchard-hide-at-point)
     ("H" "Show hidden" orchard-show-hidden)
-    ("a" "Archive (rm worktree)" orchard-archive-at-point)
-    ("X" "Delete (rm branch too)" orchard-delete-at-point)]
-   ["Services"
-    ("V" "Vercel" vercel-transient)
-    ("S" "Supabase" supabase-transient)
-    ("A" "AWS" aws-transient)]
+    ("A" "Archive (rm worktree)" orchard-archive-at-point)
+    ("D" "Delete (rm branch too)" orchard-delete-at-point)]
+   ["Create Branch"
+    ("I" "From GitHub issue" orchard-issue-start)
+    ("E" "Experiment" orchard-new-experiment)
+    ("X" "Research" orchard-new-research)]
+   ["Claude Sessions"
+    ("l" "List all" orchard-list-claudes)
+    ("W" "Tile (2x2)" orchard-tile-claudes)
+    (">" "Next Claude" orchard-next-claude)
+    ("<" "Prev Claude" orchard-prev-claude)
+    ("z" "Resume saved" orchard-resume-sessions)
+    ("Z" "Clear previous" orchard--clear-previous-sessions)]
+   ["Search & Filter"
+    ("/" "Search text" orchard-filter-by-text)
+    ("#" "Find issue #" orchard-find-issue)
+    ("f" "Filter menu" orchard-filter-menu)
+    ("s" "Toggle staging" orchard-toggle-staging-issues)
+    ("\\" "Clear filters" orchard-clear-filters)]
    ["Maintenance"
-    ("K" "Cleanup stale entries" orchard-cleanup)
-    ("M" "Cleanup completed (issues+PRs)" orchard-cleanup-merged)
-    ("!" "Toggle window dedication" orchard-toggle-window-dedication)
     ("g" "Refresh" orchard-refresh)
-    ("G" "Force refresh (ignore cache)" orchard-force-refresh)
+    ("G" "Force refresh" orchard-force-refresh)
+    ("K" "Cleanup stale" orchard-cleanup)
     ("q" "Quit" transient-quit-one)
     ("Q" "Quit + kill Claudes" orchard-quit-all)]])
 
