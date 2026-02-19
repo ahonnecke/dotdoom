@@ -483,6 +483,10 @@ When nil, passes through to the original function unchanged."
                  (lambda (buf &rest _)
                    (set-window-buffer orchard--target-window buf)
                    (select-window orchard--target-window)
+                   ;; Force Emacs to recalculate window dimensions after split.
+                   ;; Without this, vterm-mode reads pre-split (full) width and
+                   ;; Claude draws HRs for the wrong size.
+                   (redisplay t)
                    buf))
                 ((symbol-function 'delete-window)
                  (lambda (&optional _win) nil)))
@@ -598,7 +602,24 @@ For existing sessions: shows the buffer via `orchard--place-claude-buffer'."
         ;; Just set vterm-kill-buffer-on-exit and register.
         (when-let ((claude-buf (orchard--claude-buffer-for-path path)))
           (with-current-buffer claude-buf
-            (setq-local vterm-kill-buffer-on-exit nil)))
+            (setq-local vterm-kill-buffer-on-exit nil))
+          ;; Force a resize + Ctrl+L after Claude's TUI has initialized.
+          ;; Claude draws fixed-width HRs on first render; if the TUI starts
+          ;; before the window dimensions fully propagate, those HRs are wrong.
+          ;; A delayed resize cycle forces a clean repaint.
+          (when-let ((win (get-buffer-window claude-buf)))
+            (run-at-time 3 nil
+                         (lambda ()
+                           (when (and (window-live-p win)
+                                      (buffer-live-p claude-buf)
+                                      (eq (window-buffer win) claude-buf))
+                             (with-current-buffer claude-buf
+                               (when (and (boundp 'vterm--process)
+                                          vterm--process
+                                          (process-live-p vterm--process))
+                                 (vterm--window-adjust-process-window-size
+                                  vterm--process (list win))
+                                 (vterm-send-key "l" nil nil t))))))))
         (orchard--register-claude-buffer path)
         (when command
           (when-let ((claude-buf (orchard--claude-buffer-for-path path)))

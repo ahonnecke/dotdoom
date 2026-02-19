@@ -60,9 +60,15 @@
   ;; Prevent vterm from killing Claude buffers when the process exits/restarts.
   ;; Claude CLI can restart after permissions dialogs, context compaction, etc.
   ;; Without this, the vterm sentinel kills the buffer on process exit.
+  ;;
+  ;; Also lower vterm-min-window-width so resize works correctly.  The default
+  ;; (80) causes vterm to lie about the terminal width when the window is
+  ;; narrower than 80 cols — Claude draws HRs for 80 cols but only 60 are
+  ;; visible, garbling the display.
   (add-hook 'claude-code-start-hook
             (lambda ()
-              (setq-local vterm-kill-buffer-on-exit nil)))
+              (setq-local vterm-kill-buffer-on-exit nil)
+              (setq-local vterm-min-window-width 10)))
 
   ;; Global display rule: Claude buffers prefer empty windows,
   ;; then same window - NEVER take over other Claude windows
