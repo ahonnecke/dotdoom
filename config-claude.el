@@ -4,7 +4,8 @@
 ;; https://github.com/stevemolitor/claude-code.el
 ;;
 ;; Keybindings (C-c c prefix):
-;;   C-c c c - Start Claude in current project
+;;   C-c c c - Start Claude (agent-shell)
+;;   C-c c C - Start Claude here (vterm, current window)
 ;;   C-c c s - Send command/prompt to Claude
 ;;   C-c c r - Send region to Claude
 ;;   C-c c b - Send buffer to Claude
@@ -13,10 +14,14 @@
 ;;   C-c c y - Answer "yes" to Claude prompt
 ;;   C-c c n - Answer "no" to Claude prompt
 ;;   C-c c k - Kill Claude instance
+;;   C-c c z - Toggle read-only (copy) mode
+;;   C-c c M - Cycle Claude mode
 ;;   C-c c ? - Jump to last question (what is Claude asking?)
 ;;   C-c c a - Jump to last action (what did Claude do?)
 ;;   C-c c S - Show summary of recent activity
 ;;   C-c c R - Review last output (read-only + scroll to start)
+;;   C-c c Y - Yank last response to clipboard
+;;   C-c c x - Yank last code block to clipboard
 ;;   C-c c ] - Next Claude buffer (cycle forward)
 ;;   C-c c [ - Previous Claude buffer (cycle backward)
 ;;   C-c c l - List all Claude buffers (pick one)
@@ -27,10 +32,12 @@
 ;;   C-c c d k - Kill stuck Claude processes (in Emacs)
 ;;   C-c c d l - List all sessions (buffers + system processes)
 ;;   C-c c d o - Kill orphan processes (no Emacs buffer)
+;;   C-c c d r - Reset window (fix garbled display)
 ;;
 ;; In Claude/vterm buffer:
-;;   C-c /   - Completion at point (works even if read-only)
-;;   C-c TAB - Completion at point (alternate binding)
+;;   C-z     - Toggle copy mode (quick)
+;;   C-c /   - Slash command completion
+;;   C-c TAB - Completion at point
 ;;
 ;; Workflow commands (C-c c w prefix):
 ;;   C-c c w t - Generate test plan (/test-plan)
@@ -1044,9 +1051,9 @@ Extracts content between ``` markers."
                   (gui-set-selection 'CLIPBOARD cleaned))
                 (message "Copied %d chars of code to clipboard" (length cleaned))))))))))
 
-;; Keybindings - C-c c y prefix for yanking
+;; Keybindings - yanking Claude output
 (define-key ashton-mode-map (kbd "C-c c Y") #'claude-yank-last-response)
-(define-key ashton-mode-map (kbd "C-c c C") #'claude-yank-last-code-block)
+(define-key ashton-mode-map (kbd "C-c c x") #'claude-yank-last-code-block)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Workflow Commands - Pre-built prompts with context
@@ -1097,7 +1104,6 @@ Extracts content between ``` markers."
 (define-key ashton-mode-map (kbd "C-c c w r") #'claude-workflow-review)
 (define-key ashton-mode-map (kbd "C-c c w f") #'claude-workflow-fix-error)
 (define-key ashton-mode-map (kbd "C-c c w e") #'claude-workflow-explain)
-(define-key ashton-mode-map (kbd "C-c c w c") #'claude-workflow-commit)
 (define-key ashton-mode-map (kbd "C-c c w c") #'claude-workflow-commit)
 
 ;;; ════════════════════════════════════════════════════════════════════════════

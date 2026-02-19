@@ -386,12 +386,6 @@ Prompts for a milestone from the available milestones in cached issues."
   (message "Staging issues: %s" (if orchard--hide-staging-issues "hidden" "visible"))
   (orchard-refresh))
 
-(defun orchard-expand-all-sections ()
-  "Expand all collapsed sections."
-  (interactive)
-  (setq orchard--collapsed-sections nil)
-  (orchard-refresh))
-
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; PR-Ready Stage Management
 ;;; ════════════════════════════════════════════════════════════════════════════
