@@ -56,6 +56,9 @@
   ;; Use vterm as the terminal backend (already have it via Doom)
   (setq claude-code-terminal-backend 'vterm)
 
+  ;; M-return (Alt+Enter) inserts a newline, RET sends the command
+  (setq claude-code-newline-keybinding-style 'newline-on-alt-return)
+
   ;; NEVER delete other windows when starting Claude
   (setq claude-code-no-delete-other-windows t)
 
@@ -919,19 +922,13 @@ Shows only slash commands with documentation."
         (vterm-insert choice)))))
 
 ;;; ─────────────────────────────────────────────────────────────────────────────
-;;; Corfu Integration - DISABLED (was breaking vertico-childframe globally)
-;;; ─────────────────────────────────────────────────────────────────────────────
-
-;; Claude completion setup disabled - use manual /command completion instead
-;; (defun claude-setup-completion () ...)
-;; (add-hook 'vterm-mode-hook #'claude-maybe-setup-completion)
-
-;;; ─────────────────────────────────────────────────────────────────────────────
 ;;; Keybindings
 ;;; ─────────────────────────────────────────────────────────────────────────────
 
+;; TAB is NOT overridden — Claude CLI handles tab completion natively for
+;; slash commands.  Use C-c TAB or M-/ for Emacs-side completion (file paths,
+;; dabbrev, env vars) via completing-read/Vertico.
 (with-eval-after-load 'vterm
-  (define-key vterm-mode-map (kbd "TAB") #'claude-complete)
   (define-key vterm-mode-map (kbd "C-c /") #'claude-complete-slash)
   (define-key vterm-mode-map (kbd "C-c TAB") #'claude-complete)
   (define-key vterm-mode-map (kbd "M-/") #'claude-complete)

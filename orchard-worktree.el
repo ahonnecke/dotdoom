@@ -15,7 +15,6 @@
 ;;; Forward declarations for functions defined in other orchard files
 (declare-function orchard--claude-buffer-for-path "orchard-claude")
 (declare-function orchard--claude-process-running-p "orchard-claude")
-(declare-function orchard--column-for-branch "orchard-window")
 (declare-function orchard-refresh "orchard-dashboard")
 
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -266,9 +265,6 @@ Returns nil if worktree path doesn't exist (skip it)."
             (when (and claude-buf (buffer-live-p claude-buf))
               (let ((running (orchard--claude-process-running-p claude-buf)))
                 (push (cons 'claude-status (if running 'running 'stopped)) wt)))))
-        ;; Column assignment
-        (when (and branch (fboundp 'orchard--column-for-branch))
-          (push (cons 'column (orchard--column-for-branch branch)) wt))
         ;; Feature description
         (when-let ((desc (orchard--load-feature-description path)))
           (push (cons 'description desc) wt))

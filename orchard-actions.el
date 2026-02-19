@@ -28,7 +28,6 @@
 (declare-function orchard--get-claude-buffers "orchard-claude")
 (declare-function orchard--start-claude-backend "orchard-claude")
 (declare-function orchard--setup-claude-settings "orchard-claude")
-(declare-function orchard--column-for-branch "orchard-window")
 (declare-function orchard-open-branch "orchard")
 (declare-function orchard--find-worktree-for-issue "orchard")
 (declare-function orchard--is-main-worktree-p "orchard")
@@ -554,8 +553,6 @@ For main worktree, just hides it instead."
             ;; Can't remove main worktree - just hide it
             (progn
               (orchard--hide-worktree path)
-              (when-let ((col (orchard--column-for-branch branch)))
-                (remhash branch orchard--branch-to-column))
               (orchard-refresh)
               (message "Hidden %s (main worktree cannot be removed)" branch))
           ;; Regular worktree - archive it
@@ -563,9 +560,6 @@ For main worktree, just hides it instead."
             ;; Kill Claude buffer if any
             (when-let ((claude-buf (orchard--claude-buffer-for-path path)))
               (kill-buffer claude-buf))
-            ;; Remove from column tracking
-            (when-let ((col (orchard--column-for-branch branch)))
-              (remhash branch orchard--branch-to-column))
             ;; Remove worktree (synchronous)
             (let ((default-directory repo-root))
               (let ((result (shell-command-to-string
@@ -594,9 +588,6 @@ For main worktree, just hides it instead."
           ;; Kill Claude buffer if any
           (when-let ((claude-buf (orchard--claude-buffer-for-path path)))
             (kill-buffer claude-buf))
-          ;; Remove from column tracking
-          (when-let ((col (orchard--column-for-branch branch)))
-            (remhash branch orchard--branch-to-column))
           ;; Remove worktree (synchronous)
           (let ((default-directory repo-root))
             (let ((result (shell-command-to-string
