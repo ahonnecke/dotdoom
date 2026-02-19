@@ -64,18 +64,42 @@
   ;; processes refuse to start ("cannot be launched inside another session").
   (setenv "CLAUDECODE" nil)
 
+  ;; vterm-min-window-width is a floor clamp used at vterm-mode init time:
+  ;;   width = max(window-chars, vterm-min-window-width)
+  ;; The default (80) makes vterm lie about terminal width for windows <80 cols.
+  ;; Setting to 10 globally means max(actual, 10) = actual for any real window.
+  ;; MUST be global (not buffer-local via hook) because vterm-mode reads it
+  ;; during init, BEFORE claude-code-start-hook fires.
+  (setq vterm-min-window-width 10)
+
   ;; Prevent vterm from killing Claude buffers when the process exits/restarts.
   ;; Claude CLI can restart after permissions dialogs, context compaction, etc.
   ;; Without this, the vterm sentinel kills the buffer on process exit.
-  ;;
-  ;; Also lower vterm-min-window-width so resize works correctly.  The default
-  ;; (80) causes vterm to lie about the terminal width when the window is
-  ;; narrower than 80 cols — Claude draws HRs for 80 cols but only 60 are
-  ;; visible, garbling the display.
   (add-hook 'claude-code-start-hook
             (lambda ()
-              (setq-local vterm-kill-buffer-on-exit nil)
-              (setq-local vterm-min-window-width 10)))
+              (setq-local vterm-kill-buffer-on-exit nil)))
+
+  ;; After vterm-mode init, correct terminal dimensions for Claude buffers.
+  ;; vterm-mode reads window size during init (vterm.el:769) but the window
+  ;; may not be in its final position yet.  This immediately corrects any
+  ;; mismatch by calling vterm--set-size with the actual window dimensions.
+  ;; Works for ALL vterm-based Claude starts (Orchard, claude-code-here, etc).
+  (defun claude--correct-vterm-size (&rest _)
+    "After vterm-mode init, force correct terminal dimensions for Claude buffers."
+    (when (string-prefix-p "*claude:" (buffer-name))
+      (let ((win (get-buffer-window (current-buffer))))
+        (when (and win
+                   (boundp 'vterm--term) vterm--term
+                   (boundp 'vterm--process) vterm--process
+                   (process-live-p vterm--process))
+          (let* ((width (- (window-body-width win)
+                           (if (fboundp 'vterm--get-margin-width)
+                               (vterm--get-margin-width)
+                             0)))
+                 (height (window-body-height win)))
+            (vterm--set-size vterm--term height width))))))
+
+  (advice-add 'vterm-mode :after #'claude--correct-vterm-size)
 
   ;; Global display rule: Claude buffers prefer empty windows,
   ;; then same window - NEVER take over other Claude windows
@@ -119,15 +143,19 @@ Never takes over *Orchard* — the dashboard must stay visible."
 Use this instead of claude-code to ensure Claude opens HERE."
     (interactive)
     (let ((target-window (selected-window)))
-      ;; Suppress all display-buffer shenanigans
+      ;; Suppress all display-buffer shenanigans.
+      ;; redisplay t ensures window dimensions are settled before
+      ;; vterm-mode reads them via window-max-chars-per-line.
       (cl-letf (((symbol-function 'display-buffer)
                  (lambda (buffer &rest _)
                    (set-window-buffer target-window buffer)
+                   (redisplay t)
                    target-window))
                 ((symbol-function 'pop-to-buffer)
                  (lambda (buffer &rest _)
                    (set-window-buffer target-window buffer)
                    (select-window target-window)
+                   (redisplay t)
                    target-window)))
         (claude-code))))
 
@@ -262,16 +290,13 @@ otherwise finds the nearest visible Claude window and cycles there."
        (string-prefix-p "*claude:" (buffer-name (window-buffer window)))))
 
 (defun claude-reset-window ()
-  "Reset current Claude window - fixes garbled display after resize.
-Three-stage reset: (1) dramatic resize to force vterm's size pipeline,
-(2) direct vterm--redraw to fix Emacs-side rendering, (3) Ctrl+L to
-force Claude's TUI to repaint.  Works from any buffer."
+  "Reset Claude window — fixes garbled display after manual resize.
+Physical shrink→restore forces vterm to send SIGWINCH with new dimensions.
+Works from any buffer — finds nearest visible Claude window."
   (interactive)
   (let* ((buf (cond
-               ;; In a Claude buffer already
                ((and (claude-buffer-p) (derived-mode-p 'vterm-mode))
                 (current-buffer))
-               ;; Find a visible Claude buffer
                (t (cl-some (lambda (w)
                              (let ((b (window-buffer w)))
                                (when (and (string-prefix-p "*claude:" (buffer-name b))
@@ -285,28 +310,17 @@ force Claude's TUI to repaint.  Works from any buffer."
       (with-current-buffer buf
         (when (bound-and-true-p vterm-copy-mode)
           (vterm-copy-mode -1)))
-      ;; Stage 1: dramatic resize (10 cols) to force full re-layout
       (let ((shrink (min 10 (- (window-body-width win) 20))))
         (when (> shrink 0)
+          ;; Shrink forces SIGWINCH at smaller size
           (window-resize win (- shrink) t)
-          ;; Stage 2: restore size + redraw + Ctrl+L after vterm processes the resize
+          ;; Restore after vterm processes the shrink
           (run-at-time 0.3 nil
                        (lambda ()
                          (when (and (window-live-p win)
                                     (buffer-live-p buf)
                                     (eq (window-buffer win) buf))
-                           ;; Restore original width
                            (window-resize win shrink t)
-                           ;; Force vterm's Emacs-side redraw
-                           (with-current-buffer buf
-                             (when (and (boundp 'vterm--term) vterm--term)
-                               (let ((inhibit-read-only t))
-                                 (vterm--redraw vterm--term)))
-                             ;; Stage 3: send Ctrl+L to Claude's TUI to repaint
-                             (when (and (boundp 'vterm--process)
-                                        vterm--process
-                                        (process-live-p vterm--process))
-                               (vterm-send-key "l" nil nil t)))
                            (message "Reset vterm: %dx%d"
                                     (window-body-width win)
                                     (window-body-height win))))))))))

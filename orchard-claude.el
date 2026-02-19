@@ -562,23 +562,21 @@ For existing sessions: shows the buffer via `orchard--place-claude-buffer'."
         (when-let ((claude-buf (orchard--claude-buffer-for-path path)))
           (with-current-buffer claude-buf
             (setq-local vterm-kill-buffer-on-exit nil))
-          ;; Force a resize + Ctrl+L after Claude's TUI has initialized.
-          ;; Claude draws fixed-width HRs on first render; if the TUI starts
-          ;; before the window dimensions fully propagate, those HRs are wrong.
-          ;; A delayed resize cycle forces a clean repaint.
+          ;; Physical 1-col shrink→restore after Claude's TUI has initialized.
+          ;; Guarantees a SIGWINCH even if dimensions haven't changed since init
+          ;; (vterm--set-size is a no-op when size is identical, but a physical
+          ;; resize always triggers the kernel's TIOCSWINSZ → SIGWINCH).
           (when-let ((win (get-buffer-window claude-buf)))
             (run-at-time 3 nil
                          (lambda ()
                            (when (and (window-live-p win)
                                       (buffer-live-p claude-buf)
                                       (eq (window-buffer win) claude-buf))
-                             (with-current-buffer claude-buf
-                               (when (and (boundp 'vterm--process)
-                                          vterm--process
-                                          (process-live-p vterm--process))
-                                 (vterm--window-adjust-process-window-size
-                                  vterm--process (list win))
-                                 (vterm-send-key "l" nil nil t))))))))
+                             (window-resize win -1 t)
+                             (run-at-time 0.1 nil
+                                          (lambda ()
+                                            (when (window-live-p win)
+                                              (window-resize win 1 t)))))))))
         (orchard--register-claude-buffer path)
         (when command
           (when-let ((claude-buf (orchard--claude-buffer-for-path path)))
