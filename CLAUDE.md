@@ -206,7 +206,11 @@ Located in `config-magit.el`:
 | `C-c c y` | `claude-code-yes` | Answer "yes" to prompt |
 | `C-c c n` | `claude-code-no` | Answer "no" to prompt |
 | `C-c c k` | `claude-code-kill` | Kill Claude instance |
-| `C-c c z` / `s-z` | `claude-code-toggle-read-only-mode` | Toggle copy mode |
+| `C-c c z` | `claude-code-toggle-read-only-mode` | Toggle copy mode |
+| `C-c c x` | `claude-grab-code` | Last code block → clipboard (unwraps vterm) |
+| `C-c c X` | `claude-grab-sql` | Extract SQL from last response → clipboard |
+| `C-c c u` | `claude-grab-url` | Last URL → browser + clipboard |
+| `C-c c Y` | `claude-grab-response` | Last response → clipboard |
 
 **Modeline indicator**: Shows Claude status globally: `[Claude: 2🟢]` (running count)
 
@@ -715,6 +719,57 @@ Config files: `config-tree-sitter.el`, `config-ts-*.el`
 - 10000 line scrollback
 - Toggle: `C-M-t` or `C-c v t`
 - Here: `C-c v h`
+
+---
+
+## Expand Region (Tree-sitter)
+
+Located in `config-expand-region.el`:
+
+Registers language-specific expansions for tree-sitter modes that would otherwise only get basic expansions. Also adds `er/mark-treesit-node-smart` which skips boring AST nodes (punctuation, single-char operators).
+
+| Tree-sitter mode | Expansion source |
+|------------------|------------------|
+| `python-ts-mode` | Python statements, blocks, strings, decorators |
+| `js-ts-mode` | JS functions, if/return, object properties |
+| `typescript-ts-mode` | JS expansions |
+| `tsx-ts-mode` | JS expansions |
+| `yaml-ts-mode` | YAML blocks, key-values, list items |
+| `css-ts-mode` | CSS declarations |
+
+---
+
+## Jinx (Spell Checking)
+
+Located in `config-jinx.el`:
+
+Fast spell-checker that respects fontlock faces — only checks comments and strings in code buffers. Replaces flyspell.
+
+**Requires**: `libenchant-2-dev` system package.
+
+| Binding | Function | Description |
+|---------|----------|-------------|
+| `C-c j j` | `jinx-correct` | Correct word at point |
+| `C-c j n` | `jinx-next` | Next misspelling |
+| `C-c j p` | `jinx-previous` | Previous misspelling |
+| `C-c j l` | `jinx-languages` | Switch languages |
+
+---
+
+## Whole-Line-or-Region
+
+Located in `config-whole-line-or-region.el`:
+
+Makes `C-w` (kill) and `M-w` (copy) operate on the whole line when no region is active. No conflict with `region-bindings-mode` (which only activates WITH an active region).
+
+---
+
+## Rainbow Delimiters & Rainbow Mode
+
+Located in `config-rainbow.el`:
+
+- **rainbow-delimiters**: Doom enables for `emacs-lisp-mode` — extended to all `prog-mode`
+- **rainbow-mode**: Doom enables for CSS/Sass/Stylus — extended to TS, TSX, JS, HTML, web-mode, conf-mode
 
 ---
 
