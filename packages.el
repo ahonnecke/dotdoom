@@ -136,3 +136,10 @@
 (package! beacon)  ; Flash cursor on scroll/window switch
 (package! winpulse  ; Pulse window border on switch (xenodium)
   :recipe (:host github :repo "xenodium/winpulse"))
+
+;; Jinx: Fast spell-checker that respects fontlock faces
+;; Only checks comments/strings in code — replaces flyspell
+(package! jinx)
+
+;; Whole-line-or-region: C-w/M-w act on whole line when no region active
+(package! whole-line-or-region)

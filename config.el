@@ -124,6 +124,7 @@
 (load "~/.doom.d/config-latex")
 (load "~/.doom.d/config-ts-typescript")
 (load "~/.doom.d/config-region-bindings-mode")
+(load "~/.doom.d/config-expand-region")
 (load "~/.doom.d/config-indent-tools")
 
 ;; M-m is handled by orchard-cycle-mode in config-orchard.el
@@ -195,6 +196,9 @@
 (load "~/.doom.d/config-vitest")
 (load "~/.doom.d/config-wayward")
 (load "~/.doom.d/config-combobulate")
+(load "~/.doom.d/config-jinx")              ; Spell-check that respects fontlock
+(load "~/.doom.d/config-whole-line-or-region") ; C-w/M-w on whole line when no region
+(load "~/.doom.d/config-rainbow")           ; Rainbow delimiters + color preview
 
 (setq projectile-create-missing-test-files t)
 
