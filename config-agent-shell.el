@@ -46,11 +46,11 @@
 
 (defun agent-shell--get-buffer ()
   "Get the current agent-shell buffer or the most recent one.
-Looks for buffers with Claude Code prompt or *agent:* naming."
-  (or (and (string-match-p "Claude Code\\|\\*agent:" (buffer-name))
+Looks for buffers named Claude Agent/Code or *agent:* naming."
+  (or (and (string-match-p "Claude \\(Agent\\|Code\\)\\|\\*agent:" (buffer-name))
            (current-buffer))
       (seq-find (lambda (b)
-                  (string-match-p "Claude Code\\|\\*agent:" (buffer-name b)))
+                  (string-match-p "Claude \\(Agent\\|Code\\)\\|\\*agent:" (buffer-name b)))
                 (buffer-list))))
 
 (defun agent-shell-send-command (cmd)
@@ -239,7 +239,8 @@ Looks for buffers with Claude Code prompt or *agent:* naming."
    ("D" "Doctor" agent-shell-cmd-doctor)
    ("?" "Help" agent-shell-cmd-help)
    ("n" "MCP servers" agent-shell-cmd-mcp)
-   ("v" "Vim mode" agent-shell-cmd-vim)]
+   ("v" "Vim mode" agent-shell-cmd-vim)
+   ("h" "Health check" agent-shell-health)]
 
   ["Launch"
    ("a" "Start Claude" agent-shell-anthropic-start-claude-code)
@@ -345,6 +346,228 @@ Returns the position of the button, or nil."
             (lambda (&rest _)
               (setq agent-shell--pending-worktree default-directory)
               (agent-shell--send-session-context)))
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Health Check — is the agent-shell session alive or stuck?
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defvar-local agent-shell--health-prev-size nil
+  "Buffer size at last health check, for detecting stalls.")
+
+(defun agent-shell--get-all-buffers ()
+  "Get all agent-shell Claude buffers."
+  (cl-remove-if-not
+   (lambda (b)
+     (string-match-p "Claude \\(Agent\\|Code\\)\\|\\*agent:" (buffer-name b)))
+   (buffer-list)))
+
+(defun agent-shell--health-pick-buffer ()
+  "Pick the Claude buffer to check.
+Uses current buffer if it's a Claude buffer, else prompts."
+  (let ((all (agent-shell--get-all-buffers)))
+    (cond
+     ((member (current-buffer) all) (current-buffer))
+     ((= (length all) 1) (car all))
+     (all (get-buffer
+           (completing-read "Check which Claude? "
+                            (mapcar #'buffer-name all) nil t)))
+     (t nil))))
+
+(defun agent-shell--health-get-acp-process (buf)
+  "Get the ACP process for agent-shell BUF.
+Traverses: buffer → agent-shell--state → :client → :process."
+  (when-let* ((state (buffer-local-value 'agent-shell--state buf))
+              (client (map-elt state :client))
+              (proc (map-elt client :process)))
+    proc))
+
+(defun agent-shell--health-get-active-requests (buf)
+  "Get active ACP requests for agent-shell BUF."
+  (when-let ((state (buffer-local-value 'agent-shell--state buf)))
+    (map-elt state :active-requests)))
+
+(defun agent-shell--health-get-pending-requests (buf)
+  "Get pending ACP requests (awaiting response) for BUF.
+Returns list of (id . method) pairs."
+  (when-let* ((state (buffer-local-value 'agent-shell--state buf))
+              (client (map-elt state :client))
+              (pending (map-elt client :pending-requests)))
+    (mapcar (lambda (entry)
+              ;; entry is (request-id . ((:request . ((jsonrpc ...) (method . X) (id . N) ...)) ...))
+              (let* ((id (car entry))
+                     (data (cdr entry))
+                     (request (alist-get :request data))
+                     (method (alist-get 'method request)))
+                (cons id (or method "unknown"))))
+            pending)))
+
+(defun agent-shell--health-process-tree (pid)
+  "Get the full process tree under PID as a string."
+  (when pid
+    (let ((result (string-trim
+                   (shell-command-to-string
+                    (format "ps -o pid,%%cpu,etime,args --no-headers --forest -g $(ps -o sid= -p %d) 2>/dev/null" pid)))))
+      (unless (string-empty-p result) result))))
+
+(defun agent-shell-health ()
+  "Check if the agent-shell Claude process is alive or stuck.
+Shows ACP process state, active requests, and buffer activity.
+Run twice ~5s apart to get a definitive stuck/working verdict."
+  (interactive)
+  (let ((buf (agent-shell--health-pick-buffer)))
+    (if (not buf)
+        (message "No Claude Agent buffer found")
+      (agent-shell-health--run buf))))
+
+(defun agent-shell-health--run (buf)
+  "Run health check on Claude Agent BUF and display results."
+  (let* ((acp-proc (agent-shell--health-get-acp-process buf))
+         (alive (and acp-proc (process-live-p acp-proc)))
+         (pid (when alive (process-id acp-proc)))
+         (size (buffer-size buf))
+         (prev-size (buffer-local-value 'agent-shell--health-prev-size buf))
+         (growing (and prev-size (> size prev-size)))
+         (active-reqs (agent-shell--health-get-active-requests buf))
+         (pending-reqs (agent-shell--health-get-pending-requests buf))
+         (tree (agent-shell--health-process-tree pid))
+         (report-buf (get-buffer-create "*Agent Health*")))
+    ;; Store size for next comparison
+    (with-current-buffer buf
+      (setq agent-shell--health-prev-size size))
+    (with-current-buffer report-buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (format "=== Agent Health === %s\n\n" (format-time-string "%H:%M:%S")))
+        (insert (format "Buffer: %s\n" (buffer-name buf)))
+        (insert (format "ACP process: %s (PID %s)\n"
+                        (cond (alive "ALIVE") (acp-proc "DEAD") (t "NONE"))
+                        (or pid "n/a")))
+        (insert (format "Buffer size: %d bytes%s\n"
+                        size
+                        (cond
+                         ((null prev-size) " (first check — run again in 5s)")
+                         (growing (format " (+%d since last check)" (- size prev-size)))
+                         ((= size prev-size) " (UNCHANGED since last check)")
+                         (t (format " (%+d since last check)" (- size prev-size))))))
+        (insert (format "Active requests: %d\n" (length active-reqs)))
+        (insert (format "Pending responses: %d\n" (length pending-reqs)))
+        (when pending-reqs
+          (insert "\n-- Pending (waiting for response) --\n")
+          (dolist (req pending-reqs)
+            (insert (format "  id:%s  method:%s\n" (car req) (cdr req)))))
+        (when tree
+          (insert "\n-- Process Tree --\n")
+          (insert tree)
+          (insert "\n"))
+        (insert "\n-- Verdict --\n")
+        (cond
+         ((not alive)
+          (insert "DEAD. Process exited. Press K to bounce (kill + restart).\n"))
+         ((and prev-size (= size prev-size) (null active-reqs) (null pending-reqs))
+          (insert "IDLE. Waiting for input — nothing in flight.\n"))
+         ((and prev-size (= size prev-size) (or active-reqs pending-reqs))
+          ;; Check if claude has any non-MCP children (actual tool work)
+          (let* ((claude-pid
+                  (when tree
+                    (let ((line (seq-find (lambda (l) (string-match-p "\\bclaude$" l))
+                                         (split-string tree "\n" t))))
+                      (when (and line (string-match "^\\s-*\\([0-9]+\\)" line))
+                        (match-string 1 line)))))
+                 (claude-children
+                  (when claude-pid
+                    (string-trim
+                     (shell-command-to-string
+                      (format "ps --ppid %s -o args= 2>/dev/null" claude-pid)))))
+                 (has-tool-child
+                  (when (and claude-children (not (string-empty-p claude-children)))
+                    ;; Filter out MCP servers — anything left is a tool subprocess
+                    (seq-find (lambda (l)
+                                (not (or (string-match-p "notmuch_mcp\\|engram\\|token-counter" l)
+                                         (string-empty-p (string-trim l)))))
+                              (split-string claude-children "\n" t)))))
+            (if has-tool-child
+                (progn
+                  (insert "WAITING. A tool subprocess is running:\n")
+                  (insert (format "  %s\n" has-tool-child))
+                  (insert "Probably just slow. Check again in 30s.\n"))
+              (insert "STUCK. Buffer unchanged, no tool running, request pending.\n")
+              (insert "Press K to bounce (kill + restart with --continue).\n"))))
+         (growing
+          (insert "WORKING. Buffer is growing — output is flowing.\n"))
+         (t
+          (insert "ALIVE. Run again in 5s to compare.\n")))
+        (insert "\n-- Keys --\n")
+        (insert "g: refresh    K: bounce (kill + restart)    k: kill only    q: quit\n")
+        (setq agent-shell--health-target-buffer buf)
+        (goto-char (point-min))
+        (agent-shell-health-mode)))
+    (display-buffer report-buf)))
+
+(defvar agent-shell--health-target-buffer nil
+  "The Claude Agent buffer that the *Agent Health* report is about.")
+
+(defvar agent-shell-health-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map special-mode-map)
+    (define-key map (kbd "K") #'agent-shell-health-bounce)
+    (define-key map (kbd "g") #'agent-shell-health-refresh)
+    (define-key map (kbd "k") #'agent-shell-health-kill)
+    map)
+  "Keymap for *Agent Health* buffer.")
+
+(define-derived-mode agent-shell-health-mode special-mode "AgentHealth"
+  "Mode for the *Agent Health* report buffer.
+\\{agent-shell-health-mode-map}")
+
+(defun agent-shell-health-bounce ()
+  "Kill the stuck Claude session and restart it.
+Preserves the working directory so --continue picks up the session."
+  (interactive)
+  (unless agent-shell--health-target-buffer
+    (user-error "No target buffer — run agent-shell-health first"))
+  (unless (buffer-live-p agent-shell--health-target-buffer)
+    (user-error "Target buffer already killed"))
+  (let* ((buf agent-shell--health-target-buffer)
+         (dir (buffer-local-value 'default-directory buf))
+         (name (buffer-name buf)))
+    (when (yes-or-no-p (format "Kill '%s' and restart in %s? " name dir))
+      ;; Kill the ACP process and buffer
+      (when-let ((proc (agent-shell--health-get-acp-process buf)))
+        (when (process-live-p proc)
+          (delete-process proc)))
+      (kill-buffer buf)
+      ;; Restart via orchard if available, else raw agent-shell
+      (if (fboundp 'orchard--start-agent-shell)
+          (orchard--start-agent-shell dir)
+        (let ((default-directory dir))
+          (agent-shell-anthropic-start-claude-code)))
+      (message "Bounced. New session starting in %s" dir))))
+
+(defun agent-shell-health-kill ()
+  "Kill the stuck Claude session without restarting."
+  (interactive)
+  (unless agent-shell--health-target-buffer
+    (user-error "No target buffer"))
+  (unless (buffer-live-p agent-shell--health-target-buffer)
+    (user-error "Target buffer already killed"))
+  (let* ((buf agent-shell--health-target-buffer)
+         (name (buffer-name buf)))
+    (when (yes-or-no-p (format "Kill '%s'? " name))
+      (when-let ((proc (agent-shell--health-get-acp-process buf)))
+        (when (process-live-p proc)
+          (delete-process proc)))
+      (kill-buffer buf)
+      (message "Killed %s" name))))
+
+(defun agent-shell-health-refresh ()
+  "Re-run health check on the same buffer."
+  (interactive)
+  (if (and agent-shell--health-target-buffer
+           (buffer-live-p agent-shell--health-target-buffer))
+      (agent-shell-health--run agent-shell--health-target-buffer)
+    (call-interactively #'agent-shell-health)))
+
+(define-key ashton-mode-map (kbd "C-c c h") #'agent-shell-health)
 
 (provide 'config-agent-shell)
 ;;; config-agent-shell.el ends here
