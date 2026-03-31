@@ -354,6 +354,7 @@ Returns the position of the button, or nil."
 (defvar-local agent-shell--health-prev-size nil
   "Buffer size at last health check, for detecting stalls.")
 
+
 (defun agent-shell--get-all-buffers ()
   "Get all agent-shell Claude buffers."
   (cl-remove-if-not
@@ -480,22 +481,23 @@ Run twice ~5s apart to get a definitive stuck/working verdict."
                       (format "ps --ppid %s -o args= 2>/dev/null" claude-pid)))))
                  (has-tool-child
                   (when (and claude-children (not (string-empty-p claude-children)))
-                    ;; Filter out MCP servers — anything left is a tool subprocess
                     (seq-find (lambda (l)
                                 (not (or (string-match-p "notmuch_mcp\\|engram\\|token-counter" l)
                                          (string-empty-p (string-trim l)))))
                               (split-string claude-children "\n" t)))))
-            (if has-tool-child
-                (progn
-                  (insert "WAITING. A tool subprocess is running:\n")
-                  (insert (format "  %s\n" has-tool-child))
-                  (insert "Probably just slow. Check again in 30s.\n"))
-              (insert "STUCK. Buffer unchanged, no tool running, request pending.\n")
-              (insert "Press K to bounce (kill + restart with --continue).\n"))))
+            (cond
+             (has-tool-child
+              (insert (format "WAITING. Tool subprocess running: %s\n" has-tool-child)))
+             (t
+              (insert "UNCHANGED. Request pending, no tool running.\n")
+              (insert "Press g to check again — if still unchanged, it's stuck.\n")
+              (insert "Press K to bounce.\n")))))
          (growing
           (insert "WORKING. Buffer is growing — output is flowing.\n"))
+         ((or active-reqs pending-reqs)
+          (insert "BUSY. Requests in flight. Press g to check if buffer grows.\n"))
          (t
-          (insert "ALIVE. Run again in 5s to compare.\n")))
+          (insert "ALIVE.\n")))
         (insert "\n-- Keys --\n")
         (insert "g: refresh    K: bounce (kill + restart)    k: kill only    q: quit\n")
         (setq agent-shell--health-target-buffer buf)
