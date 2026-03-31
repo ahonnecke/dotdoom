@@ -523,7 +523,8 @@ Run twice ~5s apart to get a definitive stuck/working verdict."
 
 (defun agent-shell-health-bounce ()
   "Kill the stuck Claude session and restart it.
-Preserves the working directory so --continue picks up the session."
+Preserves the working directory so --continue picks up the session.
+Sends 'keep going' automatically after the new session starts."
   (interactive)
   (unless agent-shell--health-target-buffer
     (user-error "No target buffer — run agent-shell-health first"))
@@ -532,18 +533,15 @@ Preserves the working directory so --continue picks up the session."
   (let* ((buf agent-shell--health-target-buffer)
          (dir (buffer-local-value 'default-directory buf))
          (name (buffer-name buf)))
-    (when (yes-or-no-p (format "Kill '%s' and restart in %s? " name dir))
+    (when (yes-or-no-p (format "Bounce '%s'? " name))
       ;; Kill the ACP process and buffer
       (when-let ((proc (agent-shell--health-get-acp-process buf)))
         (when (process-live-p proc)
           (delete-process proc)))
       (kill-buffer buf)
-      ;; Restart via orchard if available, else raw agent-shell
-      (if (fboundp 'orchard--start-agent-shell)
-          (orchard--start-agent-shell dir)
-        (let ((default-directory dir))
-          (agent-shell-anthropic-start-claude-code)))
-      (message "Bounced. New session starting in %s" dir))))
+      ;; Restart with --continue in the same directory
+      (orchard--start-agent-shell dir "keep going")
+      (message "Bounced %s — restarting with --continue" (file-name-nondirectory (directory-file-name dir))))))
 
 (defun agent-shell-health-kill ()
   "Kill the stuck Claude session without restarting."
