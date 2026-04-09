@@ -70,6 +70,8 @@
   :recipe (:host github :repo "xenodium/acp.el"))
 (package! agent-shell
   :recipe (:host github :repo "xenodium/agent-shell"))
+(package! agent-shell-dispatch
+  :recipe (:host github :repo "cassandracomar/agent-shell-dispatch"))
 
 ;; ghq repo management
 (package! ghq

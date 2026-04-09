@@ -38,7 +38,21 @@
         (lambda (config)
           (format "*agent:%s*"
                   (or (projectile-project-name)
-                      "global")))))
+                      "global"))))
+
+  ;; Show token/cost after each turn and context fill in header
+  (setq agent-shell-show-usage-at-turn-end t)
+  (setq agent-shell-show-context-usage-indicator 'detailed)
+
+  ;; Theme-aware tinted background labels for status/kind
+  (setq agent-shell-status-kind-label-function
+        #'agent-shell--background-tint-status-kind-label)
+
+  ;; Ask whether to resume existing session on start
+  (setq agent-shell-session-strategy 'prompt)
+
+  ;; Less visual noise on the busy spinner
+  (setq agent-shell-busy-indicator-frames 'narrow))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Claude Slash Commands for Agent Shell
@@ -237,11 +251,17 @@ Looks for buffers named Claude Agent/Code or *agent:* naming."
    ("y" "Copy last response" agent-shell-cmd-copy)
    ("U" "Open last URL" agent-shell-grab-url)
    ("w" "Rewind" agent-shell-cmd-rewind)
-   ("D" "Doctor" agent-shell-cmd-doctor)
+   ("!" "Doctor" agent-shell-cmd-doctor)
    ("?" "Help" agent-shell-cmd-help)
    ("n" "MCP servers" agent-shell-cmd-mcp)
    ("v" "Vim mode" agent-shell-cmd-vim)
    ("h" "Health check" agent-shell-health)]
+
+  ["Dispatch"
+   ("D" "Start dispatch" agent-shell-dispatch-start)
+   ("K" "Kill all agents" agent-shell-dispatch-kill-agents)
+   ("V" "View agent output" agent-shell-dispatch-view-agent-output)
+   ("Q" "Stop dispatch" agent-shell-dispatch-stop)]
 
   ["Launch"
    ("a" "Start Claude" agent-shell-anthropic-start-claude-code)
