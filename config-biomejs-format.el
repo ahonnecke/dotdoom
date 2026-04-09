@@ -1,4 +1,4 @@
-;;; biomejs-format.el --- Minor mode to format JS code with Biome on file save
+;;; biomejs-format.el --- Minor mode to format JS code with Biome on file save -*- lexical-binding: t; -*-
 
 ;; Author: James Long and contributors
 ;; Maintainer: Kanon Kakuno <yadex205@yadex205.com>

@@ -1,15 +1,7 @@
 ;;; config-llm.el -*- lexical-binding: t; -*-
 
-;; The error occurs because Emacs tries to define the variable
-;; autoload-compute-prefixes as dynamic (via defvar) when it has already been
-;; implicitly declared as lexical in the current lexical binding context.
-
-;; This problem often arises in environments using Doom Emacs and straight.el,
-;; particularly when the straight package manager attempts to build autoloads
-;; for packages, as it does for your gptel package in this case.
-
-(defvar autoload-compute-prefixes nil)
-;; as such this is required so that it starts cleanly
+;; Simon Willison's `llm` CLI helpers (region-based).
+;; gptel is loaded by config-gptel.el (from ~/src/gptel, not MELPA).
 
 (defun llm-region ()
   (interactive)
@@ -43,6 +35,9 @@
 
 ;; this does not work                                      
 (defun llm-region-interactive ()
+  "Replace region with LLM output, prompting for an instruction.
+Reads a system prompt from the minibuffer, pipes the region through
+the `llm' CLI, and replaces the region with the result."
   (interactive)
   (when (use-region-p)
     (let* ((start (region-beginning))
@@ -57,4 +52,4 @@
       (delete-region start end)
       (insert-buffer llm-output))))
 
-(straight-use-package 'gptel)
+;; gptel is loaded from ~/src/gptel by config-gptel.el (not straight/MELPA)

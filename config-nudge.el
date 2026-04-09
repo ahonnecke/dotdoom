@@ -45,21 +45,29 @@ h/l = left/right, M-h/M-l = to tab stop, j/k = down/up.  RET or C-g exits."
     (list (line-beginning-position) (line-end-position))))
 
 (defun region-nudge--keep-active (beg end)
+  "Re-activate the region from BEG to END after a nudge operation."
   (when (use-region-p)
     (goto-char beg)
     (set-mark end)
     (activate-mark)))
 
 (defun region-nudge--indent (cols)
+  "Indent region or current line by COLS columns and keep region active."
   (cl-destructuring-bind (beg end) (region-nudge--bounds)
     (indent-rigidly beg end cols)
     (region-nudge--keep-active beg end)))
 
 ;;; Horizontal
-(defun region-nudge-left  () (interactive) (region-nudge--indent -1))
-(defun region-nudge-right () (interactive) (region-nudge--indent  1))
+(defun region-nudge-left ()
+  "Nudge region or current line one column left."
+  (interactive) (region-nudge--indent -1))
+(defun region-nudge-right ()
+  "Nudge region or current line one column right."
+  (interactive) (region-nudge--indent  1))
 
-(defun region-nudge-left-tabstop () (interactive)
+(defun region-nudge-left-tabstop ()
+  "Nudge region or current line left to the previous tab stop."
+  (interactive)
        (cl-destructuring-bind (beg end) (region-nudge--bounds)
          (let* ((tw (or tab-width 8))
                 (col (save-excursion (goto-char beg) (current-indentation)))
@@ -67,7 +75,9 @@ h/l = left/right, M-h/M-l = to tab stop, j/k = down/up.  RET or C-g exits."
            (indent-rigidly beg end (- delta))
            (region-nudge--keep-active beg end))))
 
-(defun region-nudge-right-tabstop () (interactive)
+(defun region-nudge-right-tabstop ()
+  "Nudge region or current line right to the next tab stop."
+  (interactive)
        (cl-destructuring-bind (beg end) (region-nudge--bounds)
          (let* ((tw (or tab-width 8))
                 (col (save-excursion (goto-char beg) (current-indentation)))
@@ -103,11 +113,17 @@ h/l = left/right, M-h/M-l = to tab stop, j/k = down/up.  RET or C-g exits."
         (set-mark ne)
         (activate-mark)))))
 
-(defun region-nudge-up   () (interactive) (region-nudge--move-block -1))
-(defun region-nudge-down () (interactive) (region-nudge--move-block +1))
+(defun region-nudge-up ()
+  "Move region or current line up one line."
+  (interactive) (region-nudge--move-block -1))
+(defun region-nudge-down ()
+  "Move region or current line down one line."
+  (interactive) (region-nudge--move-block +1))
 
 ;;; Exit
-(defun region-nudge-exit () (interactive)
+(defun region-nudge-exit ()
+  "Deactivate `region-nudge-mode'."
+  (interactive)
        (region-nudge-mode -1)
        (message "Exited nudge mode"))
 
