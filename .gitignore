@@ -3,3 +3,4 @@
 *.elc
 *.bak
 /.agent-shell/
+emacs-llm-plan.md
