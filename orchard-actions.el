@@ -292,31 +292,9 @@ Returns list of (worktree . session-info) pairs."
                  'orchard-worktree wt)))
             session-items "")))))))
 
-;; NOTE: orchard--section-visible-p is defined in orchard-dashboard.el (canonical)
-
-;;; ════════════════════════════════════════════════════════════════════════════
-;;; Section Collapsing
-;;; ════════════════════════════════════════════════════════════════════════════
-
-(defun orchard--section-collapsed-p (section)
-  "Return t if SECTION is collapsed."
-  (member section orchard--collapsed-sections))
-
-(defun orchard--toggle-section-collapsed (section)
-  "Toggle collapsed state of SECTION."
-  (if (orchard--section-collapsed-p section)
-      (setq orchard--collapsed-sections (delete section orchard--collapsed-sections))
-    (push section orchard--collapsed-sections)))
-
-(defun orchard-toggle-section ()
-  "Toggle collapse state of section at point."
-  (interactive)
-  (let ((section (get-text-property (point) 'orchard-section)))
-    (if section
-        (progn
-          (orchard--toggle-section-collapsed section)
-          (orchard-refresh))
-      (user-error "Not on a section header"))))
+;; NOTE: Section collapse functions (orchard--section-collapsed-p,
+;; orchard--toggle-section-collapsed, orchard-toggle-section) are defined
+;; in orchard-dashboard.el (canonical). Do not duplicate here.
 
 (defun orchard-expand-all-sections ()
   "Expand all collapsed sections."

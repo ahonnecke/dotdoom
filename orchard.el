@@ -155,27 +155,32 @@ No fancy window management - just switch buffers."
     (cond
      ;; In magit - go to claude (find existing or start new)
      ((derived-mode-p 'magit-mode)
-      (let ((claude-buf (orchard--claude-buffer-for-path project-root)))
+      (let ((claude-buf (or (orchard--get-claude-buffer-for-backend project-root)
+                            (orchard--claude-buffer-for-path project-root))))
         (if (and claude-buf (buffer-live-p claude-buf))
             (switch-to-buffer claude-buf)
-          ;; Start new Claude - preserve windows
+          ;; Start new Claude via detected backend
           (let* ((target-win (selected-window))
                  (win-config (current-window-configuration))
                  (buffers-before (buffer-list))
                  (default-directory project-root))
-            (claude-code)
+            (orchard--start-claude-backend project-root)
             (let ((new-claude (cl-find-if
                                (lambda (buf)
-                                 (and (string-prefix-p "*claude:" (buffer-name buf))
-                                      (not (memq buf buffers-before))))
+                                 (and (not (memq buf buffers-before))
+                                      (buffer-live-p buf)
+                                      (with-current-buffer buf
+                                        (or (string-prefix-p "*claude:" (buffer-name buf))
+                                            (derived-mode-p 'shell-maker-mode)))))
                                (buffer-list))))
               (set-window-configuration win-config)
               (when new-claude
                 (set-window-buffer target-win new-claude)
                 (orchard--fix-claude-size new-claude target-win)))))))
 
-     ;; In claude/vterm - go to magit
-     ((derived-mode-p 'vterm-mode)
+     ;; In claude (vterm or agent-shell) - go to magit
+     ((or (derived-mode-p 'vterm-mode)
+          (derived-mode-p 'shell-maker-mode))
       (magit-status project-root))
 
      ;; Elsewhere - go to magit

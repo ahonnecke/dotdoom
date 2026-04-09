@@ -19,7 +19,7 @@
 ;;
 ;; Support both agent-shell (ACP, preferred) and claude-code.el (vterm, fallback)
 
-(defcustom orchard-claude-backend 'claude-code
+(defcustom orchard-claude-backend 'auto
   "Which Claude backend to use.
 - `auto': Try agent-shell first, fall back to claude-code.el
 - `agent-shell': Use agent-shell (ACP protocol, comint-based)
@@ -41,8 +41,9 @@ Prefers agent-shell over claude-code when auto-detecting."
     (require 'agent-shell)
     'agent-shell)
    ((eq orchard-claude-backend 'claude-code) 'claude-code)
-   ;; Auto-detect: prefer agent-shell if claude-code-acp is installed
-   ((executable-find "claude-code-acp")
+   ;; Auto-detect: prefer agent-shell if claude-agent-acp is installed
+   ((or (executable-find "claude-agent-acp")
+        (executable-find "claude-code-acp"))
     (condition-case nil
         (progn (require 'agent-shell) 'agent-shell)
       (error 'claude-code)))
@@ -76,7 +77,9 @@ Automatically uses --continue to resume the most recent session in PATH."
   (require 'agent-shell)
   (let ((default-directory path)
         ;; Add --continue to resume sessions, --permission-mode dontAsk to reduce prompts
-        (agent-shell-anthropic-claude-command '("claude-code-acp" "--continue" "--permission-mode" "dontAsk")))
+        (agent-shell-anthropic-claude-acp-command
+         (list (or (executable-find "claude-agent-acp") "claude-agent-acp")
+               "--continue" "--permission-mode" "dontAsk")))
     ;; Override agent-shell-cwd so it uses our worktree path
     ;; instead of projectile-project-root (which returns the Orchard project)
     (cl-letf (((symbol-function 'agent-shell-cwd) (lambda () (expand-file-name path))))
