@@ -20,8 +20,10 @@
 ;;   C-c c a - Jump to last action (what did Claude do?)
 ;;   C-c c S - Show summary of recent activity
 ;;   C-c c R - Review last output (read-only + scroll to start)
-;;   C-c c Y - Yank last response to clipboard
-;;   C-c c x - Yank last code block to clipboard
+;;   C-c c x - Grab last code block to clipboard (unwraps vterm line breaks)
+;;   C-c c X - Grab SQL from last response to clipboard
+;;   C-c c u - Grab last URL → browser + clipboard
+;;   C-c c Y - Grab last response to clipboard
 ;;   C-c c ] - Next Claude buffer (cycle forward)
 ;;   C-c c [ - Previous Claude buffer (cycle backward)
 ;;   C-c c l - List all Claude buffers (pick one)
@@ -35,7 +37,6 @@
 ;;   C-c c d r - Reset window (fix garbled display)
 ;;
 ;; In Claude/vterm buffer:
-;;   C-z     - Toggle copy mode (quick)
 ;;   C-c /   - Slash command completion
 ;;   C-c TAB - Completion at point
 ;;
@@ -176,7 +177,7 @@ Use this instead of claude-code to ensure Claude opens HERE."
   (define-key ashton-mode-map (kbd "C-c c y") #'claude-code-yes)
   (define-key ashton-mode-map (kbd "C-c c n") #'claude-code-no)
   (define-key ashton-mode-map (kbd "C-c c k") #'claude-code-kill)
-  (define-key ashton-mode-map (kbd "C-c c z") #'claude-code-toggle-read-only-mode)
+  (define-key ashton-mode-map (kbd "C-c c z") #'claude-toggle-copy-mode)
   (define-key ashton-mode-map (kbd "C-c c M") #'claude-code-cycle-mode)
   ;; Navigation - "what did Claude do?"
   (define-key ashton-mode-map (kbd "C-c c ?") #'claude-jump-to-last-question)
@@ -932,11 +933,13 @@ Shows only slash commands with documentation."
   (define-key vterm-mode-map (kbd "C-c /") #'claude-complete-slash)
   (define-key vterm-mode-map (kbd "C-c TAB") #'claude-complete)
   (define-key vterm-mode-map (kbd "M-/") #'claude-complete)
-  ;; C-z as quick shortcut for read-only toggle (replaces suspend-frame)
   ;; Direct toggle avoids claude-code--with-buffer's buffer-finding logic
   ;; which prompts with an instance list when directory doesn't match.
+  ;; Available via C-c c z and s-z (see config-bindings).
   (defun claude-toggle-copy-mode ()
     "Toggle vterm-copy-mode in the current Claude buffer.
+Trailing whitespace is automatically stripped from all copies via
+`filter-buffer-substring-function' — no special bindings needed.
 Bypasses claude-code--with-buffer to avoid instance selection prompt."
     (interactive)
     (cond
@@ -968,103 +971,258 @@ Bypasses claude-code--with-buffer to avoid instance selection prompt."
               (setq-local cursor-type t)
               (message "Claude copy mode ON")))
         (message "No Claude buffer visible")))))
-  (define-key ashton-mode-map (kbd "C-z") #'claude-toggle-copy-mode))
+  )
 
 ;;; ════════════════════════════════════════════════════════════════════════════
-;;; Yank Last Response - Copy Claude's output to clipboard
+;;; Grab from Claude — extract content from vterm without line-wrap damage
 ;;; ════════════════════════════════════════════════════════════════════════════
+;;
+;; vterm inserts fake newlines at window-width for display. These have the
+;; text property `vterm-line-wrap'. The functions below use
+;; `buffer-substring' (WITH properties) to distinguish soft wraps from real
+;; newlines, join soft wraps, then strip ANSI / TUI artifacts.
+;;
+;; Bindings:
+;;   C-c c x   — grab last code block → clipboard  (SQL, etc.)
+;;   C-c c u   — grab last URL → browse-url
+;;   C-c c Y   — grab last response → clipboard
 
 (defun claude--strip-ansi (text)
-  "Strip ANSI escape codes from TEXT."
-  (replace-regexp-in-string "\033\\[[0-9;]*[a-zA-Z]" "" text))
+  "Strip ANSI escape codes from TEXT.
+Handles CSI sequences (colors), OSC sequences (terminal hyperlinks),
+and other common escape types."
+  (let ((s text))
+    ;; CSI sequences: ESC [ ... letter
+    (setq s (replace-regexp-in-string "\033\\[[0-9;]*[a-zA-Z]" "" s))
+    ;; OSC sequences: ESC ] ... (ST = ESC \\ or BEL)
+    (setq s (replace-regexp-in-string "\033\\][^\033\007]*\\(\033\\\\\\|\007\\)" "" s))
+    ;; ESC ( charset selection
+    (setq s (replace-regexp-in-string "\033([A-Z]" "" s))
+    s))
 
-(defun claude--clean-response (text)
-  "Clean up Claude response TEXT for copying.
-Removes ANSI codes, spinner artifacts, and normalizes whitespace."
+(defun claude--unwrap-vterm-region (start end)
+  "Return buffer text from START to END with soft wraps rejoined.
+Uses the `vterm-line-wrap' text property that vterm places on fake
+newlines to distinguish them from real line breaks.  When a soft
+wrap is detected, trailing whitespace before the wrap point is
+stripped so that vterm's terminal-width padding doesn't end up
+embedded in the middle of the unwrapped text."
+  (let ((raw (buffer-substring start end))
+        (out (make-string 0 0))
+        (i 0)
+        (len))
+    (setq len (length raw))
+    (while (< i len)
+      (let ((ch (aref raw i)))
+        (if (and (eq ch ?\n)
+                 (get-text-property i 'vterm-line-wrap raw))
+            ;; Soft wrap — strip trailing whitespace that vterm used
+            ;; to pad the line to terminal width, then skip the newline
+            (setq out (replace-regexp-in-string "[ \t]+\\'" "" out))
+          (setq out (concat out (string ch)))))
+      (setq i (1+ i)))
+    out))
+
+(defun claude--clean-text (text)
+  "Clean TEXT extracted from a Claude vterm buffer.
+Strips ANSI codes, spinner/progress artifacts, UI chrome, collapses blank lines."
   (let ((cleaned text))
-    ;; Strip ANSI escape codes
     (setq cleaned (claude--strip-ansi cleaned))
-    ;; Remove common spinner/progress characters
+    ;; Spinner characters
     (setq cleaned (replace-regexp-in-string "[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]" "" cleaned))
-    ;; Remove box drawing used for progress bars
+    ;; Box drawing / progress bars
     (setq cleaned (replace-regexp-in-string "[━─▏▎▍▌▋▊▉█░▒▓]" "" cleaned))
-    ;; Collapse multiple blank lines
+    ;; [Request interrupted by user]
+    (setq cleaned (replace-regexp-in-string "^\\[Request interrupted by user\\]\n?" "" cleaned))
+    ;; Timing line (✻ Worked for ...)
+    (setq cleaned (replace-regexp-in-string "^✻ .*$" "" cleaned))
+    ;; Status bar lines (⬆ ... │ ...)
+    (setq cleaned (replace-regexp-in-string "^[ \t]*⬆.*$" "" cleaned))
+    ;; Accept edits line (⏵⏵ ...)
+    (setq cleaned (replace-regexp-in-string "^[ \t]*⏵⏵.*$" "" cleaned))
+    ;; Strip trailing whitespace from each line (vterm pads to terminal width)
+    (setq cleaned (replace-regexp-in-string "[ \t]+$" "" cleaned t nil))
+    ;; Collapse 3+ blank lines
     (setq cleaned (replace-regexp-in-string "\n\\{3,\\}" "\n\n" cleaned))
-    ;; Trim leading/trailing whitespace
     (string-trim cleaned)))
 
-(defun claude-yank-last-response ()
-  "Copy Claude's last response to kill ring and clipboard.
-Works in any Claude buffer. Cleans up ANSI codes and artifacts."
+(defun claude--get-buffer-or-current ()
+  "Return a live Claude buffer, preferring current buffer."
+  (or (and (derived-mode-p 'vterm-mode) (claude-buffer-p) (current-buffer))
+      (claude-get-buffer)))
+
+(defun claude--to-clipboard (text label)
+  "Put TEXT in kill ring and system clipboard, message with LABEL."
+  (kill-new text)
+  (when (fboundp 'gui-set-selection)
+    (gui-set-selection 'CLIPBOARD text))
+  (message "%s → clipboard (%d chars)" label (length text)))
+
+;; ── Grab last code block ────────────────────────────────────────────────────
+
+(defun claude-grab-code ()
+  "Copy last code block from Claude to clipboard.
+Unwraps vterm soft line breaks so SQL etc. pastes correctly."
   (interactive)
-  (let ((buf (or (and (claude-buffer-p) (current-buffer))
-                 (claude-get-buffer))))
-    (if (not buf)
-        (message "No Claude buffer found")
-      (with-current-buffer buf
-        (save-excursion
-          (goto-char (point-max))
-          ;; Search backwards for Claude's response marker or human prompt
-          ;; Claude CLI shows "Human:" or ">" for user prompts
-          (let* ((response-end (point-max))
-                 (response-start
-                  (progn
-                    ;; Find the start of the last assistant response
-                    ;; Look for patterns that indicate user input
-                    (if (re-search-backward "^\\(>\\|Human:\\|❯\\)" nil t 2)
-                        ;; Found previous prompt, response starts after it
-                        (progn (forward-line 1) (point))
-                      ;; No prompt found, use beginning or search for assistant marker
-                      (goto-char (point-min))
-                      (if (re-search-forward "^\\(Assistant:\\|Claude:\\)" nil t)
-                          (progn (forward-line 0) (point))
-                        (point-min)))))
-                 (raw-text (buffer-substring-no-properties response-start response-end))
-                 (cleaned (claude--clean-response raw-text)))
+  (let ((buf (claude--get-buffer-or-current)))
+    (unless buf (user-error "No Claude buffer found"))
+    (with-current-buffer buf
+      (save-excursion
+        (goto-char (point-max))
+        ;; ``` delimiters: search backward for the closing ```, then opening
+        (unless (re-search-backward "^```" nil t)
+          (user-error "No code block found"))
+        (let ((block-end (progn (forward-line 0) (point))))
+          (unless (re-search-backward "^```" nil t)
+            (user-error "No opening ``` found"))
+          (forward-line 1)
+          (let* ((block-start (point))
+                 (raw (claude--unwrap-vterm-region block-start block-end))
+                 (cleaned (claude--clean-text raw)))
             (if (string-empty-p cleaned)
-                (message "No response found to copy")
-              ;; Put in kill ring
-              (kill-new cleaned)
-              ;; Also copy to system clipboard
-              (when (fboundp 'gui-set-selection)
-                (gui-set-selection 'CLIPBOARD cleaned))
-              (message "Copied %d chars to clipboard (from %d raw)"
-                       (length cleaned) (length raw-text)))))))))
+                (user-error "Empty code block")
+              (claude--to-clipboard cleaned "Code block"))))))))
 
-(defun claude-yank-last-code-block ()
-  "Copy the last code block from Claude's response.
-Extracts content between ``` markers."
+;; ── Grab last URL ───────────────────────────────────────────────────────────
+
+(defun claude-grab-url ()
+  "Find last URL in Claude buffer, copy to clipboard and open in browser.
+Handles vterm line-wrap damage (URL broken across lines)."
   (interactive)
-  (let ((buf (or (and (claude-buffer-p) (current-buffer))
-                 (claude-get-buffer))))
-    (if (not buf)
-        (message "No Claude buffer found")
-      (with-current-buffer buf
-        (save-excursion
-          (goto-char (point-max))
-          ;; Find last ``` block
-          (if (not (re-search-backward "^```" nil t 2))
-              (message "No code block found")
-            (let* ((block-end (progn
-                                (re-search-forward "^```" nil t)
-                                (forward-line 0)
-                                (point)))
-                   (block-start (progn
-                                  (re-search-backward "^```" nil t)
-                                  (forward-line 1)
-                                  (point)))
-                   (raw-text (buffer-substring-no-properties block-start block-end))
-                   (cleaned (claude--clean-response raw-text)))
-              (if (string-empty-p cleaned)
-                  (message "Empty code block")
-                (kill-new cleaned)
-                (when (fboundp 'gui-set-selection)
-                  (gui-set-selection 'CLIPBOARD cleaned))
-                (message "Copied %d chars of code to clipboard" (length cleaned))))))))))
+  (let ((buf (claude--get-buffer-or-current)))
+    (unless buf (user-error "No Claude buffer found"))
+    (with-current-buffer buf
+      (save-excursion
+        ;; Get the full buffer text unwrapped so URLs aren't broken
+        (let* ((raw (claude--unwrap-vterm-region (point-min) (point-max)))
+               (cleaned (claude--strip-ansi raw))
+               ;; Match http(s) URLs — greedy up to whitespace/quotes/parens
+               (url-re "https?://[^ \t\n\r\"'`<>()\\[\\]{}]+")
+               url)
+          ;; Find last URL by searching from end
+          (with-temp-buffer
+            (insert cleaned)
+            (goto-char (point-max))
+            (if (re-search-backward url-re nil t)
+                (setq url (match-string 0))
+              (user-error "No URL found in Claude buffer")))
+          ;; Strip trailing punctuation that's likely not part of URL
+          (setq url (replace-regexp-in-string "[.,;:!?)]+$" "" url))
+          (claude--to-clipboard url "URL")
+          (browse-url url))))))
 
-;; Keybindings - yanking Claude output
-(define-key ashton-mode-map (kbd "C-c c Y") #'claude-yank-last-response)
-(define-key ashton-mode-map (kbd "C-c c x") #'claude-yank-last-code-block)
+;; ── Grab last response ──────────────────────────────────────────────────────
+
+(defun claude-grab-response ()
+  "Copy Claude's last prose response to clipboard.
+Skips tool call blocks (● Bash(...), ● Read(...), etc.) and their
+output, extracting only Claude's text response.  Unwraps vterm
+soft line breaks for clean pasting."
+  (interactive)
+  (let ((buf (claude--get-buffer-or-current)))
+    (unless buf (user-error "No Claude buffer found"))
+    (with-current-buffer buf
+      (save-excursion
+        (goto-char (point-max))
+        ;; response-end: before timing line or trailing prompt
+        (let* ((response-end
+                (progn
+                  (goto-char (point-max))
+                  (cond
+                   ((re-search-backward "^✻ " nil t)
+                    (forward-line 0) (point))
+                   ((re-search-backward "^❯" nil t)
+                    (forward-line 0) (point))
+                   (t (point-max)))))
+               ;; response-start: last ● that is NOT a tool call (● ToolName()
+               (response-start
+                (progn
+                  (goto-char response-end)
+                  (let ((found nil))
+                    (while (and (not found)
+                                (re-search-backward "^● " nil t))
+                      (unless (looking-at "^● [A-Za-z]+(")
+                        (setq found (point))))
+                    (or found
+                        ;; Fallback: after the user's ❯ prompt
+                        (progn
+                          (goto-char response-end)
+                          (if (re-search-backward "^❯" nil t)
+                              (progn (forward-line 1) (point))
+                            (point-min)))))))
+               (raw (claude--unwrap-vterm-region response-start response-end))
+               (cleaned (claude--clean-text raw)))
+          ;; Strip leading response marker (● )
+          (setq cleaned (replace-regexp-in-string "\\`● *" "" cleaned))
+          (if (string-empty-p cleaned)
+              (user-error "No response found")
+            (claude--to-clipboard cleaned "Response")))))))
+
+;; ── Grab SQL from response ──────────────────────────────────────────────────
+
+(defun claude--extract-sql (text)
+  "Extract SQL statements from TEXT, return them joined by blank lines.
+Finds statements starting with SQL keywords and ending at semicolons.
+Case-insensitive to match both `SELECT` and `select`."
+  (let ((sql-start-re (concat "^[ \t]*\\("
+                               "SELECT\\|INSERT\\|UPDATE\\|DELETE\\|"
+                               "CREATE\\|ALTER\\|DROP\\|TRUNCATE\\|"
+                               "WITH\\|EXPLAIN\\|BEGIN\\|COMMIT\\|"
+                               "GRANT\\|REVOKE\\|DO\\b"
+                               "\\)\\b"))
+        (case-fold-search t)
+        (statements nil)
+        (pos 0))
+    (with-temp-buffer
+      (insert text)
+      (goto-char (point-min))
+      (while (re-search-forward sql-start-re nil t)
+        (let ((stmt-start (match-beginning 0))
+              stmt-end)
+          ;; Statement ends at semicolon, or next blank line, or next
+          ;; non-SQL-looking line (whichever comes first)
+          (goto-char (match-end 0))
+          (if (re-search-forward ";" nil t)
+              (setq stmt-end (point))
+            ;; No semicolon — take until blank line or buffer end
+            (if (re-search-forward "^[ \t]*$" nil t)
+                (setq stmt-end (match-beginning 0))
+              (setq stmt-end (point-max))))
+          (push (string-trim (buffer-substring-no-properties stmt-start stmt-end))
+                statements)
+          (goto-char stmt-end))))
+    (if statements
+        (string-join (nreverse statements) "\n\n")
+      nil)))
+
+(defun claude-grab-sql ()
+  "Extract SQL from Claude's last response and copy to clipboard.
+Finds SQL statements (SELECT, INSERT, CREATE, etc.) in the response
+text, even when not inside a code block."
+  (interactive)
+  (let ((buf (claude--get-buffer-or-current)))
+    (unless buf (user-error "No Claude buffer found"))
+    (with-current-buffer buf
+      (save-excursion
+        (goto-char (point-max))
+        (let* ((response-end (point-max))
+               (response-start
+                (progn
+                  (if (re-search-backward "^\\(>\\|Human:\\|❯\\)" nil t 2)
+                      (progn (forward-line 1) (point))
+                    (point-min))))
+               (raw (claude--unwrap-vterm-region response-start response-end))
+               (cleaned (claude--clean-text raw))
+               (sql (claude--extract-sql cleaned)))
+          (if (or (null sql) (string-empty-p sql))
+              (user-error "No SQL found in last response")
+            (claude--to-clipboard sql "SQL")))))))
+
+;; ── Bindings ────────────────────────────────────────────────────────────────
+(define-key ashton-mode-map (kbd "C-c c x") #'claude-grab-code)
+(define-key ashton-mode-map (kbd "C-c c u") #'claude-grab-url)
+(define-key ashton-mode-map (kbd "C-c c Y") #'claude-grab-response)
+(define-key ashton-mode-map (kbd "C-c c X") #'claude-grab-sql)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Workflow Commands - Pre-built prompts with context
