@@ -235,6 +235,7 @@ Looks for buffers named Claude Agent/Code or *agent:* naming."
   ["Tools"
    ("e" "Export" agent-shell-cmd-export)
    ("y" "Copy last response" agent-shell-cmd-copy)
+   ("U" "Open last URL" agent-shell-grab-url)
    ("w" "Rewind" agent-shell-cmd-rewind)
    ("D" "Doctor" agent-shell-cmd-doctor)
    ("?" "Help" agent-shell-cmd-help)
@@ -568,6 +569,44 @@ Sends 'keep going' automatically after the new session starts."
     (call-interactively #'agent-shell-health)))
 
 (define-key ashton-mode-map (kbd "C-c c h") #'agent-shell-health)
+
+;;; ════════════════════════════════════════════════════════════════════════════
+;;; Grab Last URL — agent-shell version (comint, no vterm unwrap needed)
+;;; ════════════════════════════════════════════════════════════════════════════
+
+(defun agent-shell-grab-url ()
+  "Find last URL in the current agent-shell buffer, copy to clipboard and open.
+Only searches the buffer you're in (or the one associated with your project),
+so you won't accidentally open a URL from a different worktree's session.
+Searches the raw text (no properties) so markdown-overlays don't hide URLs."
+  (interactive)
+  (let ((buf (or (and (derived-mode-p 'agent-shell-mode) (current-buffer))
+                 (agent-shell--get-buffer))))
+    (unless buf (user-error "No agent-shell buffer found"))
+    (with-current-buffer buf
+      (let* ((raw (buffer-substring-no-properties (point-min) (point-max)))
+             (url-re "https?://[^ \t\n\r\"<>]+")
+             url)
+        ;; Search raw text from the end to find the most recent URL
+        (with-temp-buffer
+          (insert raw)
+          (goto-char (point-max))
+          (unless (re-search-backward url-re nil t)
+            (user-error "No URL found in %s (%d chars)" (buffer-name buf) (length raw)))
+          (setq url (match-string 0)))
+        ;; Strip trailing punctuation unlikely to be part of URL
+        (setq url (replace-regexp-in-string "[.,;:!?)]+$" "" url))
+        (kill-new url)
+        (when (fboundp 'gui-set-selection)
+          (gui-set-selection 'CLIPBOARD url))
+        (message "URL → clipboard: %s" url)
+        (browse-url url)))))
+
+(define-key ashton-mode-map (kbd "C-c c u") #'agent-shell-grab-url)
+
+;; Bind in agent-shell-mode-map directly (works for all buffers, not just new ones)
+(with-eval-after-load 'agent-shell
+  (define-key agent-shell-mode-map (kbd "C-c u") #'agent-shell-grab-url))
 
 (provide 'config-agent-shell)
 ;;; config-agent-shell.el ends here
