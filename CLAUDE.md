@@ -209,7 +209,7 @@ Located in `config-magit.el`:
 | `C-c c z` | `claude-code-toggle-read-only-mode` | Toggle copy mode |
 | `C-c c x` | `claude-grab-code` | Last code block → clipboard (unwraps vterm) |
 | `C-c c X` | `claude-grab-sql` | Extract SQL from last response → clipboard |
-| `C-c c u` | `claude-grab-url` | Last URL → browser + clipboard |
+| `C-c c u` | `agent-shell-grab-url` | Last URL → browser + clipboard (agent-shell) |
 | `C-c c Y` | `claude-grab-response` | Last response → clipboard |
 
 **Modeline indicator**: Shows Claude status globally: `[Claude: 2🟢]` (running count)

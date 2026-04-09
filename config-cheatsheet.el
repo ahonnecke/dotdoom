@@ -43,6 +43,16 @@ C-c c ?     claude-last-question Jump to last question
 C-c c a     claude-last-action  Jump to last action
 C-c c S     claude-summary      Summary of recent activity
 
+Grab (extract from buffer):
+C-c c x     claude-grab-code    Last code block → clipboard (vterm)
+C-c c X     claude-grab-sql     Extract SQL from response → clipboard (vterm)
+C-c c u     agent-shell-grab-url Last URL → clipboard + browser (agent-shell)
+C-c c Y     claude-grab-response Last response → clipboard (vterm)
+
+Agent Shell (C-c u in agent-shell buffer):
+C-c c u     agent-shell-grab-url Open last URL (scoped to current buffer)
+C-c /       agent-shell-transient Full command menu (U for URL there too)
+
 Workflow (C-c c w):
 C-c c w t   test-plan           Generate test plan
 C-c c w r   review              Review branch changes
