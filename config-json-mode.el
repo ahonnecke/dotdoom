@@ -2,6 +2,7 @@
 
 
 (defun my-custom-settings-fn ()
+  "Set tab-based indentation for json-mode buffers."
   (setq indent-tabs-mode t)
   (setq tab-stop-list (number-sequence 2 4 8))
   (setq tab-width 2)

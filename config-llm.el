@@ -4,6 +4,7 @@
 ;; gptel is loaded by config-gptel.el (from ~/src/gptel, not MELPA).
 
 (defun llm-region ()
+  "Pipe region through `llm' CLI and insert result after the region."
   (interactive)
   (when (use-region-p)
     (let* ((start (region-beginning))
@@ -20,6 +21,7 @@
 
 ;; This sometimes deletes too much                                                                   
 (defun llm-region-replace ()
+  "Pipe region through `llm' CLI and replace the region with the result."
   (interactive)
   (when (use-region-p)
     (let* ((start (region-beginning))

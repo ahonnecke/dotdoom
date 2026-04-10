@@ -28,6 +28,7 @@
 
 (with-eval-after-load 'indent-tools-mode
   (defun enable-indent-tools-mode ()
+    "Bind C-c > to the indent-tools hydra."
     (global-set-key (kbd "C-c >") 'indent-tools-hydra/body)
     ))
 

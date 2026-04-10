@@ -4,6 +4,7 @@
 (setq dcsh-command-list '("cirrus", "ashton", "honnecke"))
 
 (defun he-dcsh-command-beg ()
+  "Return the start position of the word before point for hippie-expand."
   (let ((p))
     (save-excursion
       (backward-word 1)
@@ -11,6 +12,8 @@
     p))
 
 (defun try-expand-dcsh-command (old)
+  "Hippie-expand function for completing against `dcsh-command-list'.
+OLD is non-nil on subsequent expansion attempts."
   (unless old
     (he-init-string (he-dcsh-command-beg) (point))
     (setq he-expand-list (sort

@@ -22,9 +22,11 @@
 (defvar ast--results nil "Alist of (test-name . (pass-p . message)).")
 
 (defun ast--pass (name msg)
+  "Record a passing test NAME with message MSG."
   (push (cons name (cons t msg)) ast--results))
 
 (defun ast--fail (name msg)
+  "Record a failing test NAME with message MSG."
   (push (cons name (cons nil msg)) ast--results))
 
 (defun ast--check (name predicate msg-pass msg-fail)
