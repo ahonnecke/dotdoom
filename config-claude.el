@@ -103,6 +103,9 @@
                  (height (window-body-height win)))
             (vterm--set-size vterm--term height width))))))
 
+  ;; Advice: vterm-mode is a third-party mode — can't modify directly.
+  ;; Forces correct terminal dimensions for Claude buffers after vterm init,
+  ;; preventing HR garbling when window width differs from vterm's assumption.
   (advice-add 'vterm-mode :after #'claude--correct-vterm-size)
 
   ;; Global display rule: Claude buffers prefer empty windows,

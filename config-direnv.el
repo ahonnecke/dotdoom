@@ -21,7 +21,9 @@
         (let ((default-directory env-dir))
           (call-process "direnv" nil nil nil "allow")))))
 
-  ;; Run auto-allow before envrc updates the environment
+  ;; Advice: envrc--update is from envrc.el (third-party, can't modify directly).
+  ;; Auto-allows .envrc in trusted directories before envrc loads the environment,
+  ;; eliminating interactive "direnv: error .envrc is blocked" prompts.
   (advice-add 'envrc--update :before
               (lambda (&rest _)
                 (ignore-errors (envrc--auto-allow-trusted)))))

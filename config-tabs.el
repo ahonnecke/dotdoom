@@ -9,6 +9,7 @@
 
 (setq tab-stop-list (my-generate-tab-stops))
 
+;; JSON files use 2-space indentation
 (add-hook 'json-mode-hook
           (lambda ()
             (make-local-variable 'js-indent-level)

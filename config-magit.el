@@ -59,6 +59,7 @@ Useful during three-way merges to accept both sides of a conflict."
 (defun add-d-to-ediff-mode-map ()
   "Bind `d' to `ediff-copy-both-to-C' in ediff."
   (define-key ediff-mode-map "d" 'ediff-copy-both-to-C))
+;; Add 'd' binding for copy-both-to-C in ediff sessions
 (add-hook 'ediff-keymap-setup-hook 'add-d-to-ediff-mode-map)
 
 ;; When editing files over TRAMP, don't try to run remote git commit
@@ -204,6 +205,7 @@ Uses Anthropic API (Claude) to generate commit message from staged diff."
     (insert magit-ai--pending-message)
     (setq magit-ai--pending-message nil)))
 
+;; Auto-insert AI-generated commit message when one is pending
 (add-hook 'git-commit-setup-hook #'magit-ai--insert-pending-message)
 
 ;; Add to magit commit transient

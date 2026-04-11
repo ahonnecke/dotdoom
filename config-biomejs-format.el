@@ -213,6 +213,7 @@ a `before-save-hook'."
 
 (provide 'biomejs-format)
 
+;; Auto-enable biome formatting in TypeScript buffers
 (add-hook 'typescript-ts-mode 'biomejs-format-mode)
 
 ;;(add-to-list 'apheleia-mode-alist '(typescript-mode . biomejs))

@@ -36,4 +36,5 @@
   "Bind RET to newline-and-indent in programming modes."
   (local-set-key (kbd "RET") 'newline-and-indent))
 
+;; RET auto-indents in all programming modes
 (add-hook 'prog-mode-hook 'my-prog-mode-hook)

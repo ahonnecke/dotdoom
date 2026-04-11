@@ -49,6 +49,7 @@
 
 ;; Embark-consult integration (for exporting search results)
 (after! embark-consult
+  ;; Live preview when navigating embark collect results
   (add-hook 'embark-collect-mode-hook #'consult-preview-at-point-mode))
 
 ;;; ════════════════════════════════════════════════════════════════════════════

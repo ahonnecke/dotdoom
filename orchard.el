@@ -650,6 +650,7 @@ Creates worktree if needed, otherwise opens existing."
   "Bind M-m to orchard-cycle-mode in magit buffers."
   (local-set-key (kbd "M-m") #'orchard-cycle-mode))
 
+;; M-m cycles magit→claude→compile (priority 100: runs late to override magit's M-m)
 (add-hook 'magit-mode-hook #'orchard--bind-m-m-in-magit 100)
 
 (provide 'orchard)

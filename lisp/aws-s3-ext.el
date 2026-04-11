@@ -84,6 +84,7 @@
   (local-set-key (kbd "w") 'aws-s3-ext-copy-path)
   (local-set-key (kbd "?") 'aws-s3-ext-help-popup))
 
+;; Add S3 extension keybindings (o=enter, w=copy-path) to aws-s3 buffers
 (add-hook 'aws-s3-mode-hook #'aws-s3-ext--setup-keybindings)
 
 (provide 'aws-s3-ext)

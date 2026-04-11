@@ -53,6 +53,7 @@
 ;;               (setq python-pytest-executable
 ;;                     (concat "PYTHONPATH=" r " " "pytest")))))
 
+;; Auto-detect Pipenv projects and adjust pytest command accordingly
 (add-hook 'python-ts-mode-hook
           (lambda ()
             (when-let ((r (locate-dominating-file default-directory "Pipenv")))
@@ -68,6 +69,8 @@
     (insert "#!/usr/bin/env python3\n")
     (save-buffer)))
 
+;; Auto-insert shebang when creating new .py files
 (add-hook 'find-file-hook 'insert-python-shebang)
 
+;; Start LSP (eglot) automatically in Python buffers
 (add-hook 'python-ts-mode-hook 'eglot-ensure)

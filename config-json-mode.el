@@ -8,4 +8,5 @@
   (setq tab-width 2)
   (setq indent-line-function 'insert-tab))
 
+;; Use tab-based indentation in JSON files
 (add-hook 'json-mode-hook 'my-custom-settings-fn)

@@ -12,6 +12,9 @@
     (let ((inhibit-read-only t))
       (apply orig-fun args)))
 
+  ;; Advice: bookmark jump functions are built-ins — can't modify directly.
+  ;; Wraps all three entry points with inhibit-read-only to prevent errors
+  ;; when hooks (recentf, etc.) try to write while bookmark buffer is current.
   (advice-add 'bookmark-bmenu-this-window :around #'bookmark-bmenu-this-window--handle-readonly)
   (advice-add 'bookmark-bmenu-other-window :around #'bookmark-bmenu-this-window--handle-readonly)
   (advice-add 'bookmark-jump :around #'bookmark-bmenu-this-window--handle-readonly))

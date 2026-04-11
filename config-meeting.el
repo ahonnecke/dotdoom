@@ -81,6 +81,7 @@ Only applies when `meeting-use-org-todo' is non-nil."
              (string-match-p "meetings/" buffer-file-name))
     (setq-local org-todo-keywords '((sequence "TODO" "DONE")))))
 
+;; Simplified TODO keywords for meeting note files
 (add-hook 'org-mode-hook #'meeting--setup-org-todo)
 
 ;; Convenient in-buffer keybindings for standup files
@@ -98,6 +99,7 @@ Only applies when `meeting-use-org-todo' is non-nil."
     (local-set-key (kbd "C-c X") #'org-todo)
     (local-set-key (kbd "C-c d") #'meeting-standup-mark-done)))
 
+;; Standup-specific keybindings (only in standup meeting files)
 (add-hook 'org-mode-hook #'meeting--setup-standup-keys)
 
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -1026,6 +1028,7 @@ Only runs if `meeting-magit-mark-done-enabled' is non-nil."
               (message "Marked done: %s" item))))))))
 
 (with-eval-after-load 'magit
+  ;; Auto-mark standup items as done when their issue is committed
   (add-hook 'git-commit-post-finish-hook #'meeting--magit-post-commit-hook))
 
 ;;; ════════════════════════════════════════════════════════════════════════════

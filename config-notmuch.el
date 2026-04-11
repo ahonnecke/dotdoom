@@ -260,6 +260,7 @@
     (cancel-timer my/notmuch--refresh-timer)
     (setq my/notmuch--refresh-timer nil)))
 
+;; Auto-refresh visible search buffers every 2 minutes
 (add-hook 'notmuch-search-mode-hook #'my/notmuch--start-refresh-timer)
 
 ;; ════════════════════════════════════════════════════════════════

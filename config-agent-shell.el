@@ -363,6 +363,10 @@ Returns the position of the button, or nil."
                        (ignore-errors (shell-maker-submit))
                        (setq agent-shell--pending-worktree nil)))))))
 
+;; Advice: agent-shell-anthropic-start-claude-code (third-party, can't modify directly)
+;; After a new agent-shell session starts, record the worktree path and
+;; inject session context (issue description, recent commits) so Claude
+;; starts with project awareness.
 (advice-add 'agent-shell-anthropic-start-claude-code :after
             (lambda (&rest _)
               (setq agent-shell--pending-worktree default-directory)

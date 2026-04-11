@@ -93,4 +93,5 @@ the buffer-local `er/try-expand-list'."
                     css-ts-mode-hook
                     json-ts-mode-hook
                     go-ts-mode-hook))
+      ;; Priority 90: run late so mode-specific expansions are already registered
       (add-hook hook #'er--add-smart-treesit-expansion 90))))

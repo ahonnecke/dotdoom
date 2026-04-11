@@ -68,6 +68,7 @@
             (when (fboundp 'orchard--refresh-if-visible)
               (orchard--refresh-if-visible))))
 
+;; On test completion, update orchard dashboard with pass/fail counts
 (add-hook 'testicular-complete-hook
           (lambda (root passed failed total)
             (when (fboundp 'orchard--set-test-results)

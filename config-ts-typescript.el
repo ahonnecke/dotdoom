@@ -13,7 +13,7 @@
          (command (format "cd %s && npm run test -- %s" client-dir relative-file)))
     (compile command)))
 
-;; Add TypeScript-TSX mode configuration.
+;; TypeScript buffer settings: wide fill-column for long lines, ffip patterns
 (add-hook 'typescript-ts-mode-hook
           (lambda ()
             (setq-local fill-column 138)
@@ -47,6 +47,7 @@
     ;; Use `compilation-start` to make the buffer persistent.
     (compilation-start command 'compilation-mode)))
 
+;; Vitest keybindings in TSX buffers (C-c t prefix)
 (add-hook 'typescript-tsx-mode-hook
           (lambda ()
             (define-key typescript-tsx-mode-map (kbd "C-c t w") 'run-vitest-current-project-watch)

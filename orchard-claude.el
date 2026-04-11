@@ -455,6 +455,9 @@ When nil, passes through to the original function unchanged."
         (funcall orig-fn backend buffer-name program switches))
     (funcall orig-fn backend buffer-name program switches)))
 
+;; Advice: claude-code--term-make is from claude-code.el (third-party).
+;; Intercepts window placement so Orchard can direct the new Claude buffer
+;; into a specific window. See `orchard--around-term-make' docstring.
 (advice-add 'claude-code--term-make :around #'orchard--around-term-make)
 
 (defun orchard--get-claude-target-window ()
@@ -894,6 +897,7 @@ Returns list of paths or nil."
 
 ;; Register Claude event hook for status tracking and PR capture
 (with-eval-after-load 'claude-code
+  ;; Track Claude status changes (waiting, running) and capture PR URLs
   (add-hook 'claude-code-event-hook #'orchard--claude-status-hook))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
@@ -1069,6 +1073,7 @@ Returns list of paths or nil."
     (add-hook 'completion-at-point-functions
               #'orchard--claude-command-completion nil t)))
 
+;; Add slash-command completion and keybindings to agent-shell buffers
 (add-hook 'shell-maker-mode-hook #'orchard--setup-agent-shell-keys)
 
 ;;; ════════════════════════════════════════════════════════════════════════════

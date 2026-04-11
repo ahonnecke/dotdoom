@@ -341,6 +341,9 @@ ORIG-FUN is the original `aws-get-service'."
         (aws-stepfunctions)
       (funcall orig-fun))))
 
+;; Advice: aws--list-services and aws-get-service are from aws.el (third-party).
+;; Extends the service list and dispatcher to include Step Functions without
+;; modifying aws.el directly. This is the intended extension pattern for aws.el.
 (with-eval-after-load 'aws
   (advice-add 'aws--list-services :around #'aws-stepfunctions--add-to-service-list)
   (advice-add 'aws-get-service :around #'aws-stepfunctions--handle-service))
