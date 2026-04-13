@@ -58,9 +58,11 @@
 (package! region-bindings-mode)
 (package! crux)
 
-;; Claude Code CLI integration (vterm-based, has issues with hooks)
+;; Claude Code CLI integration (vterm-based)
+;; Fork with fix: guard delete-window against sole window in term-make
 (package! claude-code
-  :recipe (:host github :repo "stevemolitor/claude-code.el"))
+  :recipe (:host github :repo "ahonnecke/claude-code.el"
+           :branch "fix/delete-window-sole-window"))
 
 ;; Agent Shell: Native comint-based LLM agent interface (non-vterm)
 ;; Uses ACP (Agent Client Protocol) - cleaner than vterm
