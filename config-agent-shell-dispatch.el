@@ -9,12 +9,7 @@
 
 (use-package! agent-shell-dispatch
   :after agent-shell
-  :commands (agent-shell-dispatch-start
-             agent-shell-dispatch-spawn-agent
-             agent-shell-dispatch-stop
-             agent-shell-dispatch-kill-agents
-             agent-shell-dispatch-report
-             agent-shell-dispatch-view-agent-output)
+  :demand t
   :config
   (agent-shell-dispatch-render-mode 1))
 
