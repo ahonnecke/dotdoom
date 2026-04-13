@@ -81,6 +81,8 @@
   ;; Without this, the vterm sentinel kills the buffer on process exit.
   (add-hook 'claude-code-start-hook
             (lambda ()
+              ;; Buffer-local in Claude vterm buffers: prevent vterm from
+              ;; killing the buffer when the CLI process restarts.
               (setq-local vterm-kill-buffer-on-exit nil)))
 
   ;; After vterm-mode init, correct terminal dimensions for Claude buffers.
@@ -948,6 +950,8 @@ Bypasses claude-code--with-buffer to avoid instance selection prompt."
     (cond
      ;; In a Claude vterm buffer — toggle directly
      ((and (derived-mode-p 'vterm-mode) (claude-buffer-p))
+      ;; cursor-type: nil=invisible (normal vterm), t=visible (copy mode)
+      ;; Buffer-local in Claude vterm buffers.
       (if (bound-and-true-p vterm-copy-mode)
           (progn (vterm-copy-mode -1)
                  (setq-local cursor-type nil)

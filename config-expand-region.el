@@ -77,6 +77,7 @@ the region beyond its current bounds."
     (defun er--add-smart-treesit-expansion ()
       "Replace `er/mark-ts-node' with `er/mark-treesit-node-smart' in
 the buffer-local `er/try-expand-list'."
+      ;; Buffer-local in tree-sitter modes: swap in smart node expansion
       (when (bound-and-true-p er/try-expand-list)
         (setq-local er/try-expand-list
                     (mapcar (lambda (fn)

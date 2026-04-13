@@ -567,6 +567,7 @@ For existing sessions: shows the buffer via `orchard--place-claude-buffer'."
         ;; Just set vterm-kill-buffer-on-exit and register.
         (when-let ((claude-buf (orchard--claude-buffer-for-path path)))
           (with-current-buffer claude-buf
+            ;; Buffer-local in Claude vterm: keep buffer alive across CLI restarts
             (setq-local vterm-kill-buffer-on-exit nil))
           ;; Physical 1-col shrink→restore after Claude's TUI has initialized.
           ;; Guarantees a SIGWINCH even if dimensions haven't changed since init

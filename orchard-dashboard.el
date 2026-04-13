@@ -162,6 +162,7 @@ Essential keys:
         truncate-lines t
         cursor-type 'bar)
   (hl-line-mode 1)
+  ;; Buffer-local in *Orchard*: custom highlight face for dashboard rows
   (setq-local hl-line-face 'orchard-hl-line))
 
 ;;; ════════════════════════════════════════════════════════════════════════════

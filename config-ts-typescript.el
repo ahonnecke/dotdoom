@@ -16,6 +16,7 @@
 ;; TypeScript buffer settings: wide fill-column for long lines, ffip patterns
 (add-hook 'typescript-ts-mode-hook
           (lambda ()
+            ;; Buffer-local in typescript-ts-mode: wide lines, TS file patterns
             (setq-local fill-column 138)
             (setq-local ffip-patterns '("*.ts" "*.tsx"))
             )

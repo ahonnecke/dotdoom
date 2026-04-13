@@ -872,6 +872,7 @@ With optional ENVIRONMENT, start in that environment."
       (erase-buffer)
       (insert current-notes)
       (goto-char (point-min))
+      ;; Buffer-local in *Testicular Notes*: track which test owns these notes
       (setq-local testicular--notes-test-index testicular-current-index)
       (setq-local header-line-format
                   (format " Notes for Test %d: %s  |  C-c C-c: save  C-c C-k: cancel"

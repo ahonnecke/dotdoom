@@ -84,6 +84,7 @@
 ;; Python: prioritize LSP, then dabbrev
 (add-hook 'python-mode-hook
           (lambda ()
+            ;; Buffer-local: override capf ordering per major mode
             (setq-local completion-at-point-functions
                         (list #'eglot-completion-at-point
                               #'cape-dabbrev
@@ -92,6 +93,7 @@
 ;; Elisp: add elisp-specific completions
 (add-hook 'emacs-lisp-mode-hook
           (lambda ()
+            ;; Buffer-local: elisp symbol completion first
             (setq-local completion-at-point-functions
                         (list #'elisp-completion-at-point
                               #'cape-elisp-symbol
@@ -101,6 +103,7 @@
 ;; Shell/vterm: file completion priority
 (add-hook 'sh-mode-hook
           (lambda ()
+            ;; Buffer-local: file paths first for shell scripts
             (setq-local completion-at-point-functions
                         (list #'cape-file
                               #'cape-dabbrev

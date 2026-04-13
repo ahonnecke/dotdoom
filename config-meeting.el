@@ -79,6 +79,7 @@ Only applies when `meeting-use-org-todo' is non-nil."
   "Setup org-todo-keywords for meeting files."
   (when (and buffer-file-name
              (string-match-p "meetings/" buffer-file-name))
+    ;; Buffer-local in meeting org files: simplified TODO workflow
     (setq-local org-todo-keywords '((sequence "TODO" "DONE")))))
 
 ;; Simplified TODO keywords for meeting note files

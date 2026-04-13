@@ -12,6 +12,7 @@
 ;; JSON files use 2-space indentation
 (add-hook 'json-mode-hook
           (lambda ()
+            ;; Buffer-local in json-mode: 2-space indent via js-indent-level
             (make-local-variable 'js-indent-level)
             (setq tab-width 2)
             (setq js-indent-level 2)))

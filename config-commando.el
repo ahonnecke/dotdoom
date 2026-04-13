@@ -177,6 +177,7 @@ Returns list of categories or nil if not found."
     ;; Create new vterm
     (let ((buf (vterm buf-name)))
       (with-current-buffer buf
+        ;; Buffer-local in commando vterm buffers: track origin for q-to-return
         (setq-local commando--return-to-path path)
         (setq-local commando--running-command command)
         (setq-local commando--running-path path)
@@ -212,6 +213,7 @@ Takes over the current window. Press q to return to magit."
       (let ((display-buffer-overriding-action '(display-buffer-same-window)))
         (compile full-command))
       ;; Store return info and command tracking in compilation buffer
+      ;; Buffer-local in *compilation*: track origin for q-to-return
       (with-current-buffer "*compilation*"
         (setq-local commando--return-to-buffer current-buf)
         (setq-local commando--return-to-path current-path)

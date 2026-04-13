@@ -410,6 +410,7 @@ COMPONENTS is a list of \\='(backend database frontend) or nil for all."
 
 (define-derived-mode tsar-deploy-mode comint-mode "Tsar-Deploy"
   "Major mode for tsar deploy output with ANSI color support."
+  ;; Buffer-local in tsar-deploy buffers: allow editing and disable echo
   (setq-local comint-prompt-read-only nil)
   (setq-local comint-process-echoes nil)
   (ansi-color-for-comint-mode-on))
@@ -535,6 +536,7 @@ Shows progress in a dedicated buffer with ANSI colors and interactivity."
 
 (define-derived-mode tsar-logs-mode comint-mode "Tsar-Logs"
   "Major mode for tsar logs with ANSI color support."
+  ;; Buffer-local in tsar-logs buffers: allow editing output
   (setq-local comint-prompt-read-only nil)
   (ansi-color-for-comint-mode-on))
 
