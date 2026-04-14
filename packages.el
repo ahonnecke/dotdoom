@@ -75,6 +75,10 @@
 (package! agent-shell-dispatch
   :recipe (:host github :repo "cassandracomar/agent-shell-dispatch"))
 
+;; Anvil: Emacs MCP server — exposes IDE context (xref, diagnostics, tree-sitter) to LLM agents
+(package! anvil
+  :recipe (:host github :repo "ahonnecke/anvil.el"))
+
 ;; ghq repo management
 (package! ghq
   :recipe (:host github :repo "lafrenierejm/emacs-ghq"))

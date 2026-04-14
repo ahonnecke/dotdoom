@@ -226,6 +226,7 @@
 (load "~/.doom.d/config-claude-modeline")  ; Global Claude status in modeline
 (load "~/.doom.d/config-agent-shell")      ; ACP-based Claude (non-vterm alternative)
 (load "~/.doom.d/config-agent-shell-dispatch") ; Multi-agent dispatch with SVG task graph
+(load "~/.doom.d/config-anvil")              ; Emacs MCP server for LLM agents (IDE context)
 (load "~/.doom.d/config-monet")  ; Claude IDE integration (selection sharing, diagnostics)
 (load "~/.doom.d/config-casual")  ; Transient menus for built-in modes
 (load "~/.doom.d/config-ghq")
