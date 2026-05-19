@@ -13,8 +13,9 @@
 ;;; Project Constants
 ;;; ════════════════════════════════════════════════════════════════════════════
 
-(defvar crewcapable-main-repo "~/src/.crewcapableai.main"
-  "Main crewcapable repository path.")
+(defvar crewcapable-main-repo nil
+  "Main crewcapable repository path. Set to your local checkout, or leave nil
+to require being inside a worktree.")
 
 (defvar crewcapable-worktree-parent "~/src"
   "Parent directory for worktrees.")
@@ -38,7 +39,8 @@
 (defun crewcapable--worktree-or-main ()
   "Return current worktree or main repo."
   (or (crewcapable--current-worktree)
-      (expand-file-name crewcapable-main-repo)))
+      (and crewcapable-main-repo (expand-file-name crewcapable-main-repo))
+      (user-error "Not in a crewcapable worktree; set `crewcapable-main-repo' to enable fallback")))
 
 (defun crewcapable--run (cmd &optional buffer-name)
   "Run CMD in crewcapable project context."

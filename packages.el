@@ -50,11 +50,8 @@
                                         ;(unpin! t)
 
 (package! magit-delta)
-(package! ob-graphql)
 (package! direnv)
                                         ;(package! gist)
-(package! xml+)
-(package! python-black)
 (package! region-bindings-mode)
 (package! crux)
 

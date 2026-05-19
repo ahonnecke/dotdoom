@@ -106,11 +106,11 @@
 ;;;; Utility Functions
 
 (defun tsar--get-repo-root ()
-  "Get the crewcapableai repo root."
+  "Get the crewcapableai repo root.
+Returns nil if no repo can be located; callers must handle that."
   (or tsar-repo-root
       (let ((default-directory (or default-directory "~/")))
-        (locate-dominating-file default-directory "CLAUDE.md"))
-      (expand-file-name "~/src/.crewcapableai.main")))
+        (locate-dominating-file default-directory "CLAUDE.md"))))
 
 (defun tsar--run-git (&rest args)
   "Run git command with ARGS, return trimmed output."

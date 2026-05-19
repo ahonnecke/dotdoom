@@ -9,7 +9,7 @@
 ;;; CrewCapable Orchard Settings
 ;;; ════════════════════════════════════════════════════════════════════════════
 
-(setq orchard-repo-path (expand-file-name "~/src/.crewcapableai.main"))
+;; orchard-repo-path: leave unset — orchard auto-detects from current directory.
 (setq orchard-worktree-parent (expand-file-name "~/src"))
 (setq orchard-worktree-prefix "crewcapableai")
 (setq orchard-upstream-branch "upstream/dev")

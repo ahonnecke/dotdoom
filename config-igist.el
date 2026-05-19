@@ -1,1 +1,0 @@
-../src/home/config-igist.el

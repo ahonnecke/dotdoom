@@ -76,12 +76,9 @@
 ;; they are implemented.
 
 
-;;(load! config-bindings)
 (load "~/.doom.d/config-quad-screen")
-;;(triple-screen)
 (load "~/.doom.d/config-inflection")  ; replaces config-string-inflection
 (load "~/.doom.d/config-custom-movement")
-;;(load "~/.doom.d/config-black")
 (load "~/.doom.d/config-ffap")
 (load "~/.doom.d/config-magit")
 
@@ -145,18 +142,6 @@
 ;;     ))
 
 
-;; ;; ;; ;; I'm not really sure what this does
-;; ;; ;; (load "~/.doom.d/config-vterm-completion.el")
-
-;; ;; ;; ;; this is breaking vterm completion
-;; ;; (load "~/.doom.d/config-company-dict")
-
-;; ;; ;; TODO: get ispell working in python mode
-;; ;; ;; TODO: add company-files to yaml-mode
-;; ;; ;; TODO: add aws logs to company all
-
-;; ;; ;; hook stuff
-;; ;; ;; https://emacs.stackexchange.com/questions/10966/global-autorevert-mode-doesnt-seem-to-work/10971#10971
 
 ;; ;; ;; ostensibly will disallow a minor mode in a given major mode
 ;; ;; ;; specfically hoping to use this to not turn on minor modes in vterm
@@ -179,7 +164,6 @@
 (load "~/.doom.d/config-ruff")
 (load "~/.doom.d/config-flycheck-biomejs")
 (load "~/.doom.d/config-rc")
-;;(load "~/.doom.d/config-igist")
 (load "~/.doom.d/config-elisp")
 (load "~/.doom.d/config-make")
 (load "~/.doom.d/config-ripgrep")
@@ -203,17 +187,13 @@
 ;;(setq fancy-splash-image (concat doom-private-dir "black-hole-png-222.png"))
 
 (load "~/.doom.d/config-direnv")
-;; (load "~/.doom.d/config-jolly-brancher")  ; deprecated 2026-05-18 — package missing post-incident
 (load "~/.doom.d/config-llm")
 (load "~/.doom.d/config-mcp")  ; MCP tools for gptel (filesystem, fetch)
 (load "~/.doom.d/config-consult-embark")  ; MOVEC stack: consult, embark, marginalia, orderless
-;; config-ellama.el disabled - entirely commented out
 (load "~/.doom.d/config-bookmark")
 (load "~/.doom.d/config-aider")
 (load "~/.doom.d/config-smerge")
-;; (load "~/.doom.d/custom-completion")  ; ARCHIVED - replaced by config-corfu.el (2025-12-05)
 (load "~/.doom.d/config-corfu")          ; Corfu + Cape completion
-;; (load "~/.doom.d/config-standup")  ; DEPRECATED - replaced by config-meeting.el
 (load "~/.doom.d/config-meeting")      ; Meeting notes system (standup, syncs, etc.)
 (load "~/.doom.d/config-slack")     ; Slack client (C-c K)
 (load "~/.doom.d/config-workspace")
@@ -236,7 +216,6 @@
 (load "~/.doom.d/config-aws")         ; AWS CLI transient (C-c A)
 (load "~/.doom.d/config-crewcapable-services") ; Vercel/Supabase layer for crewcapable
 
-;;(load "~/.doom.d/config-jolly-brancher")
 ;;Load my ash-mode binding last
 (load "~/.doom.d/config-bindings")
 (load "~/.doom.d/config-cheatsheet")  ; C-c ? for help
@@ -261,9 +240,6 @@
           (right-fringe . 8)
           (internal-border-width . 2))))
 
-;; Open Orchard on startup
-;; 2026-05-18: initial-buffer-choice disabled — orchard tries to git fetch from
-;; ~/src/.crewcapableai.main which doesn't exist post-rebuild, crashing daemon init.
-;; Re-enable once .crewcapableai.main is recovered or orchard tolerates its absence.
+;; Open Orchard on startup — disabled until orchard tolerates a missing repo
+;; root. Re-enable by adding `initial-buffer-choice #'orchard'.
 (setq inhibit-startup-screen t)
-;;      initial-buffer-choice #'orchard)

@@ -323,23 +323,31 @@ Returns the position of the button, or nil."
 (defvar agent-shell--pending-worktree nil
   "Worktree path for the agent being started.")
 
+(defvar agent-shell-session-context-script
+  "~/src/.crewcapableai.shared/bin/session-context"
+  "Path to the session-context script. No-op if not executable.")
+
 (defun agent-shell--send-session-context ()
-  "Send session context to Claude agent on startup."
-  (run-at-time 1.5 nil
-               (lambda ()
-                 (when-let ((buf (seq-find
-                                  (lambda (b)
-                                    (string-match-p "\\*agent:\\|Claude Code" (buffer-name b)))
-                                  (buffer-list))))
-                   (with-current-buffer buf
-                     (let* ((worktree (or agent-shell--pending-worktree default-directory))
-                            (context (shell-command-to-string
-                                      (format "/home/ahonnecke/src/.crewcapableai.shared/bin/session-context %s"
-                                              (shell-quote-argument worktree)))))
-                       (goto-char (point-max))
-                       (insert context)
-                       (ignore-errors (shell-maker-submit))
-                       (setq agent-shell--pending-worktree nil)))))))
+  "Send session context to Claude agent on startup.
+No-op when `agent-shell-session-context-script' isn't executable."
+  (let ((script (expand-file-name agent-shell-session-context-script)))
+    (when (file-executable-p script)
+      (run-at-time 1.5 nil
+                   (lambda ()
+                     (when-let ((buf (seq-find
+                                      (lambda (b)
+                                        (string-match-p "\\*agent:\\|Claude Code" (buffer-name b)))
+                                      (buffer-list))))
+                       (with-current-buffer buf
+                         (let* ((worktree (or agent-shell--pending-worktree default-directory))
+                                (context (shell-command-to-string
+                                          (format "%s %s"
+                                                  (shell-quote-argument script)
+                                                  (shell-quote-argument worktree)))))
+                           (goto-char (point-max))
+                           (insert context)
+                           (ignore-errors (shell-maker-submit))
+                           (setq agent-shell--pending-worktree nil)))))))))
 
 (advice-add 'agent-shell-anthropic-start-claude-code :after
             (lambda (&rest _)
