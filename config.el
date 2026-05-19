@@ -203,7 +203,7 @@
 ;;(setq fancy-splash-image (concat doom-private-dir "black-hole-png-222.png"))
 
 (load "~/.doom.d/config-direnv")
-(load "~/.doom.d/config-jolly-brancher")
+;; (load "~/.doom.d/config-jolly-brancher")  ; deprecated 2026-05-18 — package missing post-incident
 (load "~/.doom.d/config-llm")
 (load "~/.doom.d/config-mcp")  ; MCP tools for gptel (filesystem, fetch)
 (load "~/.doom.d/config-consult-embark")  ; MOVEC stack: consult, embark, marginalia, orderless
@@ -247,8 +247,11 @@
   ;; Remove the hook that enables multiform (before it fires)
   (remove-hook 'vertico-mode-hook #'vertico-multiform-mode))
 
+;; vertico-posframe disabled: Cosmic (Wayland compositor) + XWayland Emacs kills
+;; its child frames mid-use, leaving `vertico-posframe--minibuffer-exit-hook`
+;; referencing dead frames and breaking subsequent minibuffer activations.
+;; Revisit if switching to emacs-pgtk or moving off Cosmic.
 (after! vertico-posframe
-  ;; Configure posframe appearance
   (setq vertico-posframe-poshandler #'posframe-poshandler-frame-center
         vertico-posframe-width 100
         vertico-posframe-height 20
@@ -256,9 +259,11 @@
         vertico-posframe-parameters
         '((left-fringe . 8)
           (right-fringe . 8)
-          (internal-border-width . 2)))
-  (vertico-posframe-mode 1))
+          (internal-border-width . 2))))
 
 ;; Open Orchard on startup
-(setq inhibit-startup-screen t
-      initial-buffer-choice #'orchard)
+;; 2026-05-18: initial-buffer-choice disabled — orchard tries to git fetch from
+;; ~/src/.crewcapableai.main which doesn't exist post-rebuild, crashing daemon init.
+;; Re-enable once .crewcapableai.main is recovered or orchard tolerates its absence.
+(setq inhibit-startup-screen t)
+;;      initial-buffer-choice #'orchard)

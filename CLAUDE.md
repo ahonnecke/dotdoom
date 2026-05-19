@@ -169,6 +169,26 @@ machine ftp.example.com login user password secret
 machine api.example.com login user@email.com password token123
 ```
 
+### Daemon Survival (2026-05-19)
+
+Emacs runs as a systemd-managed daemon (`emacs.service`). Several layers protect it from accidental death — diagnose here first if the daemon ever feels "different":
+
+- **`C-x C-c` is rebound** to `ash/delete-frame-safe` (in `config-bindings.el`). Doom's default `doom/delete-frame-with-prompt` calls `save-buffers-kill-emacs` when only one frame remains, which **kills the daemon**. The override only ever deletes a frame.
+- **systemd `Restart=always`, `RestartSec=1`** (`~/.config/systemd/user/emacs.service.d/override.conf`). Daemon respawns ~1s after any exit, clean or crashed. Base unit's `Restart=on-failure` does **not** catch status-0 exits.
+- **`--alternate-editor=/usr/bin/false`** in `~/.local/share/applications/emacsclient.desktop` and the `Super+E` Cosmic shortcut (`~/src/keyboard/cosmic/shortcuts.custom`). Without this, emacsclient silently spawns a **bare `emacs --daemon`** (no `--init-directory`, no Doom) when the real daemon is briefly down → you end up editing in a vanilla Emacs and think your config is broken.
+- **`emacs.desktop` and `emacs-term.desktop` are shadowed** with `Hidden=true` in `~/.local/share/applications/` so the app launcher never offers a standalone (non-daemon) Emacs.
+
+**To actually stop the daemon**: `systemctl --user stop emacs.service`.
+**To restart**: `systemctl --user restart emacs.service`.
+**To check it's healthy**: `systemctl --user status emacs.service` — running `emacs --fg-daemon --init-directory ~/.config/emacs/` is correct. Plain `emacs --daemon` means the fallback path got triggered; investigate.
+
+### Cosmic / Wayland Notes
+
+Running on Pop OS Cosmic (Wayland compositor) with the X11 Emacs build (`emacs-gtk`) — Emacs runs under XWayland. Known interaction:
+
+- **`vertico-posframe-mode` is disabled** in `config.el`. Cosmic kills its child frames mid-use, leaving the exit hook referencing a dead frame and breaking subsequent minibuffer activation. Re-enable when on `emacs-pgtk` (native Wayland) or off Cosmic.
+- Cosmic auto-tiles new emacsclient frames. Either float per-window (`Super+G`) or set per-app rule when Cosmic's settings UI supports it.
+
 ---
 
 ## Magit Customizations

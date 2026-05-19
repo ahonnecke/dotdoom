@@ -25,6 +25,27 @@
 ;;(define-key ashton-mode-map (kbd "M-o") 'projectile-switch-open-project)
 
 (define-key ashton-mode-map (kbd "C-x C-k") 'kill-buffer)
+
+;; Daemon-safe C-x C-c.
+;;
+;; Doom binds C-x C-c to `doom/delete-frame-with-prompt`, which falls back to
+;; `save-buffers-kill-emacs` when only one frame remains — this KILLS THE
+;; DAEMON. Override with a function that only ever deletes a frame.
+;;
+;; To actually stop the daemon: `systemctl --user stop emacs.service`.
+(defun ash/delete-frame-safe ()
+  "Delete current frame. Never kills the daemon."
+  (interactive)
+  (if (cdr (frame-list))
+      (delete-frame)
+    (message "Last frame — `systemctl --user stop emacs.service` to actually quit.")))
+
+(define-key ashton-mode-map (kbd "C-x C-c") #'ash/delete-frame-safe)
+
+;; Doom's general-override-mode-map outranks minor-mode maps for some keys, so
+;; also override it directly.
+(with-eval-after-load 'general
+  (define-key general-override-mode-map (kbd "C-x C-c") #'ash/delete-frame-safe))
 (define-key ashton-mode-map (kbd "C-c C-d") 'deadgrep)
 
 (define-key ashton-mode-map (kbd "C-c C-g") '+default/search-project)
