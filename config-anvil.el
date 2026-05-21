@@ -9,21 +9,13 @@
 ;;; Code:
 
 (use-package! anvil
-  :defer t
+  :demand t
   :config
   ;; Default modules + ide (the unique value — xref, diagnostics, tree-sitter)
   (setq anvil-modules '(worker eval file host git proc fs emacs text clipboard data net ide))
   ;; Skip org, xlsx, pdf, cron for now — not needed for the eval trial
-  (setq anvil-optional-modules nil))
-
-;; Start anvil server when Emacs daemon is ready
-(add-hook 'server-after-make-frame-hook
-          (lambda ()
-            (when (and (fboundp 'anvil-enable)
-                       (not (bound-and-true-p anvil--enabled)))
-              (anvil-enable)
-              (when (fboundp 'anvil-server-start)
-                (anvil-server-start)))))
+  (setq anvil-optional-modules nil)
+  (anvil-enable))
 
 (provide 'config-anvil)
 ;;; config-anvil.el ends here
