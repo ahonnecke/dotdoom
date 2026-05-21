@@ -184,10 +184,43 @@ Emacs runs as a systemd-managed daemon (`emacs.service`). Several layers protect
 
 ### Cosmic / Wayland Notes
 
-Running on Pop OS Cosmic (Wayland compositor) with the X11 Emacs build (`emacs-gtk`) — Emacs runs under XWayland. Known interaction:
+Running on Pop OS Cosmic (Wayland compositor) with the X11 Emacs build (`emacs-gtk`) — Emacs runs under XWayland. Cosmic is brutal on child frames: it kills/de-parents them mid-use, leaving Emacs holding refs to dead frames.
 
-- **`vertico-posframe-mode` is disabled** in `config.el`. Cosmic kills its child frames mid-use, leaving the exit hook referencing a dead frame and breaking subsequent minibuffer activation. Re-enable when on `emacs-pgtk` (native Wayland) or off Cosmic.
-- Cosmic auto-tiles new emacsclient frames. Either float per-window (`Super+G`) or set per-app rule when Cosmic's settings UI supports it.
+**Confirmed broken — do NOT re-enable:**
+- **vertico-posframe** — `+childframe` flag removed from `init.el` (2026-05-19). Putting the minibuffer inside a child frame means Cosmic eats your keyboard input as soon as the WM yanks the frame. Restore the flag only on `emacs-pgtk` (native Wayland build) or off Cosmic.
+
+**Loaded but lower-risk (tooltip-style child frames — no input capture):**
+- **corfu** + **corfu-popupinfo** — completion popups and doc tooltips. Symptom on failure would be popups vanishing or failing to appear, not keyboard lockup. Watch for these.
+
+**To AVOID adding (all input-capture or persistent child frames):**
+- `which-key-posframe`, `transient-posframe`, `company-box`, `mini-frame`, `ivy-posframe`, `lsp-ui` with childframe variants, `helm` posframe modes.
+
+**Other Cosmic quirks:**
+- **Clipboard**: `xclip` works through XWayland but PRIMARY selection bridging to native Wayland apps is unreliable. `config-workspace.el` screenshot paste uses xclip — fine inside Emacs, may need wl-paste for cross-app flows.
+- **Auto-tiling**: Cosmic tiles new emacsclient frames. Either float per-window (`Super+G`) or set per-app rule.
+- **Frame death without exit hooks**: when Cosmic kills a frame, Emacs's `delete-frame-functions` may not fire cleanly. Any code that caches frame refs (orchard, claude window manager) should `frame-live-p` before use.
+
+**Systemic fix (deferred)**: switch to `emacs-pgtk` so child frames become native Wayland surfaces. Higher blast radius — defer until current setup proves untenable.
+
+### Fonts
+
+`doom-font` is **JetBrainsMono Nerd Font Mono 13pt** (set in `config.el`). `doom-symbol-font` is **Symbols Nerd Font Mono**.
+
+**Critical**: `nerd-icons` (used by Doom's vertico/corfu/dired) emits Private Use Area codepoints. Without a nerd-font installed, those fall back to Noto CJK → icons look like garbled Japanese. If you ever see that, the fonts are missing.
+
+**Reinstall after a wipe:**
+```bash
+# Symbols-only font (covers the nerd-icons range)
+emacsclient -e '(nerd-icons-install-fonts t)'
+
+# Full JetBrains Mono Nerd Font (coding font + symbols)
+curl -sSL -o /tmp/JetBrainsMono.zip \
+  https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip
+unzip -q /tmp/JetBrainsMono.zip -d ~/.local/share/fonts/JetBrainsMonoNerd/
+fc-cache -f
+```
+
+**Font-spec gotcha**: `(font-spec :size N)` — integer N is **pixels**, float N is **points**. Use `13.0` for 13pt.
 
 ---
 

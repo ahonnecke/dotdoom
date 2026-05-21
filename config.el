@@ -29,6 +29,15 @@
 ;; refresh your font settings. If Emacs still can't find your font, it likely
 ;; wasn't installed correctly. Font issues are rarely Doom issues!
 
+;; Fonts. JetBrains Mono Nerd Font provides both monospace coding glyphs and
+;; the icon codepoints used by `nerd-icons' (vertico/corfu/dired/etc.). Without
+;; a nerd-icon font installed, those codepoints fall back to Noto CJK and look
+;; like garbled Japanese — installed via `nerd-icons-install-fonts' + the
+;; JetBrains nerd-font archive into ~/.local/share/fonts.
+;; NOTE: :size as integer = pixels, :size as float = points. 13.0 → 13pt.
+(setq doom-font (font-spec :family "JetBrainsMono Nerd Font Mono" :size 13.0)
+      doom-symbol-font (font-spec :family "Symbols Nerd Font Mono"))
+
 ;; There are two ways to load a theme. Both assume the theme is installed and
 ;; available. You can either set `doom-theme' or manually load a theme with the
 ;; `load-theme' function. This is the default:
@@ -220,25 +229,10 @@
 (load "~/.doom.d/config-bindings")
 (load "~/.doom.d/config-cheatsheet")  ; C-c ? for help
 
-;; Ensure vertico-posframe is enabled (childframe popup for M-x etc)
-;; NOTE: vertico-multiform conflicts with posframe - prevent it from enabling
-(after! vertico
-  ;; Remove the hook that enables multiform (before it fires)
-  (remove-hook 'vertico-mode-hook #'vertico-multiform-mode))
-
-;; vertico-posframe disabled: Cosmic (Wayland compositor) + XWayland Emacs kills
-;; its child frames mid-use, leaving `vertico-posframe--minibuffer-exit-hook`
-;; referencing dead frames and breaking subsequent minibuffer activations.
-;; Revisit if switching to emacs-pgtk or moving off Cosmic.
-(after! vertico-posframe
-  (setq vertico-posframe-poshandler #'posframe-poshandler-frame-center
-        vertico-posframe-width 100
-        vertico-posframe-height 20
-        vertico-posframe-border-width 2
-        vertico-posframe-parameters
-        '((left-fringe . 8)
-          (right-fringe . 8)
-          (internal-border-width . 2))))
+;; vertico-posframe removed via init.el (`+childframe` flag dropped).
+;; Cosmic (Wayland) + XWayland Emacs kills child frames mid-use, leaving
+;; vertico-posframe's exit hook referencing dead frames and locking up the
+;; minibuffer. Restore the flag if switching to emacs-pgtk or moving off Cosmic.
 
 ;; Open Orchard on startup — disabled until orchard tolerates a missing repo
 ;; root. Re-enable by adding `initial-buffer-choice #'orchard'.

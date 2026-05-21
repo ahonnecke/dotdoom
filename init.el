@@ -26,8 +26,11 @@
        ;;helm              ; the *other* search engine for love and life
        ;;ido               ; the other *other* search engine...
        ;;(ivy +prescient)  ; a search engine for love and life (switched to vertico)
-       (vertico +icons +childframe)  ; the search engine of the future
+       (vertico +icons)  ; the search engine of the future
                          ; NOTE: Doom's vertico includes: orderless, consult, embark, marginalia
+                         ; +childframe REMOVED 2026-05-19: Cosmic kills child frames mid-use,
+                         ; leaving dead-frame refs in vertico-posframe's exit hook → minibuffer
+                         ; becomes unusable after first interaction. Restore on emacs-pgtk.
 
        :ui
        ;;deft              ; notational velocity for Emacs

@@ -17,8 +17,16 @@
 (define-key ashton-mode-map (kbd "C-x f") 'projectile-find-file)
 (define-key ashton-mode-map (kbd "C-x C-f") 'find-file)
 
-(define-key ashton-mode-map (kbd "M-n") 'sp-forward-sexp)
-(define-key ashton-mode-map (kbd "M-p") 'sp-backward-sexp)
+;; M-p / M-n: scoped to code + org only.
+;; Globally these stay stock (comint history, magit section nav, minibuffer
+;; history, vterm passthrough) so emacs -Q muscle memory survives.
+(require 'prog-mode)
+(define-key prog-mode-map (kbd "M-n") 'sp-forward-sexp)
+(define-key prog-mode-map (kbd "M-p") 'sp-backward-sexp)
+
+(with-eval-after-load 'org
+  (define-key org-mode-map (kbd "M-n") 'org-forward-element)
+  (define-key org-mode-map (kbd "M-p") 'org-backward-element))
 
 (define-key ashton-mode-map (kbd "C-w") 'kill-region)
 ;; they all close when i restart emacs, maybe after server mode is working...
