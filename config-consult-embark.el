@@ -22,14 +22,14 @@
 
   ;; Narrowing keys for consult-buffer
   (setq consult-buffer-sources
-        '(consult--source-hidden-buffer
-          consult--source-modified-buffer
-          consult--source-buffer
-          consult--source-recent-file
-          consult--source-file-register
-          consult--source-bookmark
-          consult--source-project-buffer-hidden
-          consult--source-project-recent-file-hidden)))
+        '(consult-source-hidden-buffer
+          consult-source-modified-buffer
+          consult-source-buffer
+          consult-source-recent-file
+          consult-source-file-register
+          consult-source-bookmark
+          consult-source-project-buffer-hidden
+          consult-source-project-recent-file-hidden)))
 
 ;;; ════════════════════════════════════════════════════════════════════════════
 ;;; Embark Configuration

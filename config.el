@@ -207,7 +207,7 @@
 ;;(setq fancy-splash-image (concat doom-private-dir "black-hole-png-222.png"))
 
 (load "~/.doom.d/config-direnv")
-(load "~/.doom.d/config-jolly-brancher")
+;; (load "~/.doom.d/config-jolly-brancher")  ; disabled: ~/src/jolly-brancher missing
 (load "~/.doom.d/config-gptel")          ; gptel from ~/src/gptel (must load before config-llm and config-mcp)
 (load "~/.doom.d/config-llm")
 (load "~/.doom.d/config-mcp")  ; MCP tools for gptel (filesystem, fetch)
@@ -249,23 +249,13 @@
 (load "~/.doom.d/config-bindings")
 (load "~/.doom.d/config-cheatsheet")  ; C-c ? for help
 
-;; Ensure vertico-posframe is enabled (childframe popup for M-x etc)
-;; NOTE: vertico-multiform conflicts with posframe - prevent it from enabling
+;; vertico-posframe disabled under Cosmic (Pop OS Wayland compositor).
+;; Cosmic captures the child frame and eats keyboard input, locking the
+;; minibuffer on every activation after the first — same failure mode
+;; hits jinx-correct, ispell, M-x, find-file. See CLAUDE.md "Cosmic /
+;; Wayland Notes" for the full risk surface. Restore once on emacs-pgtk.
 (after! vertico
-  ;; Remove the hook that enables multiform (before it fires)
   (remove-hook 'vertico-mode-hook #'vertico-multiform-mode))
-
-(after! vertico-posframe
-  ;; Configure posframe appearance
-  (setq vertico-posframe-poshandler #'posframe-poshandler-frame-center
-        vertico-posframe-width 100
-        vertico-posframe-height 20
-        vertico-posframe-border-width 2
-        vertico-posframe-parameters
-        '((left-fringe . 8)
-          (right-fringe . 8)
-          (internal-border-width . 2)))
-  (vertico-posframe-mode 1))
 
 ;; Fast startup — use C-c O O to open Orchard when needed
 (setq inhibit-startup-screen nil)
